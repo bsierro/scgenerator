@@ -1,0 +1,21 @@
+{
+    "lambda0": 835e-9,
+    "P0": 10e3,
+    "T0": 28.4e-15,
+    "z_targets": [0, 1, 128],
+    "chirp": 0,
+    "alpha": 0,
+    "fiber_type": "PCF",
+    "pitch": 1.55e-6,
+    "pitch_ratio": 0.37,
+    "gamma": 0.11,
+    "pulse_shape":"gaussian",
+    "dt": 1e-15,
+    "nt": 16384,
+    "frep": 80e6,
+    "behaviors": ["spm", "ss", "raman"],
+    "raman_rf": "stolen",
+    "adapt_step_size": true,
+    "error_ok": 1e-8,
+    "vmin_log": -40
+    }

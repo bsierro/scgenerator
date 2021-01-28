@@ -1,0 +1,28 @@
+name = "test config"
+
+[fiber]
+gamma = 0.018
+length = 1
+model = "pcf"
+pitch = 1.5e-6
+pitch_ratio = 0.37
+
+[pulse]
+power = 100e3
+quantum_noise = true
+shape = "gaussian"
+wavelength = 1050e-9
+
+[pulse.varying]
+intensity_noise = [0.05e-2, 0.1e-2]
+width = [50e-15, 100e-15, 200e-15]
+
+[simulation]
+behaviors = ["spm", "raman", "ss"]
+parallel = 2
+raman_type = "agrawal"
+repeat = 4
+t_num = 16384
+time_window = 37e-12
+tolerated_error = 1e-11
+z_num = 128

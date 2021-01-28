@@ -1,0 +1,23 @@
+[fiber]
+core_radius = 50e-6
+length = 50e-2
+model = "marcatili"
+
+[gas]
+gas_name = "air"
+
+[pulse]
+wavelength = 800e-9
+width = 250e-15
+
+[pulse.varying]
+shape = ["gaussian", "sech"]
+
+[simulation]
+behaviors = ["spm", "raman", "ss"]
+parallel = 2
+repeat = 1
+t_num = 16384
+time_window = 37e-12
+tolerated_error = 1e-11
+z_num = 128

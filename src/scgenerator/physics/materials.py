@@ -1,0 +1,167 @@
+import numpy as np
+
+from .. import state
+from . import units
+from .units import NA, c, kB
+
+
+def pressure_from_gradient(ratio, p0, p1):
+    """returns the pressure as function of distance with eq. 20 in Markos et al. (2017)
+    Parameters
+    ----------
+        ratio : relative position in the fiber (0 = start, 1 = end)
+        p0 : pressure at the start
+        p1 : pressure at the end
+    Returns
+    ----------
+        the pressure (float)
+    """
+    return np.sqrt(p0 ** 2 - ratio * (p0 ** 2 - p1 ** 2))
+
+
+def number_density_van_der_waals(
+    a=None, b=None, pressure=None, temperature=None, material_dico=None
+):
+    """returns the number density of a gas
+    Parameters
+    ----------
+        P : pressure
+        T : temperature
+            for pressure and temperature, the default
+        a : Van der Waals a coefficient
+        b : Van der Waals b coefficient
+        material_dico : optional. If passed, will compute the number density at given reference values found in material_dico
+    Returns
+    ----------
+        the numbers density (/m^3)
+    Raises
+    ----------
+        ValueError : Since the Van der Waals equation is a cubic one, there could be more than one real, positive solution
+    """
+    if pressure == 0:
+        return 0
+    if material_dico is not None:
+        a = material_dico.get("a", 0) if a is None else a
+        b = material_dico.get("b", 0) if b is None else b
+        pressure = material_dico["sellmeier"].get("P0", 101325) if pressure is None else pressure
+        temperature = (
+            material_dico["sellmeier"].get("t0", 273.15) if temperature is None else temperature
+        )
+    else:
+        a = 0 if a is None else a
+        b = 0 if b is None else b
+        pressure = 101325 if pressure is None else pressure
+        temperature = 273.15 if temperature is None else temperature
+
+    ap = a / NA ** 2
+    bp = b / NA
+
+    # setup van der Waals equation for the number density
+    p3 = -ap * bp
+    p2 = ap
+    p1 = -(pressure * bp + kB * temperature)
+    p0 = pressure
+
+    # filter out unwanted matches
+    roots = np.roots([p3, p2, p1, p0])
+    roots = roots[np.isreal(roots)].real
+    roots = roots[roots > 0]
+    if len(roots) != 1:
+        s = f"Van der Waals eq with parameters P={pressure}, T={temperature}, a={a}, b={b}"
+        s += f"\nThere is more than one possible number density : {roots}."
+        s += f"\n{np.min(roots)} was returned"
+        state.CurrentLogger.log(s)
+    return np.min(roots)
+
+
+def sellmeier(lambda_, material_dico, pressure=None, temperature=None):
+    """reads a file containing the Sellmeier values corresponding to the choses material and returns the real susceptibility
+    pressure and temperature adjustments are made according to ideal gas law.
+    Parameters
+    ----------
+        lambda_ : wl vector over which to compute the refractive index
+        material_dico : material dictionary as explained in scgenerator.io.load_material_dico
+        pressure : pressure in mbar if material is a gas. Can be a constant or a tupple if a presure gradient is considered
+        temperature : temperature of the gas in Kelvin
+    Returns
+    ----------
+        an array n(lambda_)^2 - 1
+    """
+    WL_THRESHOLD = 8.285e-6
+    temp_l = lambda_[lambda_ < WL_THRESHOLD]
+    kind = 1
+
+    B = material_dico["sellmeier"]["B"]
+    C = material_dico["sellmeier"]["C"]
+    const = material_dico["sellmeier"].get("const", 0)
+    P0 = material_dico["sellmeier"].get("P0", 1e5)
+    t0 = material_dico["sellmeier"].get("t0", 273.15)
+    kind = material_dico["sellmeier"].get("kind", 1)
+
+    # Sellmeier equation
+    chi = np.zeros_like(lambda_)  # = n^2 - 1
+    if kind == 1:
+        for b, c in zip(B, C):
+            chi[lambda_ < WL_THRESHOLD] += temp_l ** 2 * b / (temp_l ** 2 - c)
+    elif kind == 2:  # gives n-1
+        for b, c in zip(B, C):
+            chi[lambda_ < WL_THRESHOLD] += b / (c - 1 / temp_l ** 2)
+        chi += const
+        chi = (chi + 1) ** 2 - 1
+    else:
+        raise ValueError(f"kind {kind} is not recognized.")
+
+    if temperature is not None:
+        chi *= t0 / temperature
+
+    if pressure is not None:
+        chi *= pressure / P0
+
+    return chi
+
+
+def delta_gas(w, material_dico):
+    """returns the value delta_t (eq. 24 in Markos(2017))
+    Parameters
+    ----------
+        w : angular frequency array
+        material_dico : material dictionary as explained in scgenerator.io.load_material_dico
+    Returns
+    ----------
+        delta_t
+        since 2 gradients are computed, it is recommended to exclude the 2 extremum values
+    """
+    chi = sellmeier(units.m.inv(w), material_dico)
+    N0 = number_density_van_der_waals(material_dico=material_dico)
+
+    dchi_dw = np.gradient(chi, w)
+    return 1 / (N0 * c) * (dchi_dw + w / 2 * np.gradient(dchi_dw, w))
+
+
+def non_linear_refractive_index(material_dico, pressure=None, temperature=None):
+    """returns the non linear refractive index n2 adjusted for pressure and temperature
+    NOTE : so far, there is no adjustment made for wavelength
+    Parameters
+    ----------
+        lambda_ : wavelength array
+        material_dico :
+        pressure : pressure in Pa
+        temperature : temperature in Kelvin
+    Returns
+    ----------
+        n2
+    """
+
+    n2_ref = material_dico["kerr"]["n2"]
+
+    # if pressure and/or temperature are specified, adjustment is made according to number density ratio
+    if pressure is not None or temperature is not None:
+        N0 = number_density_van_der_waals(material_dico=material_dico)
+        N = number_density_van_der_waals(
+            pressure=pressure, temperature=temperature, material_dico=material_dico
+        )
+        ratio = N / N0
+    else:
+        ratio = 1
+
+    return ratio * n2_ref

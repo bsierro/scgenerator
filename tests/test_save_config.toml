@@ -1,0 +1,26 @@
+name = "test config"
+datetime = 2021-01-21T07:55:18.883204
+
+[fiber]
+gamma = 0.018
+pitch = 1.5e-6
+pitch_ratio = 0.37
+type = "pcf"
+
+[pulse]
+power = 100000.0
+quantum_noise = true
+shape = "gaussian"
+wavelength = 1.05e-6
+
+[simulation]
+behaviors = [ "spm", "raman", "ss",]
+nt = 16384
+raman_type = "agrawal"
+repeat = 4
+time_window = 3.7e-11
+tolerated_error = 1e-11
+
+[pulse.varying]
+intensity_noise = [ 0.0005, 0.001,]
+pulse_width = [ 5e-14, 1e-13, 2e-13,]
