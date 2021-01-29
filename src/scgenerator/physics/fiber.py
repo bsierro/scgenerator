@@ -4,8 +4,6 @@ from numpy.fft import fft, ifft
 from numpy.polynomial.chebyshev import Chebyshev, cheb2poly
 from scipy.interpolate import interp1d
 
-from scgenerator.state import _DEBUG
-
 from .. import io
 from ..const import hc_model_specific_parameters
 from ..math import abs2, argclosest, power_fact, u_nm

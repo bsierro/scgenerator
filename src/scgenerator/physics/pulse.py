@@ -18,8 +18,10 @@ from numpy import pi
 from numpy.fft import fft, fftshift, ifft
 from scipy.interpolate import UnivariateSpline
 
-from .. import state
-from ..io import plot_setup
+from ..defaults import default_plotting
+
+from ..logger import get_logger
+from ..plotting import plot_setup
 from ..math import *
 
 c = 299792458.0
@@ -527,6 +529,8 @@ def find_lobe_limits(x_axis, values, debug="", already_sorted=True):
         spline_4 : scipy.interpolate.UnivariateSpline
             order 4 spline that interpolate values around the peak
     """
+    logger = get_logger(__name__)
+
     if not already_sorted:
         x_axis, values = x_axis.copy(), values.copy()
         values = values[np.argsort(x_axis)]
@@ -545,9 +549,7 @@ def find_lobe_limits(x_axis, values, debug="", already_sorted=True):
 
     # if there are more than 2 fwhm position, a detailed analysis can help
     # determining the true ones. If that fails, there is no meaningful peak to measure
-    detailed_measurement = len(fwhm_pos) > 2 or state._DEBUG.get(
-        "find_lobe_limits.always_plot", False
-    )
+    detailed_measurement = len(fwhm_pos) > 2
     if detailed_measurement:
 
         print("trouble measuring the peak.{}".format(debug_str))
@@ -588,9 +590,8 @@ def find_lobe_limits(x_axis, values, debug="", already_sorted=True):
             label="lobe pos",
             c=color[5],
         )
-        if not "find_lobe_limits.ax" in state._DEBUG:
-            ax.legend()
-            fig.savefig(os.path.join(folder_name, file_name), bbox_inches="tight")
+        ax.legend()
+        fig.savefig(os.path.join(folder_name, file_name), bbox_inches="tight")
         plt.close(fig)
 
     else:
@@ -695,18 +696,14 @@ def _detailed_find_lobe_limits(
     folder_name, file_name, fig, ax = plot_setup(
         file_name=f"it_{iterations}_{debug}", folder_name="measurements_errors_plots"
     )
-    ax = state._DEBUG.get("find_lobe_limits.ax", ax)
-    plt.sca(ax)
-    state._DEBUG["x"] = x_axis
 
     new_fwhm_pos = np.array([np.max(left_pos), np.min(right_pos)])
 
     # PLOT
 
     newx = np.linspace(*span(x_axis[l_ind : r_ind + 1]), 1000)
-    color = state._DEBUG.get("color", state.plot_default_color_cycle)
-    if state._DEBUG.get("find_lobe_limits.draw_raw_data", True):
-        ax.plot(x_axis[l_ind - 5 : r_ind + 6], values[l_ind - 5 : r_ind + 6], c=color[0])
+    color = default_plotting["color_cycle"]
+    ax.plot(x_axis[l_ind - 5 : r_ind + 6], values[l_ind - 5 : r_ind + 6], c=color[0])
     ax.plot(newx, spline_5(newx), c=color[1])
     ax.scatter(fwhm_pos, spline_4(fwhm_pos), marker="+", label="all fwhm", c=color[2])
     ax.scatter(peak_pos, spline_4(peak_pos), marker=".", label="peak pos", c=color[3])

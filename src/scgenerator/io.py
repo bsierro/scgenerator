@@ -1,22 +1,19 @@
-import itertools
 import json
-import logging
 import os
+import shutil
 from datetime import datetime
 from glob import glob
 from typing import Any, Dict, Iterable, List, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pkg_resources as pkg
 import toml
-from matplotlib.gridspec import GridSpec
+from send2trash import TrashPermissionError, send2trash
 
-from scgenerator import utilities
-from scgenerator.const import TMP_FOLDER_KEY_BASE, num
-from scgenerator.errors import IncompleteDataFolderError
-
-from . import state
+from . import utils
+from .const import TMP_FOLDER_KEY_BASE, PARAM_SEPARATOR
+from .errors import IncompleteDataFolderError
+from .logger import get_logger
 
 
 def load_toml(path):
@@ -35,55 +32,6 @@ def save_toml(path, dico):
     with open(path, mode="w") as file:
         toml.dump(dico, file)
     return dico
-
-
-def get_logger(name=None):
-    """returns a logging.Logger instance. This function is there because if scgenerator
-    is used with ray, workers are not aware of any configuration done with the logging
-    and so it must be reconfigured.
-
-    Parameters
-    ----------
-    name : str, optional
-        name of the logger, by default None
-
-    Returns
-    -------
-    logging.Logger obj
-        logger
-    """
-    name = __name__ if name is None else name
-    logger = logging.getLogger(name)
-    return configure_logger(logger)
-
-
-def configure_logger(logger, logfile="scgenerator.log"):
-    """configures a logging.Logger obj
-
-    Parameters
-    ----------
-    logger : logging.Logger
-        logger to configure
-    logfile : str or None, optional
-        path to log file
-
-    Returns
-    -------
-    logging.Logger obj
-        updated logger
-    """
-    if not hasattr(logger, "already_configured"):
-        if logfile is not None:
-            file_handler = logging.FileHandler("scgenerator.log", "a+")
-            file_handler.setFormatter(logging.Formatter("{name}: {message}", style="{"))
-            logger.addHandler(file_handler)
-
-        stream_handler = logging.StreamHandler()
-        logger.addHandler(stream_handler)
-        logger.setLevel(logging.INFO)
-
-        logger.already_configured = True
-    return logger
 
 
 class Paths:
@@ -151,7 +99,7 @@ def _prepare_for_serialization(dico):
     dico : dict
         dictionary
     """
-    forbiden_keys = ["w_c", "w_power_fact", "field_0", "w"]
+    forbiden_keys = ["w_c", "w_power_fact", "field_0", "spec_0", "w"]
     types = (np.ndarray, float, int, str, list, tuple, dict)
     out = {}
     for key, value in dico.items():
@@ -245,7 +193,6 @@ def load_sim_data(folder_name, ind=None, load_param=True):
                 - If only 1 int, will cast the (1, n, nt) array into a (n, nt) array
         load_param : (bool) return the parameter dictionary as well. returns None
                 if not available
-        dico_name : name of the params dict stored in state.Params
     Returns
     ----------
         spectra : array
@@ -326,8 +273,8 @@ def iter_load_sim_data(folder_name, with_params=False) -> Iterable[np.ndarray]:
             yield load_single_spectrum(folder_name, i)
 
 
-def _get_data_subfolders(path: str) -> List[str]:
-    """returns a list of subfolders in the specified directory
+def get_data_subfolders(path: str) -> List[str]:
+    """returns a list of path/subfolders in the specified directory
 
     Parameters
     ----------
@@ -342,29 +289,6 @@ def _get_data_subfolders(path: str) -> List[str]:
     sub_folders = glob(os.path.join(path, "*"))
     sub_folders = list(filter(os.path.isdir, sub_folders))
     return sub_folders
-
-
-# def _sort_subfolder_list(
-#     sub_folders: List[str], varying_lists: List[Tuple[str, Any]]
-# ) -> Tuple[list]:
-#     """sorts the two lists in parallel according to parameter values
-
-#     Parameters
-#     ----------
-#     sub_folders : List[str]
-#         paths to where spectra are loaded
-#     varying_lists : List[Tuple]
-#         (param_name, value) tuples corresponding to the sub_folders
-
-#     Returns
-#     -------
-#     Tuple[list]
-#         the input, sorted
-#     """
-#     both_lists = list(zip(sub_folders, varying_lists))
-#     for i in range(len(varying_lists[0])):
-#         both_lists.sort(key=lambda el: el[1][i][1])
-#     return tuple(zip(*both_lists))
 
 
 def check_data_integrity(sub_folders: List[str], init_z_num: int):
@@ -383,71 +307,71 @@ def check_data_integrity(sub_folders: List[str], init_z_num: int):
         raised if not all spectra are present in any folder
     """
     for sub_folder in sub_folders:
-        params = load_toml(os.path.join(sub_folder, "params.toml"))
-        z_num = params["z_num"]
-        num_spectra = len(glob(os.path.join(sub_folder, "spectrum*.npy")))
-
-        if z_num != init_z_num:
+        if not propagation_completed(sub_folder, init_z_num):
             raise IncompleteDataFolderError(
-                f"initial config specifies {init_z_num} spectra per"
-                + f" but the parameter file in {sub_folder} specifies {z_num}"
-            )
-
-        if num_spectra != z_num:
-            raise IncompleteDataFolderError(
-                f"only {num_spectra} spectra found in {sub_folder} instead of the specified {z_num}"
+                f"not enough spectra of the specified {init_z_num} found in {sub_folder}"
             )
 
 
-# def preprocess_data_folder(path: str) -> bool:
-#     config = load_toml(os.path.join(path, "initial_config.toml"))
-#     num_sims, _ = utilities.count_variations(config)
-#     sub_folders = _get_data_subfolders(path)
-#     init_z_num = config["simulation"]["z_num"]
-
-#     if len(sub_folders) != num_sims:
-#         raise IncompleteDataFolderError(
-#             f"only {len(sub_folders)} simulations out of {num_sims} have been made"
-#         )
-
-#     varying_lists = [utilities.varying_list_from_path(os.path.split(s)[1]) for s in sub_folders]
-#     varying_params = [el[0] for el in varying_lists[0]]
-#     sub_folders, varying_lists = _update_varying_lists(
-#         sub_folders, varying_lists, varying_params, init_z_num
-#     )
-
-#     possible_values = []
-#     for i, p in enumerate(varying_params):
-#         tmp = set()
-#         for v_list in varying_lists:
-#             tmp.add(v_list[i][1])
-#         tmp = list(tmp)
-#         possible_values.append(tmp)
-
-#     return sub_folders, varying_lists, varying_params, possible_values, init_z_num
+def propagation_initiated(sub_folder) -> bool:
+    print(f"{sub_folder=}")
+    if os.path.isdir(sub_folder):
+        return find_last_spectrum_file(sub_folder) > 0
+    return False
 
 
-# def merge_data(path: str):
-#     sub_folders, varying_lists, varying_params, possible_values, z_num = preprocess_data_folder(
-#         path
-#     )
-#     z_values = list(range(z_num))
-#     pt = utilities.ProgressTracker(z_num, auto_print=True)
-#     shape = tuple((len(l) for l in possible_values))
-#     for z_num in z_values:
-#         to_save = []
-#         for i in range(np.product(shape)):
-#             to_save.append(np.load(os.path.join(sub_folders[i], f"spectrum_{z_num}.npy")))
-#         out = np.array(to_save).reshape((*shape, len(to_save[0])))
-#         np.save(os.path.join(path, f"spectra_{z_num}.npy"), out)
-#         pt.update()
-#     _create_reference_file(varying_params, possible_values)
-#     return
+def propagation_completed(sub_folder: str, init_z_num: int):
+    """checks if a propagation has completed
+
+    Parameters
+    ----------
+    sub_folder : str
+        path to the sub folder containing the spectra
+    init_z_num : int
+        number of z position to store as specified in the master config file
+
+    Returns
+    -------
+    bool
+        True if the propagation has completed
+
+    Raises
+    ------
+    IncompleteDataFolderError
+        raised if init_z_num doesn't match that specified in the individual parameter file
+    """
+    params = load_toml(os.path.join(sub_folder, "params.toml"))
+    z_num = params["z_num"]
+    num_spectra = find_last_spectrum_file(sub_folder)
+
+    if z_num != init_z_num:
+        raise IncompleteDataFolderError(
+            f"initial config specifies {init_z_num} spectra per"
+            + f" but the parameter file in {sub_folder} specifies {z_num}"
+        )
+
+    return num_spectra == z_num
+
+
+def find_last_spectrum_file(path: str):
+    num = 0
+    while True:
+        if os.path.isfile(os.path.join(path, f"spectrum_{num}.npy")):
+            num += 1
+            pass
+        else:
+            return num - 1
+
+
+def load_last_spectrum(path: str):
+    num = find_last_spectrum_file(path)
+    return num, np.load(os.path.join(path, f"spectrum_{num}.npy"))
 
 
 def merge_same_simulations(path: str):
-    num_separator = "_num_"
-    sub_folders = _get_data_subfolders(path)
+    logger = get_logger(__name__)
+    num_separator = PARAM_SEPARATOR + "num" + PARAM_SEPARATOR
+    sub_folders = get_data_subfolders(path)
     config = load_toml(os.path.join(path, "initial_config.toml"))
     repeat = config["simulation"].get("repeat", 1)
     z_num = config["simulation"]["z_num"]
@@ -461,7 +385,9 @@ def merge_same_simulations(path: str):
         if len(base_folder) > 0:
             base_folders.add(base_folder)
 
-    print(base_folders)
+    num_operations = z_num * len(base_folders) + len(base_folders)
+    pt = utils.ProgressTracker(num_operations, logger=logger, prefix="merging data : ")
+
     for base_folder in base_folders:
         for j in range(z_num):
             spectra = []
@@ -472,191 +398,19 @@ def merge_same_simulations(path: str):
             dest_folder = ensure_folder(base_folder, prevent_overwrite=False)
             spectra = np.array(spectra).reshape(repeat, len(spectra[0]))
             np.save(os.path.join(dest_folder, f"spectra_{j}.npy"), spectra)
+            pt.update()
+        for file_name in ["z.npy", "params.toml"]:
+            shutil.copy(
+                os.path.join(f"{base_folder}{num_separator}0", file_name),
+                os.path.join(base_folder, ""),
+            )
+        pt.update()
 
-
-# class tmp_index_manager:
-#     """Manages a temporary index of files while the simulation is running
-#     and merge them at the end automatically"""
-
-#     def __init__(self, config_name="untitled", task_id=0, varying_keys=None):
-
-#         self.path = os.path.join(Paths.tmp(task_id), "index.json")
-#         self.config_name = config_name
-#         self.varying_keys = varying_keys
-
-#         # set up the directories
-#         if not os.path.exists(Paths.tmp(task_id)):
-#             os.makedirs(Paths.tmp(task_id))
-
-#         file_num = 0
-#         while os.path.exists(self.path):
-#             self.path = os.path.join(Paths.tmp(task_id), f"index_{file_num}.json")
-#             file_num += 1
-
-#         self.index = dict(spectra={}, z={}, params={})
-#         self.ids = set()
-
-#         with open(self.path, "w") as file:
-#             json.dump(self.index, file)
-
-#     def get_path(self):
-#         return self.path
-
-#     def append_to_index(self, param_id, spectra_file_name="", params_file_name=""):
-#         """add one or two files to the index
-#         Parameters
-#         ----------
-#             param_id : id of the parameter set
-#             spectra_file_name : name of the spectra file
-#             params_file_name : name of the parameters file
-#         Returns
-#         ----------
-#             None
-#         """
-
-#         # names of the recorded values in order
-#         # here : {"spectra":spectra_file_name, "params":params_file_name}
-#         file_names = [spectra_file_name, params_file_name]
-#         file_names_dict = dict(zip(state.recorded_types, file_names))
-
-#         param_id = str(param_id)
-#         self.ids.add(param_id)
-
-#         with open(self.path, "r") as file:
-#             self.index = json.loads(file.read())
-
-#         for type_name, file_name in file_names_dict.items():
-#             if file_name != "":
-#                 if param_id not in self.index[type_name]:
-#                     self.index[type_name][param_id] = []
-#                 self.index[type_name][param_id].append(file_name)
-
-#         with open(self.path, "w") as file:
-#             json.dump(self.index, file)
-
-#     def convert_sim_data(self):
-#         return convert_sim_data(self.path, name=self.config_name, varying_keys=self.varying_keys)
-
-
-# def convert_sim_data(path, name="untitled", ids=None, varying_keys=[], delete_temps=True):
-#     """Converts simulation data that are stored as 1 file/simulation to 1 file
-#     per parameters set
-#     Parameters
-#     ----------
-#         path : path to the index containing infos about how to group files together
-#         name : name of the final folder
-#         ids : list of ids, 1 per set of parameters
-
-#     Returns
-#     ----------
-#         path to the converted data
-
-#     """
-#     with open(path, "r") as file:
-#         index = json.loads(file.read())
-
-#     folder_0 = os.path.join(Paths.get("data"), name)
-#     folder_0 = ensure_folder(folder_0)  # related to the set of simulation / job
-
-#     # find the ids if not stored already
-#     if ids is None:
-#         ids = set()
-#         for key in state.recorded_types:
-#             for k in index[key]:
-#                 ids.add(k)
-
-#     not_found = []
-
-#     for param_id in ids:
-
-#         print("ids", ids)
-
-#         # Load the spectra
-#         spectra = []
-#         for f in index["spectra"][param_id]:
-#             try:
-#                 spectra.append(np.load(f))
-#             except FileNotFoundError:
-#                 not_found.append(f)
-#                 index["spectra"][param_id].remove(f)
-
-#         spectra = np.array(spectra)
-
-#         # Load the params
-#         main_param_name = index["params"][param_id][0] + ".json"
-#         try:
-#             with open(main_param_name, "r") as file:
-#                 params = json.load(file)
-#         except FileNotFoundError:
-#             print(f"no parameters for id {param_id} found. Skipping this one")
-#             not_found += index["params"][param_id]
-#             continue
-
-#         if len(not_found) > 0:
-#             print(f"{len(not_found)} files not found:")
-#             for file_not_found in not_found:
-#                 print("\t" + file_not_found)
-
-#         # create sub folder
-#         if len(ids) > 1:
-#             complement = [param_id]
-#             for key in varying_keys:
-#                 if key in ["T0_FWHM", "P0"]:
-#                     key = "init_" + key
-#                 complement.append(key)
-#                 complement.append(format(params.get(key, 0), ".2e").split("e")[0])
-
-#             folder_1 = "_".join(complement)  # related to specific parameter
-#             folder_name = os.path.join(folder_0, folder_1)
-#         else:
-#             folder_name = folder_0
-
-#         if not os.path.exists(folder_name):
-#             os.makedirs(folder_name)
-#         os.rename(main_param_name, os.path.join(folder_name, "param.json"))
-
-#         # Save the data in a more easily manageable format (one file per z position)
-#         for k in range(len(spectra[0])):
-#             np.save(os.path.join(folder_name, f"spectra_{k}"), spectra[:, k])
-#         print(f"{len(spectra)} simulations converted. Data saved in {folder_name}")
-
-#         deleted = 0
-#         if delete_temps:
-#             # once everything is saved, delete the temporary files to free up space
-#             param_file_names = [f + ".json" for f in index["params"][param_id]]
-#             try:
-#                 param_file_names.remove(main_param_name)
-#             except ValueError:
-#                 pass
-
-#             fail_list = []
-#             for f in index["spectra"][param_id] + param_file_names:
-#                 try:
-#                     os.remove(f)
-#                     deleted += 1
-#                 except FileNotFoundError:
-#                     fail_list.append(f)
-
-#             if len(fail_list) > 0:
-#                 print(f"could not remove {len(fail_list)} temporary files :")
-#                 for failed in fail_list:
-#                     print("\t" + failed)
-
-#         print(f"Merge finished, deleted {deleted} temporary files.")
-
-#     if delete_temps:
-#         os.remove(path)
-#         delete_tmp_folder()
-#     return folder_0
-
-
-# def delete_tmp_folder():
-#     """deletes temporary folders if they are empty"""
-#     for folder in glob(Paths.tmp()):
-#         try:
-#             os.rmdir(folder)
-#         except OSError as err:
-#             print(err)
+    try:
+        for sub_folder in sub_folders:
+            send2trash(sub_folder)
+    except TrashPermissionError:
+        logger.warning(f"could not send send {len(base_folders)} folder(s) to trash")
 
 
 def get_data_folder(task_id: int, name_if_new: str = ""):
@@ -669,7 +423,21 @@ def get_data_folder(task_id: int, name_if_new: str = ""):
     return tmp
 
 
-def generate_file_path(file_name: str, task_id: int, sub_folder: str = "") -> str:
+def set_data_folder(task_id: int, path: str):
+    """stores the path to an existing data folder in the environment
+
+    Parameters
+    ----------
+    task_id : int
+        id uniquely identifying the session
+    path : str
+        path to the root of the data folder
+    """
+    idstr = str(int(task_id))
+    os.environ[TMP_FOLDER_KEY_BASE + idstr] = path
+
+
+def generate_file_path(file_name: str, task_id: int, identifier: str = "") -> str:
     """generates a path for the desired file name
 
     Parameters
@@ -678,7 +446,7 @@ def generate_file_path(file_name: str, task_id: int, sub_folder: str = "") -> st
         desired file name. May be altered if it already exists
     task_id : int
         unique id of the process
-    sub_folder : str
+    identifier : str
         subfolder in which to store the file. default : ""
 
     Returns
@@ -688,7 +456,7 @@ def generate_file_path(file_name: str, task_id: int, sub_folder: str = "") -> st
     """
     base_name, ext = os.path.splitext(file_name)
     folder = get_data_folder(task_id)
-    folder = os.path.join(folder, sub_folder)
+    folder = os.path.join(folder, identifier)
     folder = ensure_folder(folder, prevent_overwrite=False)
     i = 0
     base_name = os.path.join(folder, base_name)
@@ -701,7 +469,7 @@ def generate_file_path(file_name: str, task_id: int, sub_folder: str = "") -> st
     return new_name
 
 
-def save_data(data: np.ndarray, file_name: str, task_id: int, subfolder: str = ""):
+def save_data(data: np.ndarray, file_name: str, task_id: int, identifier: str = ""):
     """saves numpy array to disk
 
     Parameters
@@ -712,24 +480,11 @@ def save_data(data: np.ndarray, file_name: str, task_id: int, subfolder: str = "
         file name
     task_id : int
         id that uniquely identifies the process
-    subfolder : str, optional
-        subfolder in the main data folder of the task, by default ""
+    identifier : str, optional
+        identifier in the main data folder of the task, by default ""
     """
-    path = generate_file_path(file_name, task_id, subfolder)
+    path = generate_file_path(file_name, task_id, identifier)
     np.save(path, data)
-
-
-def generate_tmp_file_name_old(file_name, job_id=0, param_id=0, task_id=0, ext=""):
-    """returns a guaranteed available file name"""
-    main_suffix = f"_JOBID{job_id}_PARAMID{param_id}"
-    suffix = main_suffix + "_" + str(0)
-
-    no_dup = 1
-    while os.path.exists(os.path.join(Paths.tmp(task_id), file_name + suffix + ext)):
-        suffix = main_suffix + "_" + str(no_dup)
-        no_dup += 1
-
-    return os.path.join(Paths.tmp(task_id), file_name + suffix + ext)
 
 
 def ensure_folder(name, i=0, suffix="", prevent_overwrite=True):
@@ -756,119 +511,3 @@ def ensure_folder(name, i=0, suffix="", prevent_overwrite=True):
         else:
             return folder_name
     return folder_name
-
-
-# class Logger:
-#     def __init__(self, print_level=10000):
-#         """
-#         Parameters
-#         ----------
-#             print_level : messages above this priority will be printed as well as recorded
-#         """
-#         log_file_name = (
-#             "scgenerator_log_"
-#             + format(datetime.today())[:-7].replace(" ", "_").replace(":", "-")
-#             + ".txt"
-#         )
-#         self.log_file = os.path.join(Paths.get("logs"), log_file_name)
-#         self.print_level = print_level
-#         self.prefix_length = 0
-#         self.default_prefix = "Main Thread"
-
-#         if not os.path.exists(self.log_file):
-#             with open(self.log_file, "w"):
-#                 pass
-
-#         with open(self.log_file, "a") as file:
-#             file.write(
-#                 f"\n---------------------------\nNew Log {str(datetime.today()):19.19}\n---------------------------\n"
-#             )
-
-#     def log(self, s, priority=0, prefix=None):
-#         """logs a message
-#         Parameters
-#         ----------
-#             s : the string to log
-#             priority : will be compared to the logger's print_level to decide whether to print the string
-#             prefix : string identifying which thread or part of the program is giving the message
-#         Returns
-#         ----------
-#             nothing
-#         """
-#         if prefix is None:
-#             prefix = self.default_prefix
-#         if priority >= self.print_level:
-#             print(s)
-#         with open(self.log_file, "a") as file:
-#             if len(prefix) > self.prefix_length:
-#                 self.prefix_length = len(prefix)
-#             prefix = format(prefix[: self.prefix_length], str(self.prefix_length))
-#             file.write(prefix + " : " + str(s) + "\n")
-
-
-def plot_setup(
-    folder_name=None,
-    file_name=None,
-    file_type="png",
-    figsize=state.plot_default_figsize,
-    params=None,
-    mode="default",
-):
-    """It should return :
-    - a folder_name
-    - a file name
-    - a fig
-    - an axis
-    """
-    file_name = state.plot_default_name if file_name is None else file_name
-
-    if params is not None:
-        folder_name = params.get("plot.folder_name", folder_name)
-        file_name = params.get("plot.file_name", file_name)
-        file_type = params.get("plot.file_type", file_type)
-        figsize = params.get("plot.figsize", figsize)
-
-    # ensure output folder_name exists
-    folder_name, file_name = (
-        os.path.split(file_name)
-        if folder_name is None
-        else (folder_name, os.path.split(file_name)[1])
-    )
-    folder_name = os.path.join(Paths.get("plots"), folder_name)
-    if not os.path.exists(os.path.abspath(folder_name)):
-        os.makedirs(os.path.abspath(folder_name))
-
-    # ensure no overwrite
-    ind = 0
-    while os.path.exists(os.path.join(folder_name, file_name + "_" + str(ind) + "." + file_type)):
-        ind += 1
-    file_name = file_name + "_" + str(ind) + "." + file_type
-
-    if mode == "default":
-        fig, ax = plt.subplots(figsize=figsize)
-    elif mode == "coherence":
-        n = state.plot_avg_default_main_to_coherence_ratio
-        gs1 = GridSpec(n + 1, 1, hspace=0.4)
-        fig = plt.figure(figsize=state.plot_default_figsize)
-        top = fig.add_subplot(gs1[:n])
-        top.tick_params(labelbottom=False)
-        bot = fig.add_subplot(gs1[n], sharex=top)
-
-        bot.set_ylim(-0.1, 1.1)
-        bot.set_ylabel(r"|$g_{12}$|")
-        ax = (top, bot)
-    elif mode == "coherence_T":
-        n = state.plot_avg_default_main_to_coherence_ratio
-        gs1 = GridSpec(1, n + 1, wspace=0.4)
-        fig = plt.figure(figsize=state.plot_default_figsize)
-        top = fig.add_subplot(gs1[:n])
-        top.tick_params(labelleft=False, left=False, right=True)
-        bot = fig.add_subplot(gs1[n], sharey=top)
-
-        bot.set_xlim(1.1, -0.1)
-        bot.set_xlabel(r"|$g_{12}$|")
-        ax = (top, bot)
-    else:
-        raise ValueError(f"mode {mode} not understood")
-
-    return folder_name, file_name, fig, ax

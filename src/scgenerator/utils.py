@@ -7,13 +7,15 @@ scgenerator module but some function may be used in any python program
 
 import datetime as dt
 import itertools
-from typing import Callable, List, Tuple, Union, Any
+import logging
+from typing import Any, Callable, List, Tuple, Union
 
 import numpy as np
 import ray
 
+from .const import PARAM_SEPARATOR, valid_varying
+from .logger import get_logger
 from .math import *
-from .const import valid_varying
 
 # XXX ############################################
 # XXX ############### Pure Python ################
@@ -24,37 +26,38 @@ class ProgressTracker:
     def __init__(
         self,
         max: Union[int, float],
-        auto_print: bool = False,
+        prefix: str = "",
+        suffix: str = "",
+        logger: logging.Logger = get_logger(),
+        auto_print: bool = True,
         percent_incr: Union[int, float] = 5,
         default_update: Union[int, float] = 1,
-        callback: Callable[[str, Any], None] = None,
     ):
         self.max = max
         self.current = 0
+        self.prefix = prefix
+        self.suffix = suffix
         self.start_time = dt.datetime.now()
         self.auto_print = auto_print
         self.next_percent = percent_incr
         self.percent_incr = percent_incr
         self.default_update = default_update
-        self.callback = callback
+        self.logger = logger
 
-    def _update(self, callback_args):
+    def _update(self):
         if self.auto_print and self.current / self.max >= self.next_percent / 100:
             self.next_percent += self.percent_incr
-            if self.callback is None:
-                print(self.ETA)
-            else:
-                self.callback(self.ETA, *callback_args)
+            self.logger.info(self.prefix + self.ETA + self.suffix)
 
-    def update(self, num=None, callback_args=[]):
+    def update(self, num=None):
         if num is None:
             num = self.default_update
         self.current += num
-        self._update(callback_args)
+        self._update()
 
-    def set(self, value, callback_args=[]):
+    def set(self, value):
         self.current = value
-        self._update(callback_args)
+        self._update()
 
     @property
     def ETA(self):
@@ -108,9 +111,8 @@ def count_variations(config: dict) -> Tuple[int, int]:
     return num, varying_params
 
 
-def format_varying_list(l: List[tuple], joints: List[str] = ""):
-    while len(joints) < 2:
-        joints += "_"
+def format_varying_list(l: List[tuple]):
+    joints = 2 * PARAM_SEPARATOR
     str_list = []
     for p_name, p_value in l:
         ps = p_name.replace("/", "").replace(joints[0], "").replace(joints[1], "")
@@ -121,7 +123,7 @@ def format_varying_list(l: List[tuple], joints: List[str] = ""):
 
 def varying_list_from_path(s: str) -> List[tuple]:
     s = s.replace("/", "")
-    str_list = s.split("_")
+    str_list = s.split(PARAM_SEPARATOR)
     out = []
     for i in range(0, len(str_list) // 2 * 2, 2):
         out.append((str_list[i], get_value(str_list[i + 1])))

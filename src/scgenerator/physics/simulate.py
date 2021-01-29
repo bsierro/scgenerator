@@ -1,19 +1,13 @@
-import json
 import os
 from datetime import datetime
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 from numpy.fft import fft, ifft
 
-
-from .. import initialize
-from .. import io, state
-from .. import utilities
-from ..io import generate_file_path, get_logger
-from ..math import abs2
-from ..utilities import ProgressTracker, format_varying_list
-from . import pulse, units
+from .. import initialize, io, utils
+from ..logger import get_logger
+from . import pulse
 from .fiber import create_non_linear_op, fast_dispersion_op
 
 using_ray = False
@@ -23,6 +17,267 @@ try:
     using_ray = True
 except ModuleNotFoundError:
     pass
+
+
+class RK4IP:
+    def __init__(self, sim_params, save_data=False, job_identifier="", task_id=0, n_percent=10):
+
+        self.job_identifier = job_identifier
+        self.id = task_id
+        self.n_percent = n_percent
+        self.logger = get_logger(self.job_identifier)
+
+        self.resuming = False
+        self.save_data = save_data
+        self._extract_params(sim_params)
+        self._setup_functions()
+        self.starting_num = sim_params.get("recovery_last_store", 1) - 1
+        self._setup_sim_parameters()
+
+    def _extract_params(self, params):
+        self.w_c = params.pop("w_c")
+        self.w0 = params.pop("w0")
+        self.w_power_fact = params.pop("w_power_fact")
+        self.spec_0 = params.pop("spec_0")
+        self.z_targets = params.pop("z_targets")
+        self.z_final = params.pop("length")
+        self.beta = params.pop("beta_func", params.pop("beta"))
+        self.gamma = params.pop("gamma_func", params.pop("gamma"))
+        self.behaviors = params.pop("behaviors")
+        self.raman_type = params.pop("raman_type", "stolen")
+        self.f_r = params.pop("f_r", 0)
+        self.hr_w = params.pop("hr_w", None)
+        self.adapt_step_size = params.pop("adapt_step_size", True)
+        self.error_ok = params.pop("error_ok")
+        self.dynamic_dispersion = params.pop("dynamic_dispersion", False)
+
+    def _setup_functions(self):
+        self.N_func = create_non_linear_op(
+            self.behaviors, self.w_c, self.w0, self.gamma, self.raman_type, self.f_r, self.hr_w
+        )
+        if self.dynamic_dispersion:
+            self.disp = lambda r: fast_dispersion_op(self.w_c, self.beta(r), self.w_power_fact)
+        else:
+            self.disp = lambda r: fast_dispersion_op(self.w_c, self.beta, self.w_power_fact)
+
+        # Set up which quantity is conserved for adaptive step size
+        if self.adapt_step_size:
+            if "raman" in self.behaviors:
+                self.conserved_quantity_func = pulse.photon_number
+            else:
+                self.logger.info("energy conserved")
+                self.conserved_quantity_func = pulse.pulse_energy
+        else:
+            self.conserved_quantity_func = lambda a, b, c, d: 0
+
+    def _setup_sim_parameters(self):
+        # making sure to keep only the z that we want
+        self.z_targets = list(self.z_targets.copy()[self.starting_num :])
+        self.z_targets.sort()
+        self.store_num = len(self.z_targets)
+
+        # Initial setup of simulation parameters
+        self.d_w = self.w_c[1] - self.w_c[0]  # resolution of the frequency grid
+        self.z = self.z_targets.pop(0)
+        self.z_stored = [self.z]  # position of each stored spectrum (for display)
+
+        self.progress_tracker = utils.ProgressTracker(
+            self.z_final, percent_incr=self.n_percent, logger=self.logger
+        )
+
+        # Setup initial values for every physical quantity that we want to track
+        self.current_spectrum = self.spec_0.copy()
+        self.stored_spectra = self.starting_num * [None] + [self.current_spectrum.copy()]
+        self.cons_qty = [
+            self.conserved_quantity_func(
+                self.current_spectrum,
+                self.w_c + self.w0,
+                self.d_w,
+                self.gamma,
+            ),
+            0,
+        ]
+        self.size_fac = 2 ** (1 / 5)
+
+        if self.save_data:
+            _save_current_spectrum(
+                self.current_spectrum, self.cons_qty, 0, self.id, self.job_identifier
+            )
+
+        # Initial step size
+        if self.adapt_step_size:
+            self.initial_h = (self.z_targets[0] - self.z) / 2
+        else:
+            self.initial_h = self.error_ok
+
+    # def _setup_sim_parameters(self):
+    #     # making sure to keep only the z that we want
+    #     self.z_targets = list(self.z_targets.copy())
+    #     self.z_targets.sort()
+    #     self.store_num = len(self.z_targets)
+
+    #     # Initial setup of simulation parameters
+    #     self.d_w = self.w_c[1] - self.w_c[0]  # resolution of the frequency grid
+    #     self.z = self.z_targets.pop(0)
+    #     self.z_stored = [self.z]  # position of each stored spectrum (for display)
+
+    #     self.progress_tracker = utils.ProgressTracker(
+    #         self.z_final, percent_incr=self.n_percent, logger=self.logger
+    #     )
+
+    #     # Setup initial values for every physical quantity that we want to track
+    #     self.current_spectrum = self.spec_0.copy()
+    #     self.stored_spectra = [self.current_spectrum.copy()]
+    #     self.cons_qty = [
+    #         self.conserved_quantity_func(
+    #             self.current_spectrum,
+    #             self.w_c + self.w0,
+    #             self.d_w,
+    #             self.gamma,
+    #         ),
+    #         0,
+    #     ]
+    #     self.size_fac = 2 ** (1 / 5)
+
+    #     if self.save_data:
+    #         _save_current_spectrum(
+    #             self.current_spectrum, self.cons_qty, 0, self.id, self.job_identifier
+    #         )
+
+    #     # Initial step size
+    #     if self.adapt_step_size:
+    #         self.initial_h = (self.z_targets[0] - self.z) / 2
+    #     else:
+    #         self.initial_h = self.error_ok
+
+    def run(self):
+        # Print introduction
+        self.logger.info(
+            "Computing {} new spectra, first one at {}m".format(self.store_num, self.z_targets[0])
+        )
+        self.progress_tracker.set(self.z)
+
+        # Start of the integration
+        step = 1
+        h_taken = self.initial_h
+        h_next_step = self.initial_h
+        store = False  # store a spectrum
+        time_start = datetime.today()
+
+        while self.z < self.z_final:
+            h_taken, h_next_step, self.current_spectrum = self.take_step(
+                step, h_next_step, self.current_spectrum.copy()
+            )
+
+            self.z += h_taken
+            step += 1
+            self.cons_qty.append(0)
+
+            # Whether the current spectrum has to be stored depends on previous step
+            if store:
+                self.progress_tracker.suffix = " ({} steps). z = {:.4f}, h = {:.5g}".format(
+                    step, self.z, h_taken
+                )
+                self.progress_tracker.set(self.z)
+
+                self.stored_spectra.append(self.current_spectrum)
+                if self.save_data:
+                    _save_current_spectrum(
+                        self.current_spectrum,
+                        self.cons_qty,
+                        len(self.stored_spectra) - 1,
+                        self.id,
+                        self.job_identifier,
+                    )
+
+                self.z_stored.append(self.z)
+                del self.z_targets[0]
+
+                # reset the constant step size after a spectrum is stored
+                if not self.adapt_step_size:
+                    h_next_step = self.error_ok
+
+                if len(self.z_targets) == 0:
+                    break
+                store = False
+
+            # if the next step goes over a position at which we want to store
+            # a spectrum, we shorten the step to reach this position exactly
+            if self.z + h_next_step >= self.z_targets[0]:
+                store = True
+                h_next_step = self.z_targets[0] - self.z
+
+        self.logger.info(
+            "propagation finished in {} steps ({} seconds)".format(
+                step, (datetime.today() - time_start).total_seconds()
+            )
+        )
+
+        if self.save_data:
+            io.save_data(self.z_stored, "z.npy", self.id, self.job_identifier)
+
+        return self.stored_spectra
+
+    def take_step(
+        self, step: int, h_next_step: float, current_spectrum: np.ndarray
+    ) -> Tuple[float, float, np.ndarray]:
+        """computes a new spectrum, whilst adjusting step size if required, until the error estimation
+        validates the new spectrum
+
+        Parameters
+        ----------
+        step : int
+            index of the current
+        h_next_step : float
+            candidate step size
+        current_spectrum : np.ndarray
+            spectrum of the last step taken
+
+        Returns
+        -------
+        h : float
+            step sized used
+        h_next_step : float
+            candidate next step size
+        new_spectrum : np.ndarray
+            new spectrum
+        """
+        keep = False
+        while not keep:
+            h = h_next_step
+            z_ratio = self.z / self.z_final
+
+            expD = np.exp(h / 2 * self.disp(z_ratio))
+
+            A_I = expD * current_spectrum
+            k1 = expD * (h * self.N_func(current_spectrum, z_ratio))
+            k2 = h * self.N_func(A_I + k1 / 2, z_ratio)
+            k3 = h * self.N_func(A_I + k2 / 2, z_ratio)
+            k4 = h * self.N_func(expD * (A_I + k3), z_ratio)
+            new_spectrum = expD * (A_I + k1 / 6 + k2 / 3 + k3 / 3) + k4 / 6
+
+            if self.adapt_step_size:
+                self.cons_qty[step] = self.conserved_quantity_func(
+                    new_spectrum, self.w_c + self.w0, self.d_w, self.gamma
+                )
+                curr_p_change = np.abs(self.cons_qty[step - 1] - self.cons_qty[step])
+                cons_qty_change_ok = self.error_ok * self.cons_qty[step - 1]
+
+                if curr_p_change > 2 * cons_qty_change_ok:
+                    progress_str = f"step {step} rejected with h = {h:.4e}, doing over"
+                    self.logger.info(progress_str)
+                    keep = False
+                    h_next_step = h / 2
+                elif cons_qty_change_ok < curr_p_change <= 2 * cons_qty_change_ok:
+                    keep = True
+                    h_next_step = h / self.size_fac
+                elif curr_p_change < 0.1 * cons_qty_change_ok:
+                    keep = True
+                    h_next_step = h * self.size_fac
+                else:
+                    keep = True
+                    h_next_step = h
+        return h, h_next_step, new_spectrum
 
 
 class Simulations:
@@ -65,18 +320,10 @@ class Simulations:
         self.using_ray = False
         self.sim_jobs = 1
 
-        self.propagation_func = lambda params, varying_list: RK4IP(
-            params,
-            save_data=True,
-            job_identifier=utilities.format_varying_list(varying_list),
-            task_id=self.id,
-        )
+        self.propagator = RK4IP
 
-        self.progress_tracker = utilities.ProgressTracker(
-            max=len(self.param_seq),
-            auto_print=True,
-            percent_incr=1,
-            callback=lambda s, logger: logger.info(s),
+        self.progress_tracker = utils.ProgressTracker(
+            len(self.param_seq), percent_incr=1, logger=self.logger
         )
 
     def run(self):
@@ -86,7 +333,7 @@ class Simulations:
                 io.save_parameters(
                     params,
                     io.generate_file_path(
-                        "params.toml", self.id, utilities.format_varying_list(varying)
+                        "params.toml", self.id, utils.format_varying_list(varying)
                     ),
                 )
                 self.new_sim(varying, params.copy())
@@ -118,14 +365,20 @@ class Simulations:
         raise NotImplementedError()
 
     def merge_data(self):
-        io.merge_data(self.data_folder)
+        io.merge_same_simulations(self.data_folder)
 
 
 class SequencialSimulations(Simulations, available=True, priority=0):
     def new_sim(self, varying_list: List[tuple], params: dict):
-        self.logger.info(f"launching simulation with {varying_list}")
-        self.propagation_func(params, varying_list)
-        self.progress_tracker.update(1, [self.logger])
+        v_list_str = utils.format_varying_list(varying_list)
+        self.logger.info(f"launching simulation with {v_list_str}")
+        self.propagator(
+            params,
+            save_data=True,
+            job_identifier=v_list_str,
+            task_id=self.id,
+        ).run()
+        self.progress_tracker.update()
 
     def finish(self):
         pass
@@ -150,27 +403,38 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
         )
 
         self.sim_jobs = min(self.param_seq.num_sim, self.param_seq["simulation", "parallel"])
-        self.propagation_func = ray.remote(self.propagation_func).options(
+        self.propagator = ray.remote(self.propagator).options(
             override_environment_variables=io.get_all_environ()
         )
+
         self.jobs = []
+        self.actors = {}
 
     def new_sim(self, varying_list: List[tuple], params: dict):
-        if len(self.jobs) >= self.sim_jobs:
+        while len(self.jobs) >= self.sim_jobs:
+            self._collect_1_job()
 
-            # wait for a slot to free before starting a new job
-            _, self.jobs = ray.wait(self.jobs)
-            ray.get(_)
-            self.progress_tracker.update(1, [self.logger])
+        v_list_str = utils.format_varying_list(varying_list)
 
-        self.jobs.append(self.propagation_func.remote(params, varying_list))
+        new_actor = self.propagator.remote(
+            params, save_data=True, job_identifier=v_list_str, task_id=self.id
+        )
+        new_job = new_actor.run.remote()
 
-        self.logger.info(f"launching simulation with {varying_list}, job : {self.jobs[-1].hex()}")
+        self.actors[new_job.task_id()] = new_actor
+        self.jobs.append(new_job)
+
+        self.logger.info(f"launching simulation with {v_list_str}, job : {self.jobs[-1].hex()}")
 
     def finish(self):
-        for job in self.jobs:
-            ray.get(job)
-            self.progress_tracker.update(1, [self.logger])
+        while len(self.jobs) > 0:
+            self._collect_1_job()
+
+    def _collect_1_job(self):
+        ready, self.jobs = ray.wait(self.jobs)
+        ray.get(ready)
+        del self.actors[ready[0].task_id()]
+        self.progress_tracker.update()
 
     def stop(self):
         ray.shutdown()
@@ -181,13 +445,26 @@ def new_simulations(config_file: str, task_id: int, data_folder="scgenerator/"):
     config = io.load_toml(config_file)
     param_seq = initialize.ParamSequence(config)
 
+    return _new_simulations(param_seq, task_id, data_folder)
+
+
+def resume_simulations(data_folder: str, task_id: int = 0):
+
+    config = io.load_toml(os.path.join(data_folder, "initial_config.toml"))
+    io.set_data_folder(task_id, data_folder)
+    param_seq = initialize.RecoveryParamSequence(config, task_id)
+
+    return _new_simulations(param_seq, task_id, data_folder)
+
+
+def _new_simulations(param_seq: initialize.ParamSequence, task_id, data_folder):
     if param_seq.num_sim > 1 and param_seq["simulation", "parallel"] > 1 and using_ray:
         return Simulations.get_best_method()(param_seq, task_id, data_folder=data_folder)
     else:
         return SequencialSimulations(param_seq, task_id, data_folder=data_folder)
 
 
-def RK4IP(sim_params, save_data=False, job_identifier="", task_id=0, n_percent=10):
+def RK4IP_func(sim_params, save_data=False, job_identifier="", task_id=0, n_percent=10):
     """Computes the spectrum of a pulse as it propagates through a PCF
 
     Parameters
@@ -201,8 +478,8 @@ def RK4IP(sim_params, save_data=False, job_identifier="", task_id=0, n_percent=1
                 time
             dt : float
                 time resolution
-            field_0 : array
-                initial field envelope as function of w_c
+            spec_0 : array
+                initial spectral envelope as function of w_c
             z_targets : list
                 target distances
             beta : array
@@ -239,14 +516,12 @@ def RK4IP(sim_params, save_data=False, job_identifier="", task_id=0, n_percent=1
             if True and save_data False, will return photon number and step sizes as well as the spectra.
     Returns
     ----------
-        stored_spectra : (store_num, nt) array
+        stored_spectra : (z_num, nt) array
             spectrum aligned on w_c array
         h_stored : 1D array
             length of each valid step
         cons_qty : 1D array
             conserved quantity at each valid step
-        cons_qty_change : 1D array
-            conserved quantity change at each valid step
 
     """
     # DEBUG
@@ -255,7 +530,7 @@ def RK4IP(sim_params, save_data=False, job_identifier="", task_id=0, n_percent=1
     w_c = sim_params.pop("w_c")
     w0 = sim_params.pop("w0")
     w_power_fact = sim_params.pop("w_power_fact")
-    field_0 = sim_params.pop("field_0")
+    spec_0 = sim_params.pop("spec_0")
     z_targets = sim_params.pop("z_targets")
     z_final = sim_params.pop("length")
     beta = sim_params.pop("beta_func", sim_params.pop("beta"))
@@ -265,7 +540,7 @@ def RK4IP(sim_params, save_data=False, job_identifier="", task_id=0, n_percent=1
     f_r = sim_params.pop("f_r", 0)
     hr_w = sim_params.pop("hr_w", None)
     adapt_step_size = sim_params.pop("adapt_step_size", True)
-    error_ok = sim_params.pop("error_ok", 1e-10)
+    error_ok = sim_params.pop("error_ok")
     dynamic_dispersion = sim_params.pop("dynamic_dispersion", False)
     del sim_params
 
@@ -289,41 +564,37 @@ def RK4IP(sim_params, save_data=False, job_identifier="", task_id=0, n_percent=1
         conserved_quantity_func = lambda a, b, c, d: 0
 
     # making sure to keep only the z that we want
-    z_targets = list(set(value for value in z_targets if value > 0))
+    z_targets = list(z_targets.copy())
     z_targets.sort()
     store_num = len(z_targets)
 
     # Initial setup of simulation parameters
     d_w = w_c[1] - w_c[0]  # resolution of the frequency grid
-    z_stored, z = [0], 0  # position of each stored spectrum (for display)
+    z = z_targets.pop(0)
+    z_stored = [z]  # position of each stored spectrum (for display)
 
-    pt = utilities.ProgressTracker(
-        z_final,
-        auto_print=True,
-        percent_incr=n_percent,
-        callback=_gen_RK4IP_progress_callback(),
-    )
+    pt = utils.ProgressTracker(z_final, percent_incr=n_percent, logger=logger)
 
     # Setup initial values for every physical quantity that we want to track
-    current_spectrum = fft(field_0)
+    current_spectrum = spec_0.copy()
     stored_spectra = [current_spectrum.copy()]
     stored_field = [ifft(current_spectrum.copy())]
     cons_qty = [conserved_quantity_func(current_spectrum, w_c + w0, d_w, gamma), 0]
-    cons_qty_change = [0, 0]
     size_fac = 2 ** (1 / 5)
 
     if save_data:
-        _save_current_spectrum(current_spectrum, 0, task_id, job_identifier)
+        _save_current_spectrum(current_spectrum, cons_qty, 0, task_id, job_identifier)
 
     # Initial step size
     if adapt_step_size:
-        h = z_targets[0] / 2
+        h = (z_targets[0] - z) / 2
     else:
         h = error_ok
     newh = h
 
     # Print introduction
-    logger.info("Storing {} new spectra, first one at {}m".format(store_num, z_targets[0]))
+    logger.info("Computing {} new spectra, first one at {}m".format(store_num, z_targets[0]))
+    pt.set(z)
 
     # Start of the integration
     step = 1
@@ -351,7 +622,6 @@ def RK4IP(sim_params, save_data=False, job_identifier="", task_id=0, n_percent=1
         if adapt_step_size:
             cons_qty[step] = conserved_quantity_func(end_spectrum, w_c + w0, d_w, gamma)
             curr_p_change = np.abs(cons_qty[step - 1] - cons_qty[step])
-            cons_qty_change[step] = cons_qty_change[step - 1] + curr_p_change
             cons_qty_change_ok = error_ok * cons_qty[step - 1]
 
             if curr_p_change > 2 * cons_qty_change_ok:
@@ -374,19 +644,19 @@ def RK4IP(sim_params, save_data=False, job_identifier="", task_id=0, n_percent=1
             z += h
             step += 1
             cons_qty.append(0)
-            cons_qty_change.append(0)
 
             current_spectrum = end_spectrum.copy()
 
             # Whether the current spectrum has to be stored depends on previous step
             if store:
-                pt.set(z, [logger, step, z, h])
+                pt.suffix = " ({} steps). z = {:.4f}, h = {:.5g}".format(step, z, h)
+                pt.set(z)
 
                 stored_spectra.append(end_spectrum)
                 stored_field.append(ifft(end_spectrum))
                 if save_data:
                     _save_current_spectrum(
-                        end_spectrum, len(stored_spectra) - 1, task_id, job_identifier
+                        end_spectrum, cons_qty, len(stored_spectra) - 1, task_id, job_identifier
                     )
 
                 z_stored.append(z)
@@ -422,301 +692,23 @@ def RK4IP(sim_params, save_data=False, job_identifier="", task_id=0, n_percent=1
     return stored_spectra
 
 
-def _save_current_spectrum(spectrum: np.ndarray, num: int, task_id: int, job_identifier: str):
-    base_name = f"spectrum_{num}.npy"
-    io.save_data(spectrum, base_name, task_id, job_identifier)
-
-
-def _gen_RK4IP_progress_callback():
-    def callback(s, logger, step, z, h):
-        progress_str = " ({} steps). z = {:.4f}, h = {:.5g}".format(step, z, h)
-        logger.info(s + progress_str)
-
-    return callback
-
-
-def _RK4IP_extract_params(sim_params):
-    """extracts the right parameters from the the flattened params dict
+def _save_current_spectrum(
+    spectrum: np.ndarray, cons_qty: np.ndarray, num: int, task_id: int, job_identifier: str
+):
+    """saves the spectrum and the corresponding cons_qty array
 
     Parameters
     ----------
-    sim_params : dict
-        flattened parameters dictionary
-
-    Returns
-    -------
-    tuple
-        all the necessary parameters
+    spectrum : np.ndarray
+        spectrum as function of w
+    cons_qty : np.ndarray
+        cons_qty array
+    num : int
+        index of the z postition
+    task_id : int
+        unique number identifyin the session
+    job_identifier : str
+        to differentiate this particular run from the others in the session
     """
-    w_c = sim_params.pop("w_c")
-    w0 = sim_params.pop("w0")
-    w_power_fact = sim_params.pop("w_power_fact")
-    field_0 = sim_params.pop("field_0")
-    z_targets = sim_params.pop("z_targets")
-    beta = sim_params.pop("beta_func", sim_params.pop("beta"))
-    gamma = sim_params.pop("gamma_func", sim_params.pop("gamma"))
-    behaviors = sim_params.pop("behaviors")
-    raman_type = sim_params.pop("raman_type", "stolen")
-    f_r = sim_params.pop("f_r", 0)
-    hr_w = sim_params.pop("hr_w", None)
-    adapt_step_size = sim_params.pop("adapt_step_size", True)
-    error_ok = sim_params.pop("error_ok", 1e-10)
-    dynamic_dispersion = sim_params.pop("dynamic_dispersion", False)
-    del sim_params
-    return (
-        behaviors,
-        w_c,
-        w0,
-        gamma,
-        raman_type,
-        f_r,
-        hr_w,
-        dynamic_dispersion,
-        beta,
-        w_power_fact,
-        adapt_step_size,
-        z_targets,
-        field_0,
-        error_ok,
-    )
-
-
-def _prepare_grid(z_targets, w_c):
-    """prepares some derived values for the propagation
-
-    Parameters
-    ----------
-    z_targets : array
-        array of target z positions
-    w_c : array
-        angular frequency array (centered on 0)
-
-    Returns
-    -------
-    d_w : float
-        angular frequency grid size
-    z_targets : list
-        list of target z positions
-    store_num : int
-        number of spectra to store
-    z_final : float
-        final z position
-    z_sored : list
-        where the spectra are already stored
-
-    """
-    # making sure to keep only the z that we want
-    z_targets = list(set(value for value in z_targets if value > 0))
-    z_targets.sort()
-    z_final = z_targets[-1]
-    store_num = len(z_targets)
-
-    # Initial setup of simulation parameters
-    d_w = w_c[1] - w_c[0]  # resolution of the frequency grid
-    z_stored = [0]  # position of each stored spectrum (for display)
-    return d_w, z_targets, store_num, z_final, z_stored
-
-
-def parallel_simulations(config_file, num_cpu_per_task=1, task_id=0):
-    """runs simulations in parallel thanks to Ray
-    Parameters
-    ----------
-        config_file : str
-            name of the config file
-            should be a json containing all necessary parameters for the simulation. Varying parameters should be placed in a subdictionary
-            called "varying" (see scgenerator.utilities.dictionary_iterator for details)
-        num_cpu_per_task : int
-            number of concurrent job per node
-        task_id : give an id for book keeping purposes (must be set if multiple ray instances run at once so their files do not overlap)
-
-    Returns
-    ----------
-        name of the folder where the data is stored
-    """
-    logger = ray.remote(io.Logger).remote()
-    state.CurrentLogger.focus_logger(logger)
-
-    print("Nodes in the Ray cluster:", len(ray.nodes()))
-    for node in ray.nodes():
-        print("    " + node.get("NodeManagerHostname", "unknown"))
-
-    config_name, config_dict, store_num, n, m = _sim_preps(config_file)
-
-    # Override number of simultaneous jobs if provided by config file
-    sim_jobs = config_dict.pop("sim_jobs", len(ray.nodes()) * num_cpu_per_task)
-    print(f"number of simultaneous jobs : {sim_jobs}")
-
-    if n * m < sim_jobs:
-        sim_jobs = n * m
-
-    # Initiate helper workers (a logger, a progress tracker to give estimates of
-    # completion time and an indexer to keep track of the individual files
-    # created after each simulation. The indexer can then automatically merge them)
-    pt = ray.remote(ProgressTracker).remote(max=n * m * store_num, auto_print=True, percent_incr=1)
-    indexer = ray.remote(io.tmp_index_manager).remote(
-        config_name=config_name, task_id=task_id, varying_keys=config_dict.get("varying", None)
-    )
-    ray.get(
-        logger.log.remote(f"CRITICAL FILE at {ray.get(indexer.get_path.remote())}, do not touch it")
-    )
-    RK4IP_parallel = ray.remote(RK4IP)
-
-    jobs = []
-
-    # we treat loops over different parameters differently
-    for k, dico in enumerate(utilities.dictionary_iterator(config_dict, varying_dict="varying")):
-        # loop over same parameter set
-        for i in range(n):
-            # because of random processes, initial conditions are recalculated every time
-            params = initialize.compute_init_parameters(dictionary=config_dict, replace=dico)
-
-            # make sure initial conditions are saved
-            params["init_P0"] = dico.get("P0", config_dict.get("P0", 0))
-            params["init_T0_FWHM"] = dico.get("T0_FWHM", config_dict.get("T0_FWHM", 0))
-            params["param_id"] = k
-            params_file_name = io.generate_file_path("param", i, k, task_id, "")
-            io.save_parameters(params, params_file_name)
-            ray.get(indexer.append_to_index.remote(k, params_file_name=params_file_name))
-
-            if len(jobs) >= sim_jobs:
-                # update the number of jobs if new nodes connect
-                sim_jobs = min(n * (m - k) - i, len(ray.nodes()) * num_cpu_per_task)
-
-                # print(f"Nodes in the Ray cluster: {len(ray.nodes())}, {sim_jobs} simultaneous jobs")
-                # for node in ray.nodes():
-                #     print("    " + node.get("NodeManagerHostname", "unknown"))
-
-                # wait for a slot to free before starting a new job
-                _, jobs = ray.wait(jobs)
-                ray.get(_)
-
-            # start a new simulation
-            ray.get(
-                logger.log.remote(
-                    f"Launching propagation of a {params.get('t0', 0) * 1e15:.2f}fs pulse with {np.max(abs2(params['field_0'])):.0f}W peak power over {np.max(params['z_targets'])}m"
-                )
-            )
-            jobs.append(
-                RK4IP_parallel.remote(
-                    params,
-                    save_data=True,
-                    job_id=i,
-                    param_id=k,
-                    task_id=task_id,
-                    pt=pt,
-                    indexer=indexer,
-                    logger=logger,
-                    n_percent=1,
-                )
-            )
-
-            ray.get(logger.log.remote("number of running jobs : {}".format(len(jobs))))
-            ray.get(logger.log.remote(ray.get(pt.get_eta.remote())))
-
-    # wait for the last jobs to finish
-    ray.get(jobs)
-
-    # merge the data properly
-    folder_0 = ray.get(indexer.convert_sim_data.remote())
-
-    print(f"{config_name} successfully finished ! data saved in {folder_0}")
-
-    return folder_0
-
-
-def simulate(config_file, task_id=0, n_percent=1):
-    """runs simulations one after another
-    Parameters
-    ----------
-        config_file : str
-            name of the config file
-            should be a json containing all necessary parameters for the simulation. Varying parameters should be placed in a subdictionary
-            called "varying" (see scgenerator.utilities.dictionary_iterator for details)
-        task_id : any formatable (int, string, float, ...)
-            give an id for book keeping purposes (must be set if multiple ray instances run at once so their files do not overlap)
-        n_percent : int or float
-            each individual simulation reports its progress every n_percent percent.
-
-    Returns
-    ----------
-        name of the folder where the data is stored
-    """
-    logger = io.Logger()
-    state.CurrentLogger.focus_logger(logger)
-
-    config_name, config_dict, store_num, n, m = _sim_preps(config_file)
-
-    # Initiate helper workers (a logger, a progress tracker to give estimates of
-    # completion time and an indexer to keep track of the individual files
-    # created after each simulation. The indexer can then automatically merge them)
-    pt = ProgressTracker(max=n * m * store_num, auto_print=True, percent_incr=1)
-    indexer = io.tmp_index_manager(
-        config_name=config_name, task_id=task_id, varying_keys=config_dict.get("varying", None)
-    )
-    logger.log(f"CRITICAL FILE at {indexer.get_path()}, do not touch it")
-
-    # we treat loops over different parameters differently
-    for k, dico in enumerate(utilities.dictionary_iterator(config_dict, varying_dict="varying")):
-        # loop over same parameter set
-        for i in range(n):
-            # because of random processes, initial conditions are recalculated every time
-            params = initialize.compute_init_parameters(dictionary=config_dict, replace=dico)
-
-            # make sure initial conditions are saved
-            params["init_P0"] = dico.get("P0", config_dict.get("P0", 0))
-            params["init_T0_FWHM"] = dico.get("T0_FWHM", config_dict.get("T0_FWHM", 0))
-            params["param_id"] = k
-            params_file_name = io.generate_file_path("param", i, k, task_id, "")
-            io.save_parameters(params, params_file_name)
-            indexer.append_to_index(k, params_file_name=params_file_name)
-
-            # start a new simulation
-            logger.log(
-                f"Launching propagation of a {params.get('t0', 0) * 1e15:.2f}fs pulse with {np.max(abs2(params['field_0'])):.0f}W peak power over {np.max(params['z_targets'])}m"
-            )
-            RK4IP(
-                params,
-                save_data=True,
-                job_id=i,
-                param_id=k,
-                task_id=task_id,
-                pt=pt,
-                indexer=indexer,
-                logger=logger,
-                n_percent=n_percent,
-            )
-
-            logger.log(pt.get_eta())
-
-    # merge the data properly
-    folder_0 = indexer.convert_sim_data()
-
-    print(f"{config_name} successfully finished ! data saved in {folder_0}")
-
-    return folder_0
-
-
-def _sim_preps(config_file):
-    # Load the config file
-    try:
-        with open(config_file, "r") as file:
-            config_dict = json.loads(file.read())
-    except FileNotFoundError:
-        print("No config file named {} found".format(config_file))
-        raise
-
-    # Store a master dictionary of parameters to generate file names and such
-    config_name = config_dict.pop("name", os.path.split(config_file)[-1][:-5])
-
-    # make sure we store spectra every time at the exact same place
-    if "z_targets" not in config_dict:
-        config_dict["z_targets"] = np.linspace(0, 1, 128)
-    config_dict["z_targets"] = initialize.sanitize_z_targets(config_dict["z_targets"])
-    config_dict = units.standardize_dictionary(config_dict)
-    store_num = len(config_dict["z_targets"])
-
-    # How many total simulations
-    n = int(config_dict.pop("n", 1))
-    m = np.prod([len(np.atleast_1d(ls)) for _, ls in config_dict.get("varying", {1: 1}).items()])
-
-    return config_name, config_dict, store_num, n, m
+    io.save_data(spectrum, f"spectrum_{num}", task_id, job_identifier)
+    io.save_data(cons_qty, f"cons_qty", task_id, job_identifier)

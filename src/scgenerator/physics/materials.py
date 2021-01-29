@@ -1,6 +1,7 @@
 import numpy as np
 
-from .. import state
+from ..logger import get_logger
+
 from . import units
 from .units import NA, c, kB
 
@@ -38,6 +39,9 @@ def number_density_van_der_waals(
     ----------
         ValueError : Since the Van der Waals equation is a cubic one, there could be more than one real, positive solution
     """
+
+    logger = get_logger
+
     if pressure == 0:
         return 0
     if material_dico is not None:
@@ -68,9 +72,9 @@ def number_density_van_der_waals(
     roots = roots[roots > 0]
     if len(roots) != 1:
         s = f"Van der Waals eq with parameters P={pressure}, T={temperature}, a={a}, b={b}"
-        s += f"\nThere is more than one possible number density : {roots}."
-        s += f"\n{np.min(roots)} was returned"
-        state.CurrentLogger.log(s)
+        s += f", There is more than one possible number density : {roots}."
+        s += f", {np.min(roots)} was returned"
+        logger.info(s)
     return np.min(roots)
 
 

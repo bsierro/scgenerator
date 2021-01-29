@@ -9,11 +9,9 @@ run `sc.parallel_simulations(config_file)` or `sc.simulate(config_file)`
 # How to analyse a simulation
 
 load data with the load_sim_data method
-spectra = load_sim_data("varyTechNoise100kW_sim_data", nickname="cool_sim")
+spectra, params = load_sim_data("varyTechNoise100kW_sim_data")
     to plot
-        plot_results_2D(spectra[0], (600, 1450, nm)) # will take care of looking up the nickname
-    to retrieve a paramteter:
-        z = state.params["cool_sim"]["z"]
+        plot_results_2D(spectra[0], (600, 1450, nm), params)
 
 
 # Configuration

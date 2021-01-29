@@ -1,17 +1,15 @@
-from os import path
-from typing import Iterator, Mapping, Tuple
+import os
+from typing import Any, Iterator, List, Mapping, Tuple
 import numpy as np
 from numpy import pi
-from numpy.core.fromnumeric import var
-from ray.state import current_node_id
 
-from . import io, state, defaults
+from . import defaults, io, utils
 from .math import length, power_fact
 from .physics import fiber, pulse, units
 from .const import valid_param_types, valid_varying, hc_model_specific_parameters
 from .errors import *
-from .io import get_logger
-from .utilities import varying_iterator, count_variations
+from .logger import get_logger
+from .utils import varying_iterator, count_variations
 
 
 class ParamSequence(Mapping):
@@ -22,15 +20,6 @@ class ParamSequence(Mapping):
 
         self.num_sim, self.num_varying = count_variations(self.config)
         self.single_sim = self.num_sim == 1
-
-    def get_pulse(self, key):
-        return self.config["pulse"][key]
-
-    def get_fiber(self, key):
-        return self.config["fiber"][key]
-
-    def get_simulation(self, key):
-        return self.config["pulse"][key]
 
     def __iter__(self) -> Iterator[Tuple[list, dict]]:
         """iterates through all possible parameters, yielding a config as welle as a flattened
@@ -46,6 +35,32 @@ class ParamSequence(Mapping):
 
     def __str__(self) -> str:
         return f"dispatcher generated from config {self.name}"
+
+
+class RecoveryParamSequence(ParamSequence):
+    def __init__(self, config, task_id):
+        super().__init__(config)
+        self.id = task_id
+        for sub_folder in io.get_data_subfolders(io.get_data_folder(self.id)):
+            if io.propagation_completed(sub_folder, config["simulation"]["z_num"]):
+                self.num_sim -= 1
+        self.single_sim = self.num_sim == 1
+
+    def __iter__(self) -> Iterator[Tuple[list, dict]]:
+        for varying_only, full_config in varying_iterator(self.config):
+            sub_folder = os.path.join(
+                io.get_data_folder(self.id), utils.format_varying_list(varying_only)
+            )
+
+            print(f"{io.propagation_initiated(sub_folder)=}, {sub_folder=}")
+            continue
+
+            if not io.propagation_initiated(vary_str):
+                yield varying_only, compute_init_parameters(full_config)
+            elif not io.propagation_completed(vary_str):
+                yield varying_only, recover_params(full_config, varying_only, self.id)
+            else:
+                continue
 
 
 def wspace(t, t_num=0):
@@ -356,6 +371,18 @@ def ensure_consistency(config):
     return config
 
 
+def recover_params(params: dict, varying_only: List[Tuple[str, Any]], task_id: int):
+    print("RECOVERING PARAMETERS")
+    params = compute_init_parameters(params)
+    vary_str = utils.format_varying_list(varying_only)
+    path = os.path.join(io.get_data_folder(task_id), vary_str)
+    num, last_spectrum = io.load_last_spectrum(path)
+    params["spec_0"] = last_spectrum
+    params["field_0"] = np.fft.ifft(last_spectrum)
+    params["recovery_last_stored"] = num
+    params["cons_qty"] = np.load(os.path.join(path, "cons_qty.npy"))
+    return params
+
 
 def compute_init_parameters(config):
     """computes all derived values from a config dictionary
@@ -364,6 +391,7 @@ def compute_init_parameters(config):
     ----------
     config : dict
         a configuration dictionary containing the pulse, fiber and simulation sections with no varying parameter.
+        a flattened parameters dictionary may be provided instead
         Note : checking the validity of the configuration shall be done before calling this function.
 
     Returns
@@ -381,6 +409,12 @@ def compute_init_parameters(config):
             params[key] = value
 
     params = _generate_sim_grid(params)
+    if "step_size" in params:
+        params["error_ok"] = params["step_size"]
+        params["adapt_step_size"] = False
+    else:
+        params["error_ok"] = params["tolerated_error"]
+        params["adapt_step_size"] = True
 
     # FIBER
     params["interp_range"] = _interp_range(
@@ -434,6 +468,8 @@ def compute_init_parameters(config):
         params["field_0"] = params["field_0"] + pulse.shot_noise(
             params["w_c"], params["w0"], params["time_window"], params["dt"]
         )
+
+    params["spec_0"] = np.fft.fft(params["field_0"])
 
     return params
 
@@ -506,10 +542,13 @@ def _generate_sim_grid(params):
     dict
         updated parameter dictionary
     """
-    t = tspace(
-        time_window=params.get("time_window", None),
-        t_num=params.get("t_num", None),
-        dt=params.get("dt", None),
+    t = params.get(
+        "t",
+        tspace(
+            time_window=params.get("time_window", None),
+            t_num=params.get("t_num", None),
+            dt=params.get("dt", None),
+        ),
     )
     params["t"] = t
     params["time_window"] = length(t)
@@ -524,207 +563,8 @@ def _generate_sim_grid(params):
     params["w_power_fact"] = [power_fact(w_c, k) for k in range(2, 11)]
 
     params["z_targets"] = np.linspace(0, params["length"], params["z_num"])
-    params["store_num"] = len(params["z_targets"])
 
     return params
-
-
-# def compute_init_parameters_old(dictionary):
-#     """
-#     computes the initial parameters required and sorts them in 3 categories : simulations, pulse and fiber
-
-#     Parameters
-#     ----------
-#     dictionary : dict, optional
-#         dictionary containing parameters for a single simulation
-
-#     Returns
-#     -------
-#     params : dict
-#         dictionary of parameters
-
-#     Note
-#     ----
-
-#     Parameter computation occurs in 3 different stages
-#         Simulation-specific parameters
-#         Fiber-specific parameters
-#         Initial pulse parameters
-#     """
-
-#     logger = state.CurrentLogger
-
-#     param_dico = dictionary.copy()
-
-#     if "name" not in param_dico:
-#         param_dico["name"] = "untitled_parameters"
-
-#     # convert units
-#     param_dico = units.standardize_dictionary(param_dico)
-
-#     #### SIMULATION SPECIFIC VALUES
-
-#     # time/frequency grid
-#     lambda0 = param_dico["lambda0"]
-#     t = tspace(
-#         T=param_dico.get("T", None), t_num=param_dico.get("nt", None), dt=param_dico.get("dt", None)
-#     )  # time grid
-#     w_c = wspace(t)
-#     w0 = units.m(lambda0)
-#     param_dico["T"] = length(t)
-#     param_dico["dt"] = t[1] - t[0]
-#     param_dico["nt"] = len(t)
-#     param_dico["w0"] = w0
-#     param_dico["w_c"] = w_c
-#     param_dico["w"] = w_c + w0
-#     param_dico["t"] = t
-
-#     # precompute (w - w0)^k / k!
-#     param_dico["w_power_fact"] = [power_fact(w_c, k) for k in range(2, 11)]
-
-#     logger.log(
-#         f"time window : {1e15*param_dico['T']:.1f}fs with {1e15*param_dico['dt']:.1f}fs resolution"
-#     )
-#     logger.log(
-#         f"wl window : {units.nm.inv(np.max(param_dico['w']))}nm to {units.nm.inv(np.min(param_dico['w'][param_dico['w'] > 0]))}nm"
-#     )
-
-#     # High frequencies can be a problem
-#     # We can ignore them with a lower_wavelength_interp_limit parameter
-#     if units.nm.inv(np.max(w_c + w0)) < 450 and "lower_wavelength_interp_limit" not in param_dico:
-#         pass
-
-#     if "lower_wavelength_interp_limit" in param_dico:
-#         lower_wavelength_interp_limit = units.nm(param_dico["lower_wavelength_interp_limit"])
-#         logger.log(
-#             f"ignoring wavelength below {lower_wavelength_interp_limit} for dispersion and photon number computation"
-#         )
-#         del param_dico["lower_wavelength_interp_limit"]
-#     else:
-#         lower_wavelength_interp_limit = np.inf
-
-#     #### FIBER PARAMETERS
-
-#     # Unify data whether we want spectra stored at certain places or just
-#     # a certain number of them uniformly spaced
-#     if "z_targets" not in param_dico:
-#         param_dico["z_targets"] = np.linspace(0, 1, state.default_z_target_size)
-#     else:
-#         param_dico["z_targets"] = sanitize_z_targets(param_dico["z_targets"])
-#     param_dico["store_num"] = len(param_dico["z_targets"])
-
-#     # Dispersion parameters of the fiber, as well as gamma
-#     if "interp_range" not in param_dico:
-
-#         # the interpolation range of the dispersion polynomial stops exactly
-#         # at the boundary of the frequency window we consider
-#         param_dico["interp_range"] = [
-#             units.nm.inv(max(np.max(w_c + w0), units.nm(lower_wavelength_interp_limit))),
-#             1900,
-#         ]
-
-#     if "beta" in param_dico:
-#         param_dico["beta"] = np.array(param_dico["beta"])
-#         temp_gamma = 0
-#         param_dico["dynamic_dispersion"] = False
-#     else:
-#         param_dico["dynamic_dispersion"] = fiber.is_dynamic_dispersion(param_dico)
-#         param_dico["beta"], temp_gamma = fiber.dispersion_central(
-#             param_dico.get("fiber_model", "PCF"), param_dico
-#         )
-#         if param_dico["dynamic_dispersion"]:
-#             param_dico["gamma_func"] = temp_gamma
-#             param_dico["beta_func"] = param_dico["beta"]
-#             param_dico["beta"] = param_dico["beta_func"](0)
-#             temp_gamma = temp_gamma(0)
-
-#     if "gamma" not in param_dico:
-#         param_dico["gamma"] = temp_gamma
-#         logger.log(f"computed gamma coefficient of {temp_gamma:.2e}")
-
-#     # Raman response
-#     if "raman" in param_dico["behaviors"]:
-#         param_dico["hr_w"] = fiber.delayed_raman_w(
-#             t, param_dico["dt"], param_dico.get("raman_type", "stolen")
-#         )
-
-#     #### PULSE PARAMETERS
-
-#     # Convert if pulse energy is given
-#     if "E0" in param_dico:
-#         param_dico["P0"] = pulse.E0_to_P0(
-#             param_dico["E0"], param_dico["T0_FWHM"], param_dico.get("pulse_shape", "gaussian")
-#         )
-#         logger.log(
-#             f"Pulse energy of {1e6 * param_dico['E0']:.2f} microjoules converted to peak power of {1e-3 * param_dico['P0']:.0f}kW."
-#         )
-
-#     # Soliton Number
-#     param_dico["t0"] = (
-#         param_dico["T0_FWHM"] * pulse.fwhm_to_T0_fac[param_dico.get("pulse_shape", "gaussian")]
-#     )
-#     if "N" in param_dico:
-#         param_dico["P0"] = (
-#             param_dico["N"] ** 2
-#             * np.abs(param_dico["beta"][0])
-#             / (param_dico["gamma"] * param_dico["t0"] ** 2)
-#         )
-
-#         logger.log(
-#             "Pump power adjusted to {:.2f} W to match solition number {}".format(
-#                 param_dico["P0"], param_dico["N"]
-#             )
-#         )
-#     else:
-#         param_dico["N"] = np.sqrt(
-#             param_dico["P0"]
-#             * param_dico["gamma"]
-#             * param_dico["t0"] ** 2
-#             / np.abs(param_dico["beta"][0])
-#         )
-#         logger.log("Soliton number : {:.2f}".format(param_dico["N"]))
-
-#     # Other caracteristic quantities
-#     param_dico["L_D"] = param_dico["t0"] ** 2 / np.abs(param_dico["beta"][0])
-#     param_dico["L_NL"] = 1 / (param_dico["gamma"] * param_dico["P0"])
-#     param_dico["L_sol"] = pi / 2 * param_dico["L_D"]
-
-#     # Technical noise
-#     if "delta_I" in param_dico:
-#         if param_dico["delta_I"] > 0:
-#             logger.log(f"intensity noise of {param_dico['delta_I']}")
-#             delta_int, delta_T0 = pulse.technical_noise(param_dico["delta_I"])
-#             param_dico["P0"] *= delta_int
-#             param_dico["t0"] *= delta_T0
-#             param_dico["T0_FWHM"] *= delta_T0
-
-#     # Initial field
-#     field_0 = np.zeros(param_dico["nt"], dtype="complex")
-
-#     # check validity if an array is given, otherwise compute it according to given values
-#     if "field_0" in param_dico:
-#         if isinstance(param_dico["field_0"], str):
-#             field_0 = evaluate_field_equation(param_dico["field_0"], **param_dico)
-#         elif len(param_dico["field_0"]) != param_dico["nt"] or not isinstance(
-#             param_dico["field_0"], (tuple, list, np.ndarray)
-#         ):
-#             raise ValueError(
-#                 "initial field is given but doesn't match size and type with the time array"
-#             )
-#     else:
-#         shape = param_dico.get("pulse_shape", "gaussian")
-#         if shape.lower() == "gaussian":
-#             field_0 = pulse.gauss_pulse(param_dico["t"], param_dico["T0_FWHM"], param_dico["P0"])
-#         elif shape.lower() == "sech":
-#             field_0 = pulse.sech_pulse(param_dico["t"], param_dico["T0_FWHM"], param_dico["P0"])
-
-#     # Shot noise
-#     if "q_noise" in param_dico["behaviors"]:
-#         field_0 = field_0 + pulse.shot_noise(w_c, w0, param_dico["T"], param_dico["dt"])
-
-#     param_dico["field_0"] = np.array(field_0, dtype="complex")
-
-#     return param_dico
 
 
 def sanitize_z_targets(z_targets):
@@ -744,7 +584,7 @@ def sanitize_z_targets(z_targets):
         z_targets : list (mutability is important)
     """
     if isinstance(z_targets, (float, int)):
-        z_targets = np.linspace(0, z_targets, state.default_z_target_size)
+        z_targets = np.linspace(0, z_targets, defaults.default_parameters["length"])
     else:
         z_targets = np.array(z_targets).flatten()
 

@@ -103,7 +103,7 @@ valid_param_types = dict(
         he_mode=he_mode,
         fit_parameters=fit_parameters,
         beta=beta,
-        model=string(["pcf", "marcatili", "marcatili_adjusted", "hasan"]),
+        model=string(["pcf", "marcatili", "marcatili_adjusted", "hasan", "custom"]),
         length=num,
         capillary_num=integer,
         capillary_outer_d=num,
@@ -144,6 +144,7 @@ valid_param_types = dict(
         step_size=num,
         lower_wavelength_interp_limit=num,
         upper_wavelength_interp_limit=num,
+        frep=num,
     ),
 )
 
@@ -193,3 +194,4 @@ valid_varying = dict(
 
 
 TMP_FOLDER_KEY_BASE = "SCGENERATOR_TMP"
+PARAM_SEPARATOR = " "

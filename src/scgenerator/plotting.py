@@ -6,9 +6,78 @@ import numpy as np
 from matplotlib.colors import ListedColormap
 from scipy.interpolate import UnivariateSpline
 
-from . import io, math, state
+from . import io, math
 from .math import abs2, make_uniform_1D, span
 from .physics import pulse, units
+from .defaults import default_plotting as defaults
+
+
+def plot_setup(
+    folder_name=None,
+    file_name=None,
+    file_type="png",
+    figsize=defaults["figsize"],
+    params=None,
+    mode="default",
+):
+    """It should return :
+    - a folder_name
+    - a file name
+    - a fig
+    - an axis
+    """
+    file_name = defaults["name"] if file_name is None else file_name
+
+    if params is not None:
+        folder_name = params.get("plot.folder_name", folder_name)
+        file_name = params.get("plot.file_name", file_name)
+        file_type = params.get("plot.file_type", file_type)
+        figsize = params.get("plot.figsize", figsize)
+
+    # ensure output folder_name exists
+    folder_name, file_name = (
+        os.path.split(file_name)
+        if folder_name is None
+        else (folder_name, os.path.split(file_name)[1])
+    )
+    folder_name = os.path.join(io.Paths.get("plots"), folder_name)
+    if not os.path.exists(os.path.abspath(folder_name)):
+        os.makedirs(os.path.abspath(folder_name))
+
+    # ensure no overwrite
+    ind = 0
+    while os.path.exists(os.path.join(folder_name, file_name + "_" + str(ind) + "." + file_type)):
+        ind += 1
+    file_name = file_name + "_" + str(ind) + "." + file_type
+
+    if mode == "default":
+        fig, ax = plt.subplots(figsize=figsize)
+    elif mode == "coherence":
+        n = defaults["avg_main_to_coherence_ratio"]
+        gs1 = plt.GridSpec(n + 1, 1, hspace=0.4)
+        fig = plt.figure(figsize=defaults["figsize"])
+        top = fig.add_subplot(gs1[:n])
+        top.tick_params(labelbottom=False)
+        bot = fig.add_subplot(gs1[n], sharex=top)
+
+        bot.set_ylim(-0.1, 1.1)
+        bot.set_ylabel(r"|$g_{12}$|")
+        ax = (top, bot)
+    elif mode == "coherence_T":
+        n = defaults["avg_main_to_coherence_ratio"]
+        gs1 = plt.GridSpec(1, n + 1, wspace=0.4)
+        fig = plt.figure(figsize=defaults["default_figsize"])
+        top = fig.add_subplot(gs1[:n])
+        top.tick_params(labelleft=False, left=False, right=True)
+        bot = fig.add_subplot(gs1[n], sharey=top)
+
+        bot.set_xlim(1.1, -0.1)
+        bot.set_xlabel(r"|$g_{12}$|")
+        ax = (top, bot)
+    else:
+        raise ValueError(f"mode {mode} not understood")
+
+    return folder_name, file_name, fig, ax
 
 
 def draw_across(ax1, xy1, ax2, xy2, clip_on=False, **kwargs):
@@ -44,7 +113,13 @@ def zoom(ax, zoom_ax, clip_on=False, **kwargs):
 
 
 def create_zoom_axis(
-    axis, xlim, ylim=None, width_ratios=[1, 1, 1], height_ratios=[1, 1, 1], frame_style=dict(c="k", lw=0.5), plot=True
+    axis,
+    xlim,
+    ylim=None,
+    width_ratios=[1, 1, 1],
+    height_ratios=[1, 1, 1],
+    frame_style=dict(c="k", lw=0.5),
+    plot=True,
 ):
     """creates a zoomed in plot inside a plot. Should be called as a last step as parent axis limits will be locked
     Parameters
@@ -68,7 +143,13 @@ def create_zoom_axis(
 
     # set up the axis
     grid = gs.GridSpecFromSubplotSpec(
-        3, 3, subplot_spec=axis, width_ratios=width_ratios, height_ratios=height_ratios, hspace=0, wspace=0
+        3,
+        3,
+        subplot_spec=axis,
+        width_ratios=width_ratios,
+        height_ratios=height_ratios,
+        hspace=0,
+        wspace=0,
     )
     inset = axis.get_figure().add_subplot(grid[1, 1])
     width_ratios = np.cumsum(np.array(width_ratios) / np.sum(width_ratios))
@@ -82,7 +163,9 @@ def create_zoom_axis(
             xdata = line.get_xdata()
             xdata, ind, _ = units.sort_axis(xdata, (*xlim, units.s))
             ydata = line.get_ydata()[ind]
-            inset.plot(xdata, ydata, c=line.get_color(), ls=line.get_linestyle(), lw=line.get_linewidth())
+            inset.plot(
+                xdata, ydata, c=line.get_color(), ls=line.get_linestyle(), lw=line.get_linewidth()
+            )
         inset.set_xlim(xlim)
         if ylim is not None:
             inset.set_ylim(ylim)
@@ -177,8 +260,8 @@ def _finish_plot_2D(
 
     # apply log transform if required
     if log != False:
-        vmax = state.plot_default_vmax if vmax is None else vmax
-        vmin = state.plot_default_vmin if vmin is None else vmin
+        vmax = defaults["vmax"] if vmax is None else vmax
+        vmin = defaults["vmin"] if vmin is None else vmin
         if isinstance(log, (float, int)) and log != True:
             values = units.to_log(values, ref=log)
 
@@ -204,7 +287,7 @@ def _finish_plot_2D(
                 _finish_plot_2D.ref = ref
 
             values = units.to_log(values, ref=ref)
-    cmap = state.plot_default_cmap if cmap is None else cmap
+    cmap = defaults["cmap"] if cmap is None else cmap
 
     is_new_plot = ax is None
     cbar_ax = None
@@ -213,7 +296,9 @@ def _finish_plot_2D(
 
     folder_name = ""
     if is_new_plot:
-        folder_name, file_name, fig, ax = io.plot_setup(file_name=file_name, file_type=file_type, params=params)
+        folder_name, file_name, fig, ax = io.plot_setup(
+            file_name=file_name, file_type=file_type, params=params
+        )
     else:
         fig = ax.get_figure()
 
@@ -238,7 +323,7 @@ def _finish_plot_2D(
     ax.set_xlim(*ext_x)
     ax.set_ylim(*ext_y)
 
-    interpolation = params.get("plot.interpolation", state.plot_default_2D_interpolation)
+    interpolation = params.get("plot.interpolation", defaults["interpolation_2D"])
     im = ax.imshow(
         values,
         extent=[ext_x[0] - dx / 2, ext_x[1] + dx / 2, ext_y[0] - dy / 2, ext_y[1] + dy / 2],
@@ -346,7 +431,9 @@ def plot_spectrogram(
     new_f, ind_f, _ = units.sort_axis(params["w"], f_range)
     values = spec[ind_t][:, ind_f]
     if f_range[2].type == "WL":
-        values = np.apply_along_axis(units.to_WL, 1, values, params["frep"], units.m(f_range[2].inv(new_f)))
+        values = np.apply_along_axis(
+            units.to_WL, 1, values, params["frep"], units.m(f_range[2].inv(new_f))
+        )
         values = np.apply_along_axis(make_uniform_1D, 1, values, new_f)
 
     if time_axis == 0:
@@ -458,7 +545,9 @@ def plot_results_2D(
     if plt_range[2].type == "WL":
         if is_spectrum:
             values = np.apply_along_axis(units.to_WL, 1, values, params.get("frep", 1), x_axis)
-        values = np.array([make_uniform_1D(v, x_axis, n=len(x_axis), method="linear") for v in values])
+        values = np.array(
+            [make_uniform_1D(v, x_axis, n=len(x_axis), method="linear") for v in values]
+        )
 
     return _finish_plot_2D(
         values,
@@ -581,8 +670,8 @@ def plot_results_1D(
         pass
     else:
         ylabel = "normalized intensity (dB)" if ylabel is None else ylabel
-        vmax = state.plot_default_vmax_with_headroom if vmax is None else vmax
-        vmin = state.plot_default_vmin if vmin is None else vmin
+        vmax = defaults["vmax_with_headroom"] if vmax is None else vmax
+        vmin = defaults["vmin"] if vmin is None else vmin
         if isinstance(log, (float, int)) and log != True:
             values = units.to_log(values, ref=log)
         else:
@@ -592,7 +681,9 @@ def plot_results_1D(
 
     folder_name = ""
     if is_new_plot:
-        folder_name, file_name, fig, ax = io.plot_setup(file_name=file_name, file_type=file_type, params=params)
+        folder_name, file_name, fig, ax = io.plot_setup(
+            file_name=file_name, file_type=file_type, params=params
+        )
     else:
         fig = ax.get_figure()
     if transpose:
@@ -725,7 +816,9 @@ def plot_avg(
     # change the resolution
     if isinstance(spacing, float):
         new_x_axis = np.linspace(*span(x_axis), int(len(x_axis) / spacing))
-        values = np.array([UnivariateSpline(x_axis, value, k=4, s=0)(new_x_axis) for value in values])
+        values = np.array(
+            [UnivariateSpline(x_axis, value, k=4, s=0)(new_x_axis) for value in values]
+        )
         if add_coherence:
             coherence = UnivariateSpline(x_axis, coherence, k=4, s=0)(new_x_axis)
         mean_values = np.mean(values, axis=0)
@@ -740,8 +833,8 @@ def plot_avg(
     # apply log transform if required
     if log != False:
         ylabel = "normalized intensity (dB)" if ylabel is None else ylabel
-        vmax = state.plot_default_vmax_with_headroom if vmax is None else vmax
-        vmin = state.plot_default_vmin if vmin is None else vmin
+        vmax = defaults["vmax_with_headroom"] if vmax is None else vmax
+        vmin = defaults["vmin"] if vmin is None else vmin
         if isinstance(log, (float, int)) and log != True:
             ref = log
         else:
@@ -756,7 +849,9 @@ def plot_avg(
                 file_name=file_name, file_type=file_type, params=params, mode=mode
             )
         else:
-            folder_name, file_name, fig, top = io.plot_setup(file_name=file_name, file_type=file_type, params=params)
+            folder_name, file_name, fig, top = io.plot_setup(
+                file_name=file_name, file_type=file_type, params=params
+            )
             bot = top
     else:
         if isinstance(ax, (tuple, list)):
@@ -775,15 +870,15 @@ def plot_avg(
 
     # Actual Plotting
 
-    gray_style = state.plot_muted_style
-    highlighted_style = state.plot_highlighted_style
+    gray_style = defaults["muted_style"]
+    highlighted_style = defaults["highlighted_style"]
 
     if transpose:
         for value in values:
             top.plot(value, x_axis, **gray_style)
         top.plot(mean_values, x_axis, **highlighted_style)
         if add_coherence:
-            bot.plot(coherence, x_axis, c=state.plot_default_color_cycle[0])
+            bot.plot(coherence, x_axis, c=defaults["color_cycle"][0])
 
         top.set_xlim(left=vmax, right=vmin)
         top.yaxis.tick_right()
@@ -798,7 +893,7 @@ def plot_avg(
             top.plot(x_axis, value, **gray_style)
         top.plot(x_axis, mean_values, **highlighted_style)
         if add_coherence:
-            bot.plot(x_axis, coherence, c=state.plot_default_color_cycle[0])
+            bot.plot(x_axis, coherence, c=defaults["color_cycle"][0])
 
         top.set_ylim(bottom=vmin, top=vmax)
         top.set_ylabel(ylabel)
@@ -806,8 +901,11 @@ def plot_avg(
         bot.set_xlabel(plt_range[2].label)
         bot.set_xlim(*ext)
 
-    custom_lines = [plt.Line2D([0], [0], lw=2, c=gray_style["c"]), plt.Line2D([0], [0], lw=2, c=highlighted_style["c"])]
-    line_labels = state.plot_avg_default_line_labels if line_labels is None else line_labels
+    custom_lines = [
+        plt.Line2D([0], [0], lw=2, c=gray_style["c"]),
+        plt.Line2D([0], [0], lw=2, c=highlighted_style["c"]),
+    ]
+    line_labels = defaults["avg_line_labels"] if line_labels is None else line_labels
     line_labels = list(line_labels)
 
     if not is_new_plot:
@@ -868,7 +966,9 @@ def prepare_plot_1D(values, plt_range, x_axis, yscaling=1, spacing=1, frep=80e6)
 
     if isinstance(spacing, float):
         new_x_axis = np.linspace(*span(x_axis), int(len(x_axis) / spacing))
-        values = np.array([UnivariateSpline(x_axis, value, k=4, s=0)(new_x_axis) for value in values])
+        values = np.array(
+            [UnivariateSpline(x_axis, value, k=4, s=0)(new_x_axis) for value in values]
+        )
         x_axis = new_x_axis
     elif isinstance(spacing, int) and spacing > 1:
         values = values[:, ::spacing]
@@ -925,3 +1025,33 @@ def white_bottom_cmap(name, start=0, end=1, new_name="white_background", c_back=
     for i in range(4):
         bottom[:, i] = np.linspace(c_back[i], top(start)[i], n_bottom)
     return ListedColormap(np.vstack((bottom, top(np.linspace(start, end, 1024)))), name=new_name)
+
+
+def default_marker_style(k):
+    """returns a style dictionary
+
+    Parameters
+    ----------
+    k : int
+        index in the cycle
+
+    Returns
+    -------
+    dict
+        style dictionnary
+    """
+    return dict(
+        marker=defaults["markers"][k],
+        markerfacecolor="none",
+        linestyle=":",
+        lw=1,
+        c=defaults["color_cycle"][k],
+    )
+
+
+def arrowstyle(direction=1, color="white"):
+    return dict(
+        arrowprops=dict(arrowstyle="->", connectionstyle=f"arc3,rad={direction*0.3}", color=color),
+        color=color,
+        backgroundcolor=(0.5, 0.5, 0.5, 0.5),
+    )
