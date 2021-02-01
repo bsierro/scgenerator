@@ -20,7 +20,7 @@ soliton_num = [1, 2, 3, 4]
 
 [simulation]
 behaviors = ["spm", "raman", "ss"]
-parallel = 2
+parallel = true
 raman_type = "agrawal"
 repeat = 4
 t_num = 16384

@@ -132,7 +132,7 @@ valid_param_types = dict(
     ),
     simulation=dict(
         behaviors=behaviors,
-        parallel=integer,
+        parallel=boolean,
         raman_type=string(["measured", "agrawal", "stolen"]),
         ideal_gas=boolean,
         repeat=integer,

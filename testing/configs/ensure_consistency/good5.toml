@@ -20,7 +20,7 @@ width = [50e-15, 100e-15, 200e-15]
 
 [simulation]
 behaviors = ["spm", "raman", "ss"]
-parallel = 2
+parallel = true
 raman_type = "agrawal"
 repeat = 4
 t_num = 16384

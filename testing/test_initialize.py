@@ -22,33 +22,33 @@ class TestInitializeMethods(unittest.TestCase):
     def test_validate_types(self):
         conf = lambda s: load_conf("validate_types/" + s)
         with self.assertRaisesRegex(TypeError, "belong"):
-            init.validate_types(conf("bad1"))
+            init._validate_types(conf("bad1"))
 
         with self.assertRaisesRegex(TypeError, "valid list of behaviors"):
-            init.validate_types(conf("bad2"))
+            init._validate_types(conf("bad2"))
 
         with self.assertRaisesRegex(TypeError, "single, real, non-negative number"):
-            init.validate_types(conf("bad3"))
+            init._validate_types(conf("bad3"))
 
         with self.assertRaisesRegex(TypeError, "'parallel' is not a valid variable parameter"):
-            init.validate_types(conf("bad4"))
+            init._validate_types(conf("bad4"))
 
         with self.assertRaisesRegex(TypeError, "Varying parameters should be specified in a list"):
-            init.validate_types(conf("bad5"))
+            init._validate_types(conf("bad5"))
 
         with self.assertRaisesRegex(
             TypeError,
             "value '0' of type <class 'int'> for key 'repeat' is not valid, must be a strictly positive integer",
         ):
-            init.validate_types(conf("bad6"))
+            init._validate_types(conf("bad6"))
 
         with self.assertRaisesRegex(
             ValueError,
             r"Varying parameters lists should contain at least 1 element",
         ):
-            init.ensure_consistency(conf("bad7"))
+            init._ensure_consistency(conf("bad7"))
 
-        self.assertIsNone(init.validate_types(conf("good")))
+        self.assertIsNone(init._validate_types(conf("good")))
 
     def test_ensure_consistency(self):
         conf = lambda s: load_conf("ensure_consistency/" + s)
@@ -56,68 +56,68 @@ class TestInitializeMethods(unittest.TestCase):
             MissingParameterError,
             r"1 of '\['t0', 'width'\]' is required and no defaults have been set",
         ):
-            init.ensure_consistency(conf("bad1"))
+            init._ensure_consistency(conf("bad1"))
 
         with self.assertRaisesRegex(
             MissingParameterError,
             r"1 of '\['power', 'energy', 'width', 't0'\]' is required when 'soliton_num' is specified and no defaults have been set",
         ):
-            init.ensure_consistency(conf("bad2"))
+            init._ensure_consistency(conf("bad2"))
 
         with self.assertRaisesRegex(
             MissingParameterError,
             r"2 of '\['dt', 't_num', 'time_window'\]' are required and no defaults have been set",
         ):
-            init.ensure_consistency(conf("bad3"))
+            init._ensure_consistency(conf("bad3"))
 
         with self.assertRaisesRegex(
             DuplicateParameterError,
             r"got multiple values for parameter 'width'",
         ):
-            init.ensure_consistency(conf("bad4"))
+            init._ensure_consistency(conf("bad4"))
 
         with self.assertRaisesRegex(
             MissingParameterError,
             r"'capillary_thickness' is a required parameter for fiber model 'hasan' and no defaults have been set",
         ):
-            init.ensure_consistency(conf("bad5"))
+            init._ensure_consistency(conf("bad5"))
 
         with self.assertRaisesRegex(
             MissingParameterError,
             r"1 of '\['capillary_spacing', 'capillary_outer_d'\]' is required for fiber model 'hasan' and no defaults have been set",
         ):
-            init.ensure_consistency(conf("bad6"))
+            init._ensure_consistency(conf("bad6"))
 
         self.assertLessEqual(
-            {"model": "pcf"}.items(), init.ensure_consistency(conf("good1"))["fiber"].items()
+            {"model": "pcf"}.items(), init._ensure_consistency(conf("good1"))["fiber"].items()
         )
 
-        self.assertNotIn("gas", init.ensure_consistency(conf("good1")))
+        self.assertNotIn("gas", init._ensure_consistency(conf("good1")))
 
-        self.assertNotIn("gamma", init.ensure_consistency(conf("good4"))["fiber"])
+        self.assertNotIn("gamma", init._ensure_consistency(conf("good4"))["fiber"])
 
         self.assertLessEqual(
             {"raman_type": "agrawal"}.items(),
-            init.ensure_consistency(conf("good2"))["simulation"].items(),
+            init._ensure_consistency(conf("good2"))["simulation"].items(),
         )
 
         self.assertLessEqual(
-            {"name": "no name"}.items(), init.ensure_consistency(conf("good3")).items()
+            {"name": "no name"}.items(), init._ensure_consistency(conf("good3")).items()
         )
 
         self.assertLessEqual(
             {"capillary_nested": 0, "capillary_resonance_strengths": []}.items(),
-            init.ensure_consistency(conf("good4"))["fiber"].items(),
+            init._ensure_consistency(conf("good4"))["fiber"].items(),
         )
 
         self.assertLessEqual(
             dict(he_mode=(1, 1)).items(),
-            init.ensure_consistency(conf("good5"))["fiber"].items(),
+            init._ensure_consistency(conf("good5"))["fiber"].items(),
         )
 
         self.assertLessEqual(
             dict(temperature=300, pressure=1e5, gas_name="vacuum", plasma_density=0).items(),
-            init.ensure_consistency(conf("good5"))["gas"].items(),
+            init._ensure_consistency(conf("good5"))["gas"].items(),
         )
 
         self.assertLessEqual(
@@ -127,17 +127,8 @@ class TestInitializeMethods(unittest.TestCase):
                 lower_wavelength_interp_limit=0,
                 upper_wavelength_interp_limit=1900e-9,
             ).items(),
-            init.ensure_consistency(conf("good6"))["simulation"].items(),
+            init._ensure_consistency(conf("good6"))["simulation"].items(),
         )
-
-    def test_single_sim(self):
-        conf = conf_maker("single_sim")
-
-        self.assertTrue(init.single_sim(conf("true1")))
-
-        self.assertFalse(init.single_sim(conf("false1")))
-
-        self.assertFalse(init.single_sim(conf("false2")))
 
     # def test_compute_init_parameters(self):
     #     conf = lambda s: load_conf("compute_init_parameters/" + s)
@@ -145,11 +136,5 @@ class TestInitializeMethods(unittest.TestCase):
 
 if __name__ == "__main__":
     conf = conf_maker("validate_types")
-    config = conf("good")
-    pprint(config)
-    config = init.ensure_consistency(config)
-    pprint(config)
-    params = init.compute_init_parameters(config)
-    pprint(params)
 
     unittest.main()

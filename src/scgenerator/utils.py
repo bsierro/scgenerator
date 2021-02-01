@@ -12,6 +12,7 @@ from typing import Any, Callable, List, Tuple, Union
 
 import numpy as np
 import ray
+from copy import deepcopy
 
 from .const import PARAM_SEPARATOR, valid_varying
 from .logger import get_logger
@@ -98,17 +99,18 @@ class ProgressTracker:
 
 
 def count_variations(config: dict) -> Tuple[int, int]:
-    """returns True if the config specified by the config dict requires only on simulation run"""
-    num = 1
-    varying_params = 0
+    """returns (sim_num, varying_params_num) where sim_num is the total number of simulations required and
+    varying_params_num is the number of distinct parameters that will vary."""
+    sim_num = 1
+    varying_params_num = 0
 
     for section_name in valid_varying:
         for array in config.get(section_name, {}).get("varying", {}).values():
-            num *= len(array)
-            varying_params += 1
+            sim_num *= len(array)
+            varying_params_num += 1
 
-    num *= config["simulation"].get("repeat", 1)
-    return num, varying_params
+    sim_num *= config["simulation"].get("repeat", 1)
+    return sim_num, varying_params_num
 
 
 def format_varying_list(l: List[tuple]):
@@ -121,13 +123,13 @@ def format_varying_list(l: List[tuple]):
     return joints[0].join(str_list)
 
 
-def varying_list_from_path(s: str) -> List[tuple]:
-    s = s.replace("/", "")
-    str_list = s.split(PARAM_SEPARATOR)
-    out = []
-    for i in range(0, len(str_list) // 2 * 2, 2):
-        out.append((str_list[i], get_value(str_list[i + 1])))
-    return out
+# def varying_list_from_path(s: str) -> List[tuple]:
+#     s = s.replace("/", "")
+#     str_list = s.split(PARAM_SEPARATOR)
+#     out = []
+#     for i in range(0, len(str_list) // 2 * 2, 2):
+#         out.append((str_list[i], get_value(str_list[i + 1])))
+#     return out
 
 
 def format_value(value):
@@ -161,9 +163,9 @@ def get_value(s: str):
 
 
 def varying_iterator(config):
+    out = deepcopy(config)
     varying_dict = {
-        section_name: config.get(section_name, {}).pop("varying", {})
-        for section_name in valid_varying
+        section_name: out.get(section_name, {}).pop("varying", {}) for section_name in valid_varying
     }
 
     possible_keys = []
@@ -171,15 +173,13 @@ def varying_iterator(config):
 
     for section_name, section in varying_dict.items():
         for key in section:
-            arr = np.atleast_1d(varying_dict[section_name][key])
-            varying_dict[section_name][key] = arr
+            arr = varying_dict[section_name][key]
             possible_keys.append((section_name, key))
             possible_ranges.append(range(len(arr)))
 
     combinations = itertools.product(*possible_ranges)
 
     for combination in combinations:
-        out = config.copy()
         only_varying = []
         for i, key in enumerate(possible_keys):
             parameter_value = varying_dict[key[0]][key[1]][combination[i]]

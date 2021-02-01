@@ -185,8 +185,8 @@ tolerated_error: float
 step_size: float
     if given, sets a constant step size rather than adapting it.
 
-parallel: int
-    how many parallel simulations to run. default : 1
+parallel: bool
+    whether to run simulations in parallel with the available ressources. default : false
 
 repeat: int
     how many simulations to run per parameter set. default : 1

@@ -24,7 +24,7 @@ wavelength = [835e-9, 830e-9]
 
 [simulation]
 dt = 1e-15
-parallel = 3
+parallel = true
 raman_type = "measured"
 repeat = 4
 t_num = 16384

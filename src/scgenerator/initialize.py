@@ -14,8 +14,7 @@ from .utils import varying_iterator, count_variations
 
 class ParamSequence(Mapping):
     def __init__(self, config):
-        validate_types(config)
-        self.config = ensure_consistency(config)
+        self.config = validate(config)
         self.name = self.config["name"]
 
         self.num_sim, self.num_varying = count_variations(self.config)
@@ -24,8 +23,10 @@ class ParamSequence(Mapping):
     def __iter__(self) -> Iterator[Tuple[list, dict]]:
         """iterates through all possible parameters, yielding a config as welle as a flattened
         computed parameters set each time"""
-        for only_varying, full_config in varying_iterator(self.config):
-            yield only_varying, compute_init_parameters(full_config)
+        for varying_only, full_config in varying_iterator(self.config):
+            for i in range(self["simulation", "repeat"]):
+                varying = varying_only + [("num", i)]
+                yield varying, compute_init_parameters(full_config)
 
     def __len__(self):
         return self.num_sim
@@ -48,19 +49,24 @@ class RecoveryParamSequence(ParamSequence):
 
     def __iter__(self) -> Iterator[Tuple[list, dict]]:
         for varying_only, full_config in varying_iterator(self.config):
-            sub_folder = os.path.join(
-                io.get_data_folder(self.id), utils.format_varying_list(varying_only)
-            )
+            for i in range(self["simulation", "repeat"]):
+                varying = varying_only + [("num", i)]
+                print("varying ", varying_only, i)
+                sub_folder = os.path.join(
+                    io.get_data_folder(self.id), utils.format_varying_list(varying)
+                )
 
-            print(f"{io.propagation_initiated(sub_folder)=}, {sub_folder=}")
-            continue
+                if not io.propagation_initiated(sub_folder):
+                    yield varying, compute_init_parameters(full_config)
+                elif not io.propagation_completed(sub_folder, self.config["simulation"]["z_num"]):
+                    yield varying, recover_params(full_config, varying, self.id)
+                else:
+                    continue
 
-            if not io.propagation_initiated(vary_str):
-                yield varying_only, compute_init_parameters(full_config)
-            elif not io.propagation_completed(vary_str):
-                yield varying_only, recover_params(full_config, varying_only, self.id)
-            else:
-                continue
+
+def validate(config: dict) -> dict:
+    _validate_types(config)
+    return _ensure_consistency(config)
 
 
 def wspace(t, t_num=0):
@@ -142,7 +148,7 @@ def validate_single_parameter(parent, key, value):
     return
 
 
-def validate_types(config):
+def _validate_types(config):
     """validates the data types in the initial config dictionary
 
     Parameters
@@ -331,7 +337,7 @@ def _ensure_consistency_simulation(simulation):
     return simulation
 
 
-def ensure_consistency(config):
+def _ensure_consistency(config):
     """ensure the config dictionary is consistent and that certain parameters are set,
     either by filling in defaults or by raising an error. This is not where new values are calculated.
 
@@ -346,7 +352,7 @@ def ensure_consistency(config):
         the consistent config dict
     """
 
-    validate_types(config)
+    _validate_types(config)
 
     # ensure parameters are not specified multiple times
     for sub_dict in valid_param_types.values():

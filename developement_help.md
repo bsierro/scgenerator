@@ -4,4 +4,3 @@
 - add the necessary logic in the appropriate ```initialize.ensure_consistency``` subfunction
 - optional : add a default value
 - optional : add to valid varying
-- optional : add/update dependency map

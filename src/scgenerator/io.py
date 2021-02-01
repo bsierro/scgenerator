@@ -16,7 +16,7 @@ from .errors import IncompleteDataFolderError
 from .logger import get_logger
 
 
-def load_toml(path):
+def load_toml(path: str):
     """returns a dictionary parsed from the specified toml file"""
     if not path.lower().endswith(".toml"):
         path += ".toml"
@@ -314,7 +314,6 @@ def check_data_integrity(sub_folders: List[str], init_z_num: int):
 
 
 def propagation_initiated(sub_folder) -> bool:
-    print(f"{sub_folder=}")
     if os.path.isdir(sub_folder):
         return find_last_spectrum_file(sub_folder) > 0
     return False
@@ -342,7 +341,7 @@ def propagation_completed(sub_folder: str, init_z_num: int):
     """
     params = load_toml(os.path.join(sub_folder, "params.toml"))
     z_num = params["z_num"]
-    num_spectra = find_last_spectrum_file(sub_folder)
+    num_spectra = find_last_spectrum_file(sub_folder) + 1  # because of zero-indexing
 
     if z_num != init_z_num:
         raise IncompleteDataFolderError(

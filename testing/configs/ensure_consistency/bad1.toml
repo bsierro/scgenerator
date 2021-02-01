@@ -20,7 +20,7 @@ intensity_noise = [0.05e-2, 0.1e-2]
 
 [simulation]
 behaviors = ["spm", "raman", "ss"]
-parallel = 2
+parallel = true
 raman_type = "agrawal"
 repeat = 4
 t_num = 16384

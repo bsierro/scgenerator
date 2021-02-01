@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from typing import List, Tuple
+from typing import List, Tuple, Type
 
 import numpy as np
 from numpy.fft import fft, ifft
@@ -8,6 +8,7 @@ from numpy.fft import fft, ifft
 from .. import initialize, io, utils
 from ..logger import get_logger
 from . import pulse
+from ..errors import IncompleteDataFolderError
 from .fiber import create_non_linear_op, fast_dispersion_op
 
 using_ray = False
@@ -21,6 +22,51 @@ except ModuleNotFoundError:
 
 class RK4IP:
     def __init__(self, sim_params, save_data=False, job_identifier="", task_id=0, n_percent=10):
+        """A 1D solver using 4th order Runge-Kutta in the interaction picture
+
+        Parameters
+        ----------
+        sim_params : dict
+        a flattened parameter dictionary containing :
+            w_c : numpy.ndarray
+                angular frequencies centered around 0 generated with scgenerator.initialize.wspace
+            w0 : float
+                central angular frequency of the pulse
+            w_power_fact : numpy.ndarray
+                precomputed factorial/power operations on w_c (scgenerator.math.power_fact)
+            spec_0 : numpy.ndarray
+                initial spectral envelope as function of w_c
+            z_targets : list
+                target distances
+            length : float
+                length of the fiber
+            beta : numpy.ndarray or Callable[[float], numpy.ndarray]
+                beta coeficients (Taylor expansion of beta(w))
+            gamma : float or Callable[[float], float]
+                non-linear parameter
+            t : numpy.ndarray
+                time
+            dt : float
+                time resolution
+            behaviors : list(str {'ss', 'raman', 'spm'})
+                behaviors to include in the simulation given as a list of strings
+            raman_type : str, optional
+                type of raman modelisation if raman effect is present
+            f_r, hr_w : (opt) arguments of delayed_raman_t (see there for infos)
+            adapt_step_size : bool, optional
+                if True (default), adapts the step size with conserved quantity methode
+            error_ok : float
+            tolerated relative error for the adaptive step size if adaptive
+            step size is turned on, otherwise length of fixed steps in m
+        save_data : bool, optional
+            save calculated spectra to disk, by default False
+        job_identifier : str, optional
+            string  identifying the parameter set, by default ""
+        task_id : int, optional
+            unique identifier of the session, by default 0
+        n_percent : int, optional
+            print/log progress update every n_percent, by default 10
+        """
 
         self.job_identifier = job_identifier
         self.id = task_id
@@ -31,7 +77,7 @@ class RK4IP:
         self.save_data = save_data
         self._extract_params(sim_params)
         self._setup_functions()
-        self.starting_num = sim_params.get("recovery_last_store", 1) - 1
+        self.starting_num = sim_params.get("recovery_last_stored", 0)
         self._setup_sim_parameters()
 
     def _extract_params(self, params):
@@ -79,7 +125,7 @@ class RK4IP:
         # Initial setup of simulation parameters
         self.d_w = self.w_c[1] - self.w_c[0]  # resolution of the frequency grid
         self.z = self.z_targets.pop(0)
-        self.z_stored = [self.z]  # position of each stored spectrum (for display)
+        self.z_stored = list(self.z_targets.copy()[0 : self.starting_num + 1])
 
         self.progress_tracker = utils.ProgressTracker(
             self.z_final, percent_incr=self.n_percent, logger=self.logger
@@ -151,6 +197,7 @@ class RK4IP:
     #         self.initial_h = self.error_ok
 
     def run(self):
+
         # Print introduction
         self.logger.info(
             "Computing {} new spectra, first one at {}m".format(self.store_num, self.z_targets[0])
@@ -312,37 +359,49 @@ class Simulations:
         self.logger = io.get_logger(__name__)
         self.id = int(task_id)
 
-        self.param_seq = param_seq
-        self.name = param_seq.name
+        self.update(param_seq)
+
+        self.name = self.param_seq.name
         self.data_folder = io.get_data_folder(self.id, name_if_new=self.name)
         io.save_toml(os.path.join(self.data_folder, "initial_config.toml"), self.param_seq.config)
 
-        self.using_ray = False
-        self.sim_jobs = 1
+        self.sim_jobs_per_node = 1
 
         self.propagator = RK4IP
 
+    @property
+    def finished_and_complete(self):
+        try:
+            io.check_data_integrity(
+                io.get_data_subfolders(self.data_folder), self.param_seq["simulation", "z_num"]
+            )
+            return True
+        except IncompleteDataFolderError:
+            return False
+
+    def update(self, param_seq):
+        self.param_seq = param_seq
         self.progress_tracker = utils.ProgressTracker(
             len(self.param_seq), percent_incr=1, logger=self.logger
         )
 
     def run(self):
-        for varying_params, params in self.param_seq:
-            for i in range(self.param_seq["simulation", "repeat"]):
-                varying = varying_params + [("num", i)]
-                io.save_parameters(
-                    params,
-                    io.generate_file_path(
-                        "params.toml", self.id, utils.format_varying_list(varying)
-                    ),
-                )
-                self.new_sim(varying, params.copy())
+        self._run_available()
+        self.ensure_finised_and_complete()
 
-        self.finish()
         self.logger.info(f"Merging data...")
-
         self.merge_data()
+
         self.logger.info(f"Finished simulations from config {self.name} !")
+
+    def _run_available(self):
+        for varying, params in self.param_seq:
+            io.save_parameters(
+                params,
+                io.generate_file_path("params.toml", self.id, utils.format_varying_list(varying)),
+            )
+            self.new_sim(varying, params)
+        self.finish()
 
     def new_sim(self, varying_list: List[tuple], params: dict):
         """responsible to launch a new simulation
@@ -360,6 +419,12 @@ class Simulations:
     def finish(self):
         """called once all the simulations are launched."""
         raise NotImplementedError()
+
+    def ensure_finised_and_complete(self):
+        while not self.finished_and_complete:
+            self.logger.warning(f"Something wrong happened, running again to finish simulation")
+            self.update(initialize.RecoveryParamSequence(self.param_seq.config, self.id))
+            self._run_available()
 
     def stop(self):
         raise NotImplementedError()
@@ -380,10 +445,10 @@ class SequencialSimulations(Simulations, available=True, priority=0):
         ).run()
         self.progress_tracker.update()
 
-    def finish(self):
+    def stop(self):
         pass
 
-    def stop(self):
+    def finish(self):
         pass
 
 
@@ -396,22 +461,28 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
 
     def _init_ray(self):
         nodes = ray.nodes()
-        nodes_num = len(nodes)
         self.logger.info(
-            f"{nodes_num} node{'s' if nodes_num > 1 else ''} in the Ray cluster : "
-            + str([node.get("NodeManagerHostname", "unknown") for node in nodes])
+            f"{len(nodes)} node{'s' if len(nodes) > 1 else ''} in the Ray cluster : "
+            + str(
+                [
+                    (node.get("NodeManagerHostname", "unknown"), node.get("Resources", {}))
+                    for node in nodes
+                ]
+            )
         )
 
-        self.sim_jobs = min(self.param_seq.num_sim, self.param_seq["simulation", "parallel"])
         self.propagator = ray.remote(self.propagator).options(
             override_environment_variables=io.get_all_environ()
         )
-
+        self.sim_jobs_per_node = min(
+            self.param_seq.num_sim, self.param_seq["simulation", "parallel"]
+        )
+        self.update_cluster_frequency = 5
         self.jobs = []
         self.actors = {}
 
     def new_sim(self, varying_list: List[tuple], params: dict):
-        while len(self.jobs) >= self.sim_jobs:
+        while len(self.jobs) >= self.sim_jobs_total:
             self._collect_1_job()
 
         v_list_str = utils.format_varying_list(varying_list)
@@ -431,265 +502,60 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
             self._collect_1_job()
 
     def _collect_1_job(self):
-        ready, self.jobs = ray.wait(self.jobs)
-        ray.get(ready)
+        ready, self.jobs = ray.wait(self.jobs, timeout=self.update_cluster_frequency)
+
+        if len(ready) == 0:
+            return
+
+        try:
+            ray.get(ready)
+            self.progress_tracker.update()
+        except Exception as e:
+            self.logger.warning("A problem occured with 1 or more worker :")
+            self.logger.warning(e)
+            ray.kill(self.actors[ready[0].task_id()])
+
         del self.actors[ready[0].task_id()]
-        self.progress_tracker.update()
 
     def stop(self):
         ray.shutdown()
 
+    @property
+    def sim_jobs_total(self):
+        tot_cpus = sum([node.get("Resources", {}).get("CPU", 0) for node in ray.nodes()])
+        return min(self.param_seq.num_sim, tot_cpus)
 
-def new_simulations(config_file: str, task_id: int, data_folder="scgenerator/"):
+
+def new_simulations(
+    config_file: str, task_id: int, data_folder="scgenerator/", Method: Type[Simulations] = None
+):
 
     config = io.load_toml(config_file)
     param_seq = initialize.ParamSequence(config)
 
-    return _new_simulations(param_seq, task_id, data_folder)
+    return _new_simulations(param_seq, task_id, data_folder, Method)
 
 
-def resume_simulations(data_folder: str, task_id: int = 0):
+def resume_simulations(
+    data_folder: str, task_id: int = 0, Method: Type[Simulations] = None
+) -> Simulations:
 
     config = io.load_toml(os.path.join(data_folder, "initial_config.toml"))
     io.set_data_folder(task_id, data_folder)
     param_seq = initialize.RecoveryParamSequence(config, task_id)
 
-    return _new_simulations(param_seq, task_id, data_folder)
+    return _new_simulations(param_seq, task_id, data_folder, Method)
 
 
-def _new_simulations(param_seq: initialize.ParamSequence, task_id, data_folder):
-    if param_seq.num_sim > 1 and param_seq["simulation", "parallel"] > 1 and using_ray:
+def _new_simulations(
+    param_seq: initialize.ParamSequence, task_id, data_folder, Method: Type[Simulations]
+):
+    if Method is not None:
+        return Method(param_seq, task_id, data_folder=data_folder)
+    elif param_seq.num_sim > 1 and param_seq["simulation", "parallel"] and using_ray:
         return Simulations.get_best_method()(param_seq, task_id, data_folder=data_folder)
     else:
         return SequencialSimulations(param_seq, task_id, data_folder=data_folder)
-
-
-def RK4IP_func(sim_params, save_data=False, job_identifier="", task_id=0, n_percent=10):
-    """Computes the spectrum of a pulse as it propagates through a PCF
-
-    Parameters
-    ----------
-        sim_params : a dictionary containing the following :
-            w_c : array
-                angular frequencies centered around 0 generated with scgenerator.initialize.wspace
-            w0 : float
-                central angular frequency of the pulse
-            t : array
-                time
-            dt : float
-                time resolution
-            spec_0 : array
-                initial spectral envelope as function of w_c
-            z_targets : list
-                target distances
-            beta : array
-                beta coeficients (Taylor expansion of beta(w))
-            gamma : float
-                non-linear parameter
-            behaviors : list(str {'ss', 'raman', 'spm'})
-                behaviors to include in the simulation given as a list of strings
-            raman_type : str, optional
-                type of raman modelisation if raman effect is present
-            f_r, hr_w : (opt) arguments of delayed_raman_t (see there for infos)
-            adapt_step_size : bool, optional
-                if True (default), adapts the step size with conserved quantity methode
-            error_ok : float
-                tolerated relative error for the adaptive step size if adaptive
-                step size is turned on, otherwise length of fixed steps in m
-        save_data : bool
-            False : return the spectra (recommended, save manually later if necessary)
-            True : save in a temporary folder and return the folder name
-                   to be used for merging later
-        job_id : int
-            id of this particular simulation
-        param_id : int
-            id corresponding to the set of paramters. Files created with the same param_id will be
-            merged if an indexer is passed (this feature is mainly used for automated parallel simulations
-            using the parallel_simulations function).
-        task_id : int
-            id of the whole program (useful when many python instances run at once). None if not running in parallel
-        n_percent : int, float
-            log message every n_percent of the simulation done
-        pt : scgenerator.progresstracker.ProgressTracker object
-        indexer : indexer object
-        debug_return : bool
-            if True and save_data False, will return photon number and step sizes as well as the spectra.
-    Returns
-    ----------
-        stored_spectra : (z_num, nt) array
-            spectrum aligned on w_c array
-        h_stored : 1D array
-            length of each valid step
-        cons_qty : 1D array
-            conserved quantity at each valid step
-
-    """
-    # DEBUG
-    debug = False
-
-    w_c = sim_params.pop("w_c")
-    w0 = sim_params.pop("w0")
-    w_power_fact = sim_params.pop("w_power_fact")
-    spec_0 = sim_params.pop("spec_0")
-    z_targets = sim_params.pop("z_targets")
-    z_final = sim_params.pop("length")
-    beta = sim_params.pop("beta_func", sim_params.pop("beta"))
-    gamma = sim_params.pop("gamma_func", sim_params.pop("gamma"))
-    behaviors = sim_params.pop("behaviors")
-    raman_type = sim_params.pop("raman_type", "stolen")
-    f_r = sim_params.pop("f_r", 0)
-    hr_w = sim_params.pop("hr_w", None)
-    adapt_step_size = sim_params.pop("adapt_step_size", True)
-    error_ok = sim_params.pop("error_ok")
-    dynamic_dispersion = sim_params.pop("dynamic_dispersion", False)
-    del sim_params
-
-    logger = get_logger(job_identifier)
-
-    # Initial setup of both non linear and linear operators
-    N_func = create_non_linear_op(behaviors, w_c, w0, gamma, raman_type, f_r, hr_w)
-    if dynamic_dispersion:
-        disp = lambda r: fast_dispersion_op(w_c, beta(r), w_power_fact)
-    else:
-        disp = lambda r: fast_dispersion_op(w_c, beta, w_power_fact)
-
-    # Set up which quantity is conserved for adaptive step size
-    if adapt_step_size:
-        if "raman" in behaviors:
-            conserved_quantity_func = pulse.photon_number
-        else:
-            print("energy conserved")
-            conserved_quantity_func = pulse.pulse_energy
-    else:
-        conserved_quantity_func = lambda a, b, c, d: 0
-
-    # making sure to keep only the z that we want
-    z_targets = list(z_targets.copy())
-    z_targets.sort()
-    store_num = len(z_targets)
-
-    # Initial setup of simulation parameters
-    d_w = w_c[1] - w_c[0]  # resolution of the frequency grid
-    z = z_targets.pop(0)
-    z_stored = [z]  # position of each stored spectrum (for display)
-
-    pt = utils.ProgressTracker(z_final, percent_incr=n_percent, logger=logger)
-
-    # Setup initial values for every physical quantity that we want to track
-    current_spectrum = spec_0.copy()
-    stored_spectra = [current_spectrum.copy()]
-    stored_field = [ifft(current_spectrum.copy())]
-    cons_qty = [conserved_quantity_func(current_spectrum, w_c + w0, d_w, gamma), 0]
-    size_fac = 2 ** (1 / 5)
-
-    if save_data:
-        _save_current_spectrum(current_spectrum, cons_qty, 0, task_id, job_identifier)
-
-    # Initial step size
-    if adapt_step_size:
-        h = (z_targets[0] - z) / 2
-    else:
-        h = error_ok
-    newh = h
-
-    # Print introduction
-    logger.info("Computing {} new spectra, first one at {}m".format(store_num, z_targets[0]))
-    pt.set(z)
-
-    # Start of the integration
-    step = 1
-    keep = True  # keep a step
-    store = False  # store a spectrum
-    time_start = datetime.today()
-
-    while z < z_final:
-        h = newh
-        z_ratio = z / z_final
-
-        # Store Exp(h/2 * disp) to be used several times
-        expD = np.exp(h / 2 * disp(z_ratio))
-
-        # RK4 algorithm
-        A_I = expD * current_spectrum
-        k1 = expD * (h * N_func(current_spectrum, z_ratio))
-        k2 = h * N_func(A_I + k1 / 2, z_ratio)
-        k3 = h * N_func(A_I + k2 / 2, z_ratio)
-        k4 = h * N_func(expD * (A_I + k3), z_ratio)
-
-        end_spectrum = expD * (A_I + k1 / 6 + k2 / 3 + k3 / 3) + k4 / 6
-
-        # Check relative error and adjust next step size
-        if adapt_step_size:
-            cons_qty[step] = conserved_quantity_func(end_spectrum, w_c + w0, d_w, gamma)
-            curr_p_change = np.abs(cons_qty[step - 1] - cons_qty[step])
-            cons_qty_change_ok = error_ok * cons_qty[step - 1]
-
-            if curr_p_change > 2 * cons_qty_change_ok:
-                keep = False
-                newh = h / 2
-            elif cons_qty_change_ok < curr_p_change <= 2 * cons_qty_change_ok:
-                keep = True
-                newh = h / size_fac
-            elif curr_p_change < 0.1 * cons_qty_change_ok:
-                keep = True
-                newh = h * size_fac
-            else:
-                keep = True
-                newh = h
-
-        # consider storing anythin only if the step was valid
-        if keep:
-
-            # If step is accepted, z becomes the current position
-            z += h
-            step += 1
-            cons_qty.append(0)
-
-            current_spectrum = end_spectrum.copy()
-
-            # Whether the current spectrum has to be stored depends on previous step
-            if store:
-                pt.suffix = " ({} steps). z = {:.4f}, h = {:.5g}".format(step, z, h)
-                pt.set(z)
-
-                stored_spectra.append(end_spectrum)
-                stored_field.append(ifft(end_spectrum))
-                if save_data:
-                    _save_current_spectrum(
-                        end_spectrum, cons_qty, len(stored_spectra) - 1, task_id, job_identifier
-                    )
-
-                z_stored.append(z)
-                del z_targets[0]
-
-                # No more spectrum to store
-                if len(z_targets) == 0:
-                    break
-                store = False
-
-                # reset the constant step size after a spectrum is stored
-                if not adapt_step_size:
-                    newh = error_ok
-
-            # if the next step goes over a position at which we want to store
-            # a spectrum, we shorten the step to reach this position exactly
-            if z + newh >= z_targets[0]:
-                store = True
-                newh = z_targets[0] - z
-        else:
-            progress_str = f"step {step} rejected with h = {h:.4e}, doing over"
-            logger.info(progress_str)
-
-    logger.info(
-        "propagation finished in {} steps ({} seconds)".format(
-            step, (datetime.today() - time_start).total_seconds()
-        )
-    )
-
-    if save_data:
-        io.save_data(z_stored, "z.npy", task_id, job_identifier)
-
-    return stored_spectra
 
 
 def _save_current_spectrum(

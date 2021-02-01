@@ -7,12 +7,13 @@ model = "marcatili"
 gas_name = "air"
 
 [pulse]
+power = 100e3
 wavelength = 800e-9
 width = 250e-15
 
 [simulation]
 behaviors = ["spm", "raman", "ss"]
-parallel = 2
+parallel = true
 repeat = 2
 t_num = 16384
 time_window = 37e-12
