@@ -272,7 +272,7 @@ def A_eff_hasan(core_radius, capillary_num, capillary_spacing):
 
 
 def HCPCF_find_with_given_ZDW(
-    varying,
+    variable,
     target,
     search_range,
     material_dico,
@@ -286,13 +286,13 @@ def HCPCF_find_with_given_ZDW(
 
     Parameters
     ----------
-    varying : str {"pressure", "temperature"}
+    variable : str {"pressure", "temperature"}
         which parameter to vary
     target : float
         the ZDW target, in m
     search_range : array, shape (2,)
         (min, max) of the search range
-    other parameters : see HCPCF_dispersion. Pressure or temperature is used as initial value if it is varying
+    other parameters : see HCPCF_dispersion. Pressure or temperature is used as initial value if it is variable
 
     Returns
     -------
@@ -304,7 +304,7 @@ def HCPCF_find_with_given_ZDW(
     #
     fixed = [material_dico, model, model_params, ideal]
 
-    if varying == "pressure":
+    if variable == "pressure":
         fixed.append(temperature)
         x0 = 1e5 if pressure is None else pressure
 
@@ -321,7 +321,7 @@ def HCPCF_find_with_given_ZDW(
             out = current_ZDW - target
             return out
 
-    elif varying == "temperature":
+    elif variable == "temperature":
         fixed.append(pressure)
         x0 = 273.15 if temperature is None else temperature
 
@@ -339,7 +339,7 @@ def HCPCF_find_with_given_ZDW(
             return out
 
     else:
-        raise AttributeError(f"'varying' arg must be 'pressure' or 'temperature', not {varying}")
+        raise AttributeError(f"'variable' arg must be 'pressure' or 'temperature', not {variable}")
 
     optimized = optimize.root_scalar(
         zdw, x0=x0, args=tuple(fixed), method="brentq", bracket=search_range

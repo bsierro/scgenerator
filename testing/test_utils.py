@@ -1,6 +1,8 @@
 import unittest
-from scgenerator import utils, initialize
+
+import numpy as np
 import toml
+from scgenerator import initialize, utils
 
 
 def load_conf(name):
@@ -20,10 +22,33 @@ class TestUtilsMethods(unittest.TestCase):
     def test_count_variations(self):
         conf = conf_maker("count_variations")
 
-        self.assertEqual((1, 0), utils.count_variations(conf("1sim_0vary")))
-        self.assertEqual((1, 1), utils.count_variations(conf("1sim_1vary")))
-        self.assertEqual((2, 1), utils.count_variations(conf("2sim_1vary")))
-        self.assertEqual((2, 0), utils.count_variations(conf("2sim_0vary")))
+        for sim, vary in [(1, 0), (1, 1), (2, 1), (2, 0), (120, 3)]:
+            self.assertEqual((sim, vary), utils.count_variations(conf(f"{sim}sim_{vary}vary")))
+
+    def test_format_value(self):
+        values = [
+            122e-6,
+            True,
+            ["raman", "ss"],
+            np.arange(5),
+            1.123,
+            1.1230001,
+            0.002e122,
+            12.3456e-9,
+        ]
+        s = [
+            "0.000122",
+            "True",
+            "raman-ss",
+            "0-1-2-3-4",
+            "1.123",
+            "1.1230001",
+            "2e+119",
+            "1.23456e-08",
+        ]
+
+        for value, target in zip(values, s):
+            self.assertEqual(target, utils.format_value(value))
 
 
 if __name__ == "__main__":

@@ -395,22 +395,22 @@ class Simulations:
         self.logger.info(f"Finished simulations from config {self.name} !")
 
     def _run_available(self):
-        for varying, params in self.param_seq:
+        for variable, params in self.param_seq:
             io.save_parameters(
                 params,
-                io.generate_file_path("params.toml", self.id, utils.format_varying_list(varying)),
+                io.generate_file_path("params.toml", self.id, utils.format_variable_list(variable)),
             )
-            self.new_sim(varying, params)
+            self.new_sim(variable, params)
         self.finish()
 
-    def new_sim(self, varying_list: List[tuple], params: dict):
+    def new_sim(self, variable_list: List[tuple], params: dict):
         """responsible to launch a new simulation
 
         Parameters
         ----------
-        varying_list : list[tuple]
+        variable_list : list[tuple]
             list of tuples (name, value) where name is the name of a
-            varying parameter and value is its current value
+            variable parameter and value is its current value
         params : dict
             a flattened parameter dictionary, as returned by scgenerator.initialize.compute_init_parameters
         """
@@ -434,8 +434,8 @@ class Simulations:
 
 
 class SequencialSimulations(Simulations, available=True, priority=0):
-    def new_sim(self, varying_list: List[tuple], params: dict):
-        v_list_str = utils.format_varying_list(varying_list)
+    def new_sim(self, variable_list: List[tuple], params: dict):
+        v_list_str = utils.format_variable_list(variable_list)
         self.logger.info(f"launching simulation with {v_list_str}")
         self.propagator(
             params,
@@ -481,11 +481,11 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
         self.jobs = []
         self.actors = {}
 
-    def new_sim(self, varying_list: List[tuple], params: dict):
+    def new_sim(self, variable_list: List[tuple], params: dict):
         while len(self.jobs) >= self.sim_jobs_total:
             self._collect_1_job()
 
-        v_list_str = utils.format_varying_list(varying_list)
+        v_list_str = utils.format_variable_list(variable_list)
 
         new_actor = self.propagator.remote(
             params, save_data=True, job_identifier=v_list_str, task_id=self.id
@@ -523,7 +523,7 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
     @property
     def sim_jobs_total(self):
         tot_cpus = sum([node.get("Resources", {}).get("CPU", 0) for node in ray.nodes()])
-        return min(self.param_seq.num_sim, tot_cpus)
+        return int(min(self.param_seq.num_sim, tot_cpus))
 
 
 def new_simulations(
@@ -531,6 +531,7 @@ def new_simulations(
 ):
 
     config = io.load_toml(config_file)
+    io.set_environ(config)
     param_seq = initialize.ParamSequence(config)
 
     return _new_simulations(param_seq, task_id, data_folder, Method)

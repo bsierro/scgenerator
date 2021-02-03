@@ -8,13 +8,14 @@ scgenerator module but some function may be used in any python program
 import datetime as dt
 import itertools
 import logging
+import socket
 from typing import Any, Callable, List, Tuple, Union
 
 import numpy as np
 import ray
 from copy import deepcopy
 
-from .const import PARAM_SEPARATOR, valid_varying
+from .const import PARAM_SEPARATOR, PREFIX_KEY_BASE, valid_variable
 from .logger import get_logger
 from .math import *
 
@@ -82,38 +83,22 @@ class ProgressTracker:
         return "{}/{}".format(self.current, self.max)
 
 
-# def ray_safe(func, *args, **kwargs):
-#     """evaluates functions that return None whether they are Ray workers or normal functions
-#     Parameters
-#     ----------
-#         func : the function or Worker id
-#         args : arguments to give to the functions
-#     Returns
-#     ----------
-#         nothing
-#     """
-#     if hasattr(func, "remote"):
-#         ray.get(func.remote(*args, **kwargs))
-#     else:
-#         func(*args, **kwargs)
-
-
 def count_variations(config: dict) -> Tuple[int, int]:
-    """returns (sim_num, varying_params_num) where sim_num is the total number of simulations required and
-    varying_params_num is the number of distinct parameters that will vary."""
+    """returns (sim_num, variable_params_num) where sim_num is the total number of simulations required and
+    variable_params_num is the number of distinct parameters that will vary."""
     sim_num = 1
-    varying_params_num = 0
+    variable_params_num = 0
 
-    for section_name in valid_varying:
-        for array in config.get(section_name, {}).get("varying", {}).values():
+    for section_name in valid_variable:
+        for array in config.get(section_name, {}).get("variable", {}).values():
             sim_num *= len(array)
-            varying_params_num += 1
+            variable_params_num += 1
 
     sim_num *= config["simulation"].get("repeat", 1)
-    return sim_num, varying_params_num
+    return sim_num, variable_params_num
 
 
-def format_varying_list(l: List[tuple]):
+def format_variable_list(l: List[tuple]):
     joints = 2 * PARAM_SEPARATOR
     str_list = []
     for p_name, p_value in l:
@@ -123,7 +108,18 @@ def format_varying_list(l: List[tuple]):
     return joints[0].join(str_list)
 
 
-# def varying_list_from_path(s: str) -> List[tuple]:
+def format_value(value):
+    if type(value) == type(False):
+        return str(value)
+    elif isinstance(value, (float, int)):
+        return format(value, ".9g")
+    elif isinstance(value, (list, tuple, np.ndarray)):
+        return "-".join([format_value(v) for v in value])
+    else:
+        return str(value)
+
+
+# def variable_list_from_path(s: str) -> List[tuple]:
 #     s = s.replace("/", "")
 #     str_list = s.split(PARAM_SEPARATOR)
 #     out = []
@@ -132,69 +128,59 @@ def format_varying_list(l: List[tuple]):
 #     return out
 
 
-def format_value(value):
-    if type(value) == type(False):
-        return str(value)
-    elif isinstance(value, (float, int)):
-        return format(value, ".5g")
-    elif isinstance(value, (list, tuple, np.ndarray)):
-        return "-".join([format_value(v) for v in value])
-    else:
-        return str(value)
+# def get_value(s: str):
+#     if s.lower() == "true":
+#         return True
+#     if s.lower() == "false":
+#         return False
+
+#     try:
+#         return int(s)
+#     except ValueError:
+#         pass
+
+#     try:
+#         return float(s)
+#     except ValueError:
+#         pass
+
+#     return s
 
 
-def get_value(s: str):
-    if s.lower() == "true":
-        return True
-    if s.lower() == "false":
-        return False
-
-    try:
-        return int(s)
-    except ValueError:
-        pass
-
-    try:
-        return float(s)
-    except ValueError:
-        pass
-
-    return s
-
-
-def varying_iterator(config):
+def variable_iterator(config):
     out = deepcopy(config)
-    varying_dict = {
-        section_name: out.get(section_name, {}).pop("varying", {}) for section_name in valid_varying
+    variable_dict = {
+        section_name: out.get(section_name, {}).pop("variable", {})
+        for section_name in valid_variable
     }
 
     possible_keys = []
     possible_ranges = []
 
-    for section_name, section in varying_dict.items():
+    for section_name, section in variable_dict.items():
         for key in section:
-            arr = varying_dict[section_name][key]
+            arr = variable_dict[section_name][key]
             possible_keys.append((section_name, key))
             possible_ranges.append(range(len(arr)))
 
     combinations = itertools.product(*possible_ranges)
 
     for combination in combinations:
-        only_varying = []
+        only_variable = []
         for i, key in enumerate(possible_keys):
-            parameter_value = varying_dict[key[0]][key[1]][combination[i]]
+            parameter_value = variable_dict[key[0]][key[1]][combination[i]]
             out[key[0]][key[1]] = parameter_value
-            only_varying.append((key[1], parameter_value))
-        yield only_varying, out
+            only_variable.append((key[1], parameter_value))
+        yield only_variable, out
 
 
 def parallelize(func, arg_iter, sim_jobs=4, progress_tracker_kwargs=None, const_kwarg={}):
-    """given a function and an iterator of arguments, runs the function in parallel
+    """given a function and an iterable of arguments, runs the function in parallel
     Parameters
     ----------
         func : a function
-        arg_iter : an iterator that yields a tuple to be unpacked to the function as argument(s)
-        sim_jobs : number of simultaneous runs
+        arg_iter : an iterable that yields a tuple to be unpacked to the function as argument(s)
+        sim_jobs : number of parallel runs
         progress_tracker_kwargs : key word arguments to be passed to the ProgressTracker
         const_kwarg : keyword arguments to be passed to the function on every run
 
@@ -235,3 +221,8 @@ def parallelize(func, arg_iter, sim_jobs=4, progress_tracker_kwargs=None, const_
             ray.get(pt.update.remote())
 
     return np.array(results)
+
+
+def formatted_hostname():
+    s = socket.gethostname().replace(".", "_")
+    return (PREFIX_KEY_BASE + s).upper()

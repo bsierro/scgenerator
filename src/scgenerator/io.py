@@ -1,4 +1,3 @@
-import json
 import os
 import shutil
 from datetime import datetime
@@ -11,27 +10,9 @@ import toml
 from send2trash import TrashPermissionError, send2trash
 
 from . import utils
-from .const import TMP_FOLDER_KEY_BASE, PARAM_SEPARATOR
+from .const import PARAM_SEPARATOR, PREFIX_KEY_BASE, TMP_FOLDER_KEY_BASE, ENVIRON_KEY_BASE
 from .errors import IncompleteDataFolderError
 from .logger import get_logger
-
-
-def load_toml(path: str):
-    """returns a dictionary parsed from the specified toml file"""
-    if not path.lower().endswith(".toml"):
-        path += ".toml"
-    with open(path, mode="r") as file:
-        dico = toml.load(file)
-    return dico
-
-
-def save_toml(path, dico):
-    """saves a dictionary into a toml file"""
-    if not path.lower().endswith(".toml"):
-        path += ".toml"
-    with open(path, mode="w") as file:
-        toml.dump(dico, file)
-    return dico
 
 
 class Paths:
@@ -48,13 +29,15 @@ class Paths:
     @classmethod
     def get(cls, key):
         if key not in cls.paths:
-            if os.path.exists("paths.json"):
-                with open("paths.json") as file:
-                    paths_dico = json.load(file)
+            if os.path.exists("paths.toml"):
+                with open("paths.toml") as file:
+                    paths_dico = toml.load(file)
                 for k, v in paths_dico.items():
-                    cls.paths[k] = os.path.abspath(os.path.expanduser(v))
+                    cls.paths[k] = v
         if key not in cls.paths:
-            print(f"{key} was not found in path index, returning current working directory.")
+            get_logger(__name__).info(
+                f"{key} was not found in path index, returning current working directory."
+            )
             cls.paths[key] = os.getcwd()
 
         return cls.paths[key]
@@ -78,6 +61,48 @@ class Paths:
         fig.savefig(Paths.plot("figure5.pdf"))
         """
         return os.path.join(cls.get("plots"), name)
+
+
+def abspath(rel_path: str):
+    """returns the complete path with the correct root. In other words, allows to modify absolute paths
+    in case the process accessing this function is a sub-process started from another device.
+
+    Parameters
+    ----------
+    rel_path : str
+        relative path
+
+    Returns
+    -------
+    str
+        absolute path
+    """
+    key = utils.formatted_hostname()
+    prefix = os.getenv(key)
+    if prefix is None:
+        p = os.path.abspath(rel_path)
+    else:
+        p = os.path.join(prefix, rel_path)
+
+    return os.path.normpath(p)
+
+
+def load_toml(path: str):
+    """returns a dictionary parsed from the specified toml file"""
+    if not path.lower().endswith(".toml"):
+        path += ".toml"
+    with open(abspath(path), mode="r") as file:
+        dico = toml.load(file)
+    return dico
+
+
+def save_toml(path, dico):
+    """saves a dictionary into a toml file"""
+    if not path.lower().endswith(".toml"):
+        path += ".toml"
+    with open(abspath(path), mode="w") as file:
+        toml.dump(dico, file)
+    return dico
 
 
 def serializable(val):
@@ -132,6 +157,7 @@ def save_parameters(param_dict, file_name="param"):
     folder_name, file_name = os.path.split(file_name)
     folder_name = "tmp" if folder_name == "" else folder_name
     file_name = os.path.splitext(file_name)[0]
+    folder_name = abspath(folder_name)
 
     if not os.path.exists(folder_name):
         os.makedirs(folder_name)
@@ -146,21 +172,23 @@ def save_parameters(param_dict, file_name="param"):
     return os.path.join(folder_name, file_name)
 
 
-def load_previous_parameters(path):
-    """loads a parameters json files and converts data to appropriate type
+def load_previous_parameters(path: str):
+    """loads a parameters toml files and converts data to appropriate type
     Parameters
     ----------
-        path : path-like
-            path to the json
+    path : str
+        path to the toml
+
     Returns
     ----------
-        params : dict
+    dict
+        flattened parameters dictionary
     """
     params = load_toml(path)
+
     for k, v in params.items():
-        if isinstance(v, list):
-            if isinstance(v[0], (float, int)):
-                params[k] = np.array(v)
+        if isinstance(v, list) and isinstance(v[0], (float, int)):
+            params[k] = np.array(v)
     return params
 
 
@@ -180,101 +208,32 @@ def load_material_dico(name):
         return toml.loads(Paths.gets("gas"))[name]
 
 
-def load_sim_data(folder_name, ind=None, load_param=True):
-    """
-    loads the data already simulated.
-    defauft shape is (z_targets, n, nt)
+def set_environ(config: dict):
+    """sets environment variables specified in the config
 
     Parameters
     ----------
-        folder_name : (string) folder where the simulation data is stored
-        ind : list of indices if only certain spectra are desired.
-                - If left to None, returns every spectrum
-                - If only 1 int, will cast the (1, n, nt) array into a (n, nt) array
-        load_param : (bool) return the parameter dictionary as well. returns None
-                if not available
-    Returns
-    ----------
-        spectra : array
-            squeezed array of complex spectra (n simulation on a nt size grid at each ind)
-    Raises
-    ----------
-        FileNotFoundError : folder does not exist or does not contain sufficient
-                            data
+    config : dict
+        whole simulation config file
     """
-
-    print(f"opening {folder_name}")
-
-    # Check if file exists and assert how many z positions there are
-    if not os.path.exists(folder_name):
-        raise FileNotFoundError(f"Folder {folder_name} does not exist")
-    nmax = len(glob(os.path.join(folder_name, "spectra_*.npy")))
-    if nmax <= 0:
-        raise FileNotFoundError(f"No appropriate file in specified folder {folder_name}")
-
-    if ind is None:
-        ind = range(nmax)
-    elif isinstance(ind, int):
-        ind = [ind]
-
-    # Load the spectra
-    spectra = []
-    for i in ind:
-        spectra.append(load_single_spectrum(folder_name, i))
-    spectra = np.array(spectra)
-
-    # Load the parameters dictionary
-    try:
-        params = load_previous_parameters(os.path.join(folder_name, "params.toml"))
-    except FileNotFoundError:
-        print(f"parameters corresponding to {folder_name} not found")
-        params = None
-
-    print("data successfully loaded")
-    if load_param:
-        return spectra.squeeze(), params
-    else:
-        return spectra.squeeze()
+    environ = config.get("environment", {})
+    for k, v in environ.get("path_prefixes", {}).items():
+        os.environ[(PREFIX_KEY_BASE + k).upper()] = v
 
 
 def get_all_environ() -> Dict[str, str]:
     """returns a dictionary of all environment variables set by any instance of scgenerator"""
-    return dict(filter(lambda el: el[0].startswith(TMP_FOLDER_KEY_BASE), os.environ.items()))
+    d = dict(filter(lambda el: el[0].startswith(ENVIRON_KEY_BASE), os.environ.items()))
+    print(d)
+    return d
 
 
 def load_single_spectrum(folder, index) -> np.ndarray:
-    return np.load(os.path.join(folder, f"spectra_{index}.npy"))
-
-
-def iter_load_sim_data(folder_name, with_params=False) -> Iterable[np.ndarray]:
-    """
-    similar to load_sim_data but works as an iterator
-    """
-
-    if not os.path.exists(folder_name):
-        raise FileNotFoundError(f"Folder {folder_name} does not exist")
-    nmax = len(glob(os.path.join(folder_name, "spectra_*.npy")))
-    if nmax <= 0:
-        raise FileNotFoundError(f"No appropriate file in specified folder {folder_name}")
-
-    params = {}
-    if with_params:
-        try:
-            params = load_previous_parameters(os.path.join(folder_name, "params.toml"))
-        except FileNotFoundError:
-            print(f"parameters corresponding to {folder_name} not found")
-            params = None
-
-    print(f"iterating through {folder_name}")
-    for i in range(nmax):
-        if with_params:
-            yield load_single_spectrum(folder_name, i), params
-        else:
-            yield load_single_spectrum(folder_name, i)
+    return np.load(os.path.join(abspath(folder), f"spectra_{index}.npy"))
 
 
 def get_data_subfolders(path: str) -> List[str]:
-    """returns a list of path/subfolders in the specified directory
+    """returns a list of relative path/subfolders in the specified directory
 
     Parameters
     ----------
@@ -314,7 +273,7 @@ def check_data_integrity(sub_folders: List[str], init_z_num: int):
 
 
 def propagation_initiated(sub_folder) -> bool:
-    if os.path.isdir(sub_folder):
+    if os.path.isdir(abspath(sub_folder)):
         return find_last_spectrum_file(sub_folder) > 0
     return False
 
@@ -388,6 +347,7 @@ def merge_same_simulations(path: str):
     pt = utils.ProgressTracker(num_operations, logger=logger, prefix="merging data : ")
 
     for base_folder in base_folders:
+        logger.debug(f"creating new folder {base_folder}")
         for j in range(z_num):
             spectra = []
             for i in range(repeat):
@@ -396,7 +356,7 @@ def merge_same_simulations(path: str):
                 )
             dest_folder = ensure_folder(base_folder, prevent_overwrite=False)
             spectra = np.array(spectra).reshape(repeat, len(spectra[0]))
-            np.save(os.path.join(dest_folder, f"spectra_{j}.npy"), spectra)
+            np.save(os.path.join(dest_folder, f"spectra_{j}.npy"), spectra.squeeze())
             pt.update()
         for file_name in ["z.npy", "params.toml"]:
             shutil.copy(
@@ -417,7 +377,6 @@ def get_data_folder(task_id: int, name_if_new: str = ""):
     tmp = os.getenv(TMP_FOLDER_KEY_BASE + idstr)
     if tmp is None:
         tmp = ensure_folder("scgenerator_" + name_if_new + idstr)
-        tmp = os.path.abspath(tmp)
         os.environ[TMP_FOLDER_KEY_BASE + idstr] = tmp
     return tmp
 
@@ -453,19 +412,23 @@ def generate_file_path(file_name: str, task_id: int, identifier: str = "") -> st
     str
         the full path
     """
-    base_name, ext = os.path.splitext(file_name)
-    folder = get_data_folder(task_id)
-    folder = os.path.join(folder, identifier)
-    folder = ensure_folder(folder, prevent_overwrite=False)
-    i = 0
-    base_name = os.path.join(folder, base_name)
-    new_name = base_name + ext
-    while os.path.exists(new_name):
-        print(f"{i=}")
-        new_name = f"{base_name}_{i}{ext}"
-        i += 1
+    # base_name, ext = os.path.splitext(file_name)
+    # folder = get_data_folder(task_id)
+    # folder = os.path.join(folder, identifier)
+    # folder = ensure_folder(folder, prevent_overwrite=False)
+    # i = 0
+    # base_name = os.path.join(folder, base_name)
+    # new_name = base_name + ext
+    # while os.path.exists(new_name):
+    #     new_name = f"{base_name}_{i}{ext}"
+    #     i += 1
 
-    return new_name
+    path = os.path.join(get_data_folder(task_id), identifier)
+    path = abspath(path)
+    os.makedirs(path, exist_ok=True)
+    path = os.path.join(path, file_name)
+
+    return path
 
 
 def save_data(data: np.ndarray, file_name: str, task_id: int, identifier: str = ""):
@@ -482,14 +445,17 @@ def save_data(data: np.ndarray, file_name: str, task_id: int, identifier: str = 
     identifier : str, optional
         identifier in the main data folder of the task, by default ""
     """
+
     path = generate_file_path(file_name, task_id, identifier)
     np.save(path, data)
+    get_logger(__name__).debug(f"saved data in {path}")
+    return
 
 
 def ensure_folder(name, i=0, suffix="", prevent_overwrite=True):
     """creates a folder for simulation data named name and prevents overwrite
     by adding a suffix if necessary and returning the name"""
-    prefix, last_dir = os.path.split(os.path.abspath(name))
+    prefix, last_dir = os.path.split(abspath(name))
     exploded = [prefix]
     sub_prefix = prefix
     while sub_prefix != os.path.abspath("/"):

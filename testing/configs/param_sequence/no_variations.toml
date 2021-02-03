@@ -1,26 +1,25 @@
-# gamma missing
+# raman_type should be added
 
 name = "test config"
 
 [fiber]
-beta = [1, 2, 3]
 gamma = 0.018
 length = 1
+model = "pcf"
+pitch = 1.5e-6
+pitch_ratio = 0.37
 
 [pulse]
+intensity_noise = 0.1e-2
 power = 100e3
 quantum_noise = true
 shape = "gaussian"
 wavelength = 1050e-9
-
-[pulse.variable]
-intensity_noise = []
-width = [50e-15, 100e-15, 200e-15]
+width = 50e-15
 
 [simulation]
 behaviors = ["spm", "raman", "ss"]
 parallel = true
-raman_type = "agrawal"
 repeat = 4
 t_num = 16384
 time_window = 37e-12

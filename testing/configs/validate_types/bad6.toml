@@ -16,7 +16,7 @@ quantum_noise = true
 shape = "gaussian"
 wavelength = 1050e-9
 
-[pulse.varying]
+[pulse.variable]
 width = [50e-15, 100e-15, 200e-15]
 
 [simulation]

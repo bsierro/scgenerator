@@ -1,15 +1,17 @@
 import os
-from typing import Any, Iterator, List, Mapping, Tuple
+from collections.abc import Mapping
+from typing import Any, Iterator, List, Tuple
+
 import numpy as np
 from numpy import pi
 
 from . import defaults, io, utils
-from .math import length, power_fact
-from .physics import fiber, pulse, units
-from .const import valid_param_types, valid_varying, hc_model_specific_parameters
+from .const import hc_model_specific_parameters, valid_param_types, valid_variable
 from .errors import *
 from .logger import get_logger
-from .utils import varying_iterator, count_variations
+from .math import length, power_fact
+from .physics import fiber, pulse, units
+from .utils import count_variations, variable_iterator
 
 
 class ParamSequence(Mapping):
@@ -17,16 +19,32 @@ class ParamSequence(Mapping):
         self.config = validate(config)
         self.name = self.config["name"]
 
-        self.num_sim, self.num_varying = count_variations(self.config)
+        self.num_sim, self.num_variable = count_variations(self.config)
         self.single_sim = self.num_sim == 1
 
-    def __iter__(self) -> Iterator[Tuple[list, dict]]:
+    def iterate_without_computing(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
+        """takes the output of `scgenerator.utils.variable_iterator` which is a new dict per different
+        parameter set and iterates through every single necessary simulation
+
+        Yields
+        -------
+        Iterator[Tuple[List[Tuple[str, Any]], dict]]
+            variable_ind : a list of (name, value) tuple of parameter name and value that are variable. The parameter
+            "num" (how many times this specific parameter set has been yielded already) and "id" (how many parameter sets
+            have been exhausted already) are added to the list to make sure every yielded list is unique.
+        """
+        i = 0  # unique sim id
+        for variable_only, full_config in variable_iterator(self.config):
+            for j in range(self["simulation", "repeat"]):
+                variable_ind = [("id", i)] + variable_only + [("num", j)]
+                i += 1
+                yield variable_ind, full_config
+
+    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
         """iterates through all possible parameters, yielding a config as welle as a flattened
         computed parameters set each time"""
-        for varying_only, full_config in varying_iterator(self.config):
-            for i in range(self["simulation", "repeat"]):
-                varying = varying_only + [("num", i)]
-                yield varying, compute_init_parameters(full_config)
+        for variable_list, full_config in self.iterate_without_computing():
+            yield variable_list, compute_init_parameters(full_config)
 
     def __len__(self):
         return self.num_sim
@@ -47,24 +65,34 @@ class RecoveryParamSequence(ParamSequence):
                 self.num_sim -= 1
         self.single_sim = self.num_sim == 1
 
-    def __iter__(self) -> Iterator[Tuple[list, dict]]:
-        for varying_only, full_config in varying_iterator(self.config):
-            for i in range(self["simulation", "repeat"]):
-                varying = varying_only + [("num", i)]
-                print("varying ", varying_only, i)
-                sub_folder = os.path.join(
-                    io.get_data_folder(self.id), utils.format_varying_list(varying)
-                )
+    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
+        for variable_list, full_config in self.iterate_without_computing():
 
-                if not io.propagation_initiated(sub_folder):
-                    yield varying, compute_init_parameters(full_config)
-                elif not io.propagation_completed(sub_folder, self.config["simulation"]["z_num"]):
-                    yield varying, recover_params(full_config, varying, self.id)
-                else:
-                    continue
+            sub_folder = os.path.join(
+                io.get_data_folder(self.id), utils.format_variable_list(variable_list)
+            )
+
+            if not io.propagation_initiated(sub_folder):
+                yield variable_list, compute_init_parameters(full_config)
+            elif not io.propagation_completed(sub_folder, self.config["simulation"]["z_num"]):
+                yield variable_list, recover_params(full_config, variable_list, self.id)
+            else:
+                continue
 
 
 def validate(config: dict) -> dict:
+    """validates a configuration dictionary and attempts to fill in defaults
+
+    Parameters
+    ----------
+    config : dict
+        loaded configuration
+
+    Returns
+    -------
+    dict
+        updated configuration
+    """
     _validate_types(config)
     return _ensure_consistency(config)
 
@@ -165,7 +193,7 @@ def _validate_types(config):
     for domain, parameters in config.items():
         if isinstance(parameters, dict):
             for param_name, param_value in parameters.items():
-                if param_name == "varying":
+                if param_name == "variable":
                     for k_vary, v_vary in param_value.items():
                         if not isinstance(v_vary, list):
                             raise TypeError(f"Varying parameters should be specified in a list")
@@ -175,7 +203,7 @@ def _validate_types(config):
                                 f"Varying parameters lists should contain at least 1 element"
                             )
 
-                        if k_vary not in valid_varying[domain]:
+                        if k_vary not in valid_variable[domain]:
                             raise TypeError(f"'{k_vary}' is not a valid variable parameter")
 
                         [
@@ -189,7 +217,7 @@ def _validate_types(config):
 
 
 def _contains(sub_conf, param):
-    return param in sub_conf or param in sub_conf.get("varying", {})
+    return param in sub_conf or param in sub_conf.get("variable", {})
 
 
 def _ensure_consistency_fiber(fiber):
@@ -330,8 +358,8 @@ def _ensure_consistency_simulation(simulation):
     ]:
         simulation = defaults.get(simulation, param)
 
-    if "raman" in simulation["behaviors"] or any(
-        ["raman" in l for l in simulation.get("varying", {}).get("behaviors", [])]
+    if "raman" in simulation.get("behaviors", {}) or any(
+        ["raman" in l for l in simulation.get("variable", {}).get("behaviors", [])]
     ):
         simulation = defaults.get(simulation, "raman_type", specified_parameters=["raman"])
     return simulation
@@ -359,7 +387,7 @@ def _ensure_consistency(config):
         for param_name in sub_dict:
             for set_param in config.values():
                 if isinstance(set_param, dict):
-                    if param_name in set_param and param_name in set_param.get("varying", {}):
+                    if param_name in set_param and param_name in set_param.get("variable", {}):
                         raise DuplicateParameterError(
                             f"got multiple values for parameter '{param_name}'"
                         )
@@ -377,10 +405,9 @@ def _ensure_consistency(config):
     return config
 
 
-def recover_params(params: dict, varying_only: List[Tuple[str, Any]], task_id: int):
-    print("RECOVERING PARAMETERS")
+def recover_params(params: dict, variable_only: List[Tuple[str, Any]], task_id: int):
     params = compute_init_parameters(params)
-    vary_str = utils.format_varying_list(varying_only)
+    vary_str = utils.format_variable_list(variable_only)
     path = os.path.join(io.get_data_folder(task_id), vary_str)
     num, last_spectrum = io.load_last_spectrum(path)
     params["spec_0"] = last_spectrum
@@ -396,7 +423,7 @@ def compute_init_parameters(config):
     Parameters
     ----------
     config : dict
-        a configuration dictionary containing the pulse, fiber and simulation sections with no varying parameter.
+        a configuration dictionary containing the pulse, fiber and simulation sections with no variable parameter.
         a flattened parameters dictionary may be provided instead
         Note : checking the validity of the configuration shall be done before calling this function.
 

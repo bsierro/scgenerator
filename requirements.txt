@@ -1,0 +1,6 @@
+numpy
+matplotlib
+scipy
+ray
+send2trash
+toml

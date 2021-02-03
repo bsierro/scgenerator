@@ -10,7 +10,7 @@ gas_name = "air"
 power = 100e3
 wavelength = 800e-9
 
-[pulse.varying]
+[pulse.variable]
 width = [250e-15]
 
 [simulation]

@@ -1,8 +1,10 @@
 import unittest
-import toml
+from copy import deepcopy
+
 import scgenerator.initialize as init
+import toml
+from scgenerator import utils
 from scgenerator.errors import *
-from prettyprinter import pprint
 
 
 def load_conf(name):
@@ -16,6 +18,36 @@ def conf_maker(folder):
         return load_conf(folder + "/" + name)
 
     return conf
+
+
+class TestParamSequence(unittest.TestCase):
+    def iterconf(self, files):
+        conf = conf_maker("param_sequence")
+        for path in files:
+            yield init.ParamSequence(conf(path))
+
+    def test_no_repeat_in_sub_folder_names(self):
+        for param_seq in self.iterconf(["almost_equal", "equal", "no_variations"]):
+            l = []
+            s = []
+            for vary_list, _ in param_seq.iterate_without_computing():
+                self.assertNotIn(vary_list, l)
+                self.assertNotIn(utils.format_variable_list(vary_list), s)
+                l.append(vary_list)
+                s.append(utils.format_variable_list(vary_list))
+
+    def test_init_config_not_affected_by_iteration(self):
+        for param_seq in self.iterconf(["almost_equal", "equal", "no_variations"]):
+            config = deepcopy(param_seq.config)
+            for _ in param_seq.iterate_without_computing():
+                self.assertEqual(config.items(), param_seq.config.items())
+
+    def test_no_variations_yields_only_num_and_id(self):
+        for param_seq in self.iterconf(["no_variations"]):
+            for vary_list, _ in param_seq.iterate_without_computing():
+                self.assertEqual(vary_list[1][0], "num")
+                self.assertEqual(vary_list[0][0], "id")
+                self.assertEqual(2, len(vary_list))
 
 
 class TestInitializeMethods(unittest.TestCase):

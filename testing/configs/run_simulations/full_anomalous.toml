@@ -19,7 +19,7 @@ length = 0.02
 power = 10000
 t0 = 2.84e-14
 
-[pulse.varying]
+[pulse.variable]
 wavelength = [835e-9, 830e-9]
 
 [simulation]

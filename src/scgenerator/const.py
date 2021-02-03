@@ -11,6 +11,11 @@ def integer(n):
     return isinstance(n, int) and n > 0
 
 
+def generic_dict(d):
+    """must be a dictionary"""
+    return isinstance(d, dict)
+
+
 def boolean(b):
     """must be a boolean"""
     return type(b) == bool
@@ -146,6 +151,9 @@ valid_param_types = dict(
         upper_wavelength_interp_limit=num,
         frep=num,
     ),
+    environment=dict(
+        path_prefixes=generic_dict,
+    ),
 )
 
 hc_model_specific_parameters = dict(
@@ -163,7 +171,7 @@ hc_model_specific_parameters = dict(
 )
 """dependecy map only includes actual fiber parameters and exclude gas parameters"""
 
-valid_varying = dict(
+valid_variable = dict(
     fiber=[
         "beta",
         "gamma",
@@ -190,8 +198,10 @@ valid_varying = dict(
         "soliton_num",
     ],
     simulation=["behaviors", "raman_type", "tolerated_error", "step_size", "ideal_gas"],
+    environment=[],
 )
 
-
-TMP_FOLDER_KEY_BASE = "SCGENERATOR_TMP"
+ENVIRON_KEY_BASE = "SCGENERATOR_"
+TMP_FOLDER_KEY_BASE = ENVIRON_KEY_BASE + "TMP_"
+PREFIX_KEY_BASE = ENVIRON_KEY_BASE + "PREFIX_"
 PARAM_SEPARATOR = " "

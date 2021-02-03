@@ -82,7 +82,7 @@ def get(section_dict, param, **kwargs):
 
     # whether the parameter is in the right place and valid is checked elsewhere,
     # here, we just make sure it is present.
-    if param not in section_dict and param not in section_dict.get("varying", {}):
+    if param not in section_dict and param not in section_dict.get("variable", {}):
         try:
             section_dict[param] = default_parameters[param]
             # LOG
