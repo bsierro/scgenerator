@@ -11,7 +11,7 @@ from .errors import *
 from .logger import get_logger
 from .math import length, power_fact
 from .physics import fiber, pulse, units
-from .utils import count_variations, variable_iterator
+from .utils import count_variations, required_simulations
 
 
 class ParamSequence(Mapping):
@@ -22,28 +22,10 @@ class ParamSequence(Mapping):
         self.num_sim, self.num_variable = count_variations(self.config)
         self.single_sim = self.num_sim == 1
 
-    def iterate_without_computing(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
-        """takes the output of `scgenerator.utils.variable_iterator` which is a new dict per different
-        parameter set and iterates through every single necessary simulation
-
-        Yields
-        -------
-        Iterator[Tuple[List[Tuple[str, Any]], dict]]
-            variable_ind : a list of (name, value) tuple of parameter name and value that are variable. The parameter
-            "num" (how many times this specific parameter set has been yielded already) and "id" (how many parameter sets
-            have been exhausted already) are added to the list to make sure every yielded list is unique.
-        """
-        i = 0  # unique sim id
-        for variable_only, full_config in variable_iterator(self.config):
-            for j in range(self["simulation", "repeat"]):
-                variable_ind = [("id", i)] + variable_only + [("num", j)]
-                i += 1
-                yield variable_ind, full_config
-
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
         """iterates through all possible parameters, yielding a config as welle as a flattened
         computed parameters set each time"""
-        for variable_list, full_config in self.iterate_without_computing():
+        for variable_list, full_config in required_simulations(self.config):
             yield variable_list, compute_init_parameters(full_config)
 
     def __len__(self):
@@ -66,7 +48,7 @@ class RecoveryParamSequence(ParamSequence):
         self.single_sim = self.num_sim == 1
 
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
-        for variable_list, full_config in self.iterate_without_computing():
+        for variable_list, full_config in required_simulations(self.config):
 
             sub_folder = os.path.join(
                 io.get_data_folder(self.id), utils.format_variable_list(variable_list)

@@ -201,16 +201,3 @@ upper_wavelength_interp_limit: float
     sets the lowest end of this range. If the set value is higher than the higher end of the
     wavelength window, it is lowered down to that point. default : 1900e-9
 
-## Environment parameters
-
-path_prefixes : dict[str, str]
-    key : hostname (as returned by `socket.gethostname()`)
-    value : path to the head's current working directory
-    When running the simulations on multiple instances, the head's working directory needs to be mounted as a network drive on every other node, with its path specified with this parameter
-
-    Example:
-    
-    [environment.path_prefixes]
-    Excellent_node = "Z:\\simulations\\"
-
-    this means that if I'm working on Average_node (i.e. Average_node is the head of the ray cluster) in `/Users/username/simulations/` and connecting Excellent_node (Windows) to the ray cluster, I need to be able to access Average_node's `simulations` directory by mounting it as a network drive. In this example, `username` is shared on the network by Average_node and Excellent_node is mounting it as a network share with the same credentials as Average_node's (to avoid permission problems). This means that `Z:\\simulations\` on Excellent_node points to the same directory as `/Users/username/simulations/` on Average_nodes. Jobs sent by the head's scgenerator module to Excellent_node will have an environment variable set so that Average_node's cwd so that files are all saved in the same place.

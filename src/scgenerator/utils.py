@@ -9,7 +9,7 @@ import datetime as dt
 import itertools
 import logging
 import socket
-from typing import Any, Callable, List, Tuple, Union
+from typing import Any, Callable, Iterator, List, Tuple, Union
 
 import numpy as np
 import ray
@@ -147,10 +147,25 @@ def format_value(value):
 #     return s
 
 
-def variable_iterator(config):
-    out = deepcopy(config)
+def variable_iterator(config) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
+    """given a config with "variable" parameters, iterates through every possible combination,
+    yielding a a list of (parameter_name, value) tuples and a full config dictionary.
+
+    Parameters
+    ----------
+    config : dict
+        initial config dictionary
+
+    Yields
+    -------
+    Iterator[Tuple[List[Tuple[str, Any]], dict]]
+        variable_list : a list of (name, value) tuple of parameter name and value that are variable.
+
+        dict : a config dictionary for one simulation
+    """
+    indiv_config = deepcopy(config)
     variable_dict = {
-        section_name: out.get(section_name, {}).pop("variable", {})
+        section_name: indiv_config.get(section_name, {}).pop("variable", {})
         for section_name in valid_variable
     }
 
@@ -166,12 +181,33 @@ def variable_iterator(config):
     combinations = itertools.product(*possible_ranges)
 
     for combination in combinations:
-        only_variable = []
+        variable_list = []
         for i, key in enumerate(possible_keys):
             parameter_value = variable_dict[key[0]][key[1]][combination[i]]
-            out[key[0]][key[1]] = parameter_value
-            only_variable.append((key[1], parameter_value))
-        yield only_variable, out
+            indiv_config[key[0]][key[1]] = parameter_value
+            variable_list.append((key[1], parameter_value))
+        yield variable_list, indiv_config
+
+
+def required_simulations(config) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
+    """takes the output of `scgenerator.utils.variable_iterator` which is a new dict per different
+    parameter set and iterates through every single necessary simulation
+
+    Yields
+    -------
+    Iterator[Tuple[List[Tuple[str, Any]], dict]]
+        variable_ind : a list of (name, value) tuple of parameter name and value that are variable. The parameter
+        "num" (how many times this specific parameter set has been yielded already) and "id" (how many parameter sets
+        have been exhausted already) are added to the list to make sure every yielded list is unique.
+
+        dict : a config dictionary for one simulation
+    """
+    i = 0  # unique sim id
+    for variable_only, full_config in variable_iterator(config):
+        for j in range(config["simulation"]["repeat"]):
+            variable_ind = [("id", i)] + variable_only + [("num", j)]
+            i += 1
+            yield variable_ind, full_config
 
 
 def parallelize(func, arg_iter, sim_jobs=4, progress_tracker_kwargs=None, const_kwarg={}):

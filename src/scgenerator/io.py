@@ -6,6 +6,7 @@ from typing import Any, Dict, Iterable, List, Tuple
 
 import numpy as np
 import pkg_resources as pkg
+from ray import util
 import toml
 from send2trash import TrashPermissionError, send2trash
 
@@ -13,6 +14,15 @@ from . import utils
 from .const import PARAM_SEPARATOR, PREFIX_KEY_BASE, TMP_FOLDER_KEY_BASE, ENVIRON_KEY_BASE
 from .errors import IncompleteDataFolderError
 from .logger import get_logger
+
+using_ray = False
+try:
+    import ray
+    from ray.util.queue import Queue
+
+    using_ray = True
+except ModuleNotFoundError:
+    pass
 
 
 class Paths:
@@ -63,35 +73,54 @@ class Paths:
         return os.path.join(cls.get("plots"), name)
 
 
-def abspath(rel_path: str):
-    """returns the complete path with the correct root. In other words, allows to modify absolute paths
-    in case the process accessing this function is a sub-process started from another device.
+class DataBuffer:
+    def __init__(self, task_id):
+        self.logger = get_logger(__name__)
+        self.id = task_id
+        self.queue = Queue()
 
-    Parameters
-    ----------
-    rel_path : str
-        relative path
+    def empty(self):
+        num = self.queue.size()
+        self.logger.info(f"buffer length at time of emptying : {num}")
+        while not self.queue.empty():
+            name, identifier, data = self.queue.get()
+            save_data(data, name, self.id, identifier)
 
-    Returns
-    -------
-    str
-        absolute path
-    """
-    key = utils.formatted_hostname()
-    prefix = os.getenv(key)
-    if prefix is None:
-        p = os.path.abspath(rel_path)
-    else:
-        p = os.path.join(prefix, rel_path)
+        return num
 
-    return os.path.normpath(p)
+    def append(self, file_name: str, identifier: str, data: np.ndarray):
+        self.queue.put((file_name, identifier, data))
+
+
+# def abspath(rel_path: str):
+#     """returns the complete path with the correct root. In other words, allows to modify absolute paths
+#     in case the process accessing this function is a sub-process started from another device.
+
+#     Parameters
+#     ----------
+#     rel_path : str
+#         relative path
+
+#     Returns
+#     -------
+#     str
+#         absolute path
+#     """
+#     key = utils.formatted_hostname()
+#     prefix = os.getenv(key)
+#     if prefix is None:
+#         p = os.path.abspath(rel_path)
+#     else:
+#         p = os.path.join(prefix, rel_path)
+
+#     return os.path.normpath(p)
 
 
 def load_toml(path: str):
     """returns a dictionary parsed from the specified toml file"""
     if not path.lower().endswith(".toml"):
         path += ".toml"
-    with open(abspath(path), mode="r") as file:
+    with open(path, mode="r") as file:
         dico = toml.load(file)
     return dico
 
@@ -100,7 +129,7 @@ def save_toml(path, dico):
     """saves a dictionary into a toml file"""
     if not path.lower().endswith(".toml"):
         path += ".toml"
-    with open(abspath(path), mode="w") as file:
+    with open(path, mode="w") as file:
         toml.dump(dico, file)
     return dico
 
@@ -157,7 +186,6 @@ def save_parameters(param_dict, file_name="param"):
     folder_name, file_name = os.path.split(file_name)
     folder_name = "tmp" if folder_name == "" else folder_name
     file_name = os.path.splitext(file_name)[0]
-    folder_name = abspath(folder_name)
 
     if not os.path.exists(folder_name):
         os.makedirs(folder_name)
@@ -208,17 +236,17 @@ def load_material_dico(name):
         return toml.loads(Paths.gets("gas"))[name]
 
 
-def set_environ(config: dict):
-    """sets environment variables specified in the config
+# def set_environ(config: dict):
+#     """sets environment variables specified in the config
 
-    Parameters
-    ----------
-    config : dict
-        whole simulation config file
-    """
-    environ = config.get("environment", {})
-    for k, v in environ.get("path_prefixes", {}).items():
-        os.environ[(PREFIX_KEY_BASE + k).upper()] = v
+#     Parameters
+#     ----------
+#     config : dict
+#         whole simulation config file
+#     """
+#     environ = config.get("environment", {})
+#     for k, v in environ.get("path_prefixes", {}).items():
+#         os.environ[(PREFIX_KEY_BASE + k).upper()] = v
 
 
 def get_all_environ() -> Dict[str, str]:
@@ -229,7 +257,7 @@ def get_all_environ() -> Dict[str, str]:
 
 
 def load_single_spectrum(folder, index) -> np.ndarray:
-    return np.load(os.path.join(abspath(folder), f"spectra_{index}.npy"))
+    return np.load(os.path.join(folder, f"spectra_{index}.npy"))
 
 
 def get_data_subfolders(path: str) -> List[str]:
@@ -273,7 +301,7 @@ def check_data_integrity(sub_folders: List[str], init_z_num: int):
 
 
 def propagation_initiated(sub_folder) -> bool:
-    if os.path.isdir(abspath(sub_folder)):
+    if os.path.isdir(sub_folder):
         return find_last_spectrum_file(sub_folder) > 0
     return False
 
@@ -332,6 +360,7 @@ def merge_same_simulations(path: str):
     sub_folders = get_data_subfolders(path)
     config = load_toml(os.path.join(path, "initial_config.toml"))
     repeat = config["simulation"].get("repeat", 1)
+    max_repeat_id = repeat - 1
     z_num = config["simulation"]["z_num"]
 
     check_data_integrity(sub_folders, z_num)
@@ -346,24 +375,34 @@ def merge_same_simulations(path: str):
     num_operations = z_num * len(base_folders) + len(base_folders)
     pt = utils.ProgressTracker(num_operations, logger=logger, prefix="merging data : ")
 
-    for base_folder in base_folders:
-        logger.debug(f"creating new folder {base_folder}")
-        for j in range(z_num):
-            spectra = []
-            for i in range(repeat):
-                spectra.append(
-                    np.load(os.path.join(f"{base_folder}{num_separator}{i}/spectrum_{j}.npy"))
-                )
-            dest_folder = ensure_folder(base_folder, prevent_overwrite=False)
-            spectra = np.array(spectra).reshape(repeat, len(spectra[0]))
-            np.save(os.path.join(dest_folder, f"spectra_{j}.npy"), spectra.squeeze())
-            pt.update()
-        for file_name in ["z.npy", "params.toml"]:
-            shutil.copy(
-                os.path.join(f"{base_folder}{num_separator}0", file_name),
-                os.path.join(base_folder, ""),
-            )
-        pt.update()
+    spectra = []
+    for z_id in range(z_num):
+        for variable_and_ind, _ in utils.required_simulations(config):
+            repeat_id = variable_and_ind[-1][1]
+
+            # reset the buffer once we move to a new parameter set
+            if repeat_id == 0:
+                spectra = []
+
+            in_path = os.path.join(path, utils.format_variable_list(variable_and_ind))
+            spectra.append(np.load(os.path.join(in_path, f"spectrum_{z_id}.npy")))
+
+            # write new files only once all those from one parameter set are collected
+            if repeat_id == max_repeat_id:
+                out_path = os.path.join(path, utils.format_variable_list(variable_and_ind[:-1]))
+                out_path = ensure_folder(out_path, prevent_overwrite=False)
+                spectra = np.array(spectra).reshape(repeat, len(spectra[0]))
+                np.save(os.path.join(out_path, f"spectra_{z_id}.npy"), spectra.squeeze())
+                pt.update()
+
+                # copy other files only once
+                if z_id == 0:
+                    for file_name in ["z.npy", "params.toml"]:
+                        shutil.copy(
+                            os.path.join(in_path, file_name),
+                            os.path.join(out_path, ""),
+                        )
+                    pt.update()
 
     try:
         for sub_folder in sub_folders:
@@ -424,7 +463,6 @@ def generate_file_path(file_name: str, task_id: int, identifier: str = "") -> st
     #     i += 1
 
     path = os.path.join(get_data_folder(task_id), identifier)
-    path = abspath(path)
     os.makedirs(path, exist_ok=True)
     path = os.path.join(path, file_name)
 
@@ -445,7 +483,6 @@ def save_data(data: np.ndarray, file_name: str, task_id: int, identifier: str = 
     identifier : str, optional
         identifier in the main data folder of the task, by default ""
     """
-
     path = generate_file_path(file_name, task_id, identifier)
     np.save(path, data)
     get_logger(__name__).debug(f"saved data in {path}")
@@ -455,10 +492,10 @@ def save_data(data: np.ndarray, file_name: str, task_id: int, identifier: str = 
 def ensure_folder(name, i=0, suffix="", prevent_overwrite=True):
     """creates a folder for simulation data named name and prevents overwrite
     by adding a suffix if necessary and returning the name"""
-    prefix, last_dir = os.path.split(abspath(name))
+    prefix, last_dir = os.path.split(name)
     exploded = [prefix]
     sub_prefix = prefix
-    while sub_prefix != os.path.abspath("/"):
+    while not _end_of_path_tree(sub_prefix):
         sub_prefix, _ = os.path.split(sub_prefix)
         exploded.append(sub_prefix)
     if any(os.path.isfile(el) for el in exploded):
@@ -476,3 +513,9 @@ def ensure_folder(name, i=0, suffix="", prevent_overwrite=True):
         else:
             return folder_name
     return folder_name
+
+
+def _end_of_path_tree(path):
+    out = path == os.path.abspath(os.sep)
+    out |= path == ""
+    return out

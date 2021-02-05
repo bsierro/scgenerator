@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import List, Tuple, Type
 
 import numpy as np
-from numpy.fft import fft, ifft
 
 from .. import initialize, io, utils
 from ..logger import get_logger
@@ -146,9 +145,7 @@ class RK4IP:
         self.size_fac = 2 ** (1 / 5)
 
         if self.save_data:
-            _save_current_spectrum(
-                self.current_spectrum, self.cons_qty, 0, self.id, self.job_identifier
-            )
+            self._save_current_spectrum(0)
 
         # Initial step size
         if self.adapt_step_size:
@@ -156,45 +153,28 @@ class RK4IP:
         else:
             self.initial_h = self.error_ok
 
-    # def _setup_sim_parameters(self):
-    #     # making sure to keep only the z that we want
-    #     self.z_targets = list(self.z_targets.copy())
-    #     self.z_targets.sort()
-    #     self.store_num = len(self.z_targets)
+    def _save_current_spectrum(self, num: int):
+        """saves the spectrum and the corresponding cons_qty array
 
-    #     # Initial setup of simulation parameters
-    #     self.d_w = self.w_c[1] - self.w_c[0]  # resolution of the frequency grid
-    #     self.z = self.z_targets.pop(0)
-    #     self.z_stored = [self.z]  # position of each stored spectrum (for display)
+        Parameters
+        ----------
+        num : int
+            index of the z postition
+        """
+        self._save_data(self.current_spectrum, f"spectrum_{num}")
+        self._save_data(self.cons_qty, f"cons_qty")
 
-    #     self.progress_tracker = utils.ProgressTracker(
-    #         self.z_final, percent_incr=self.n_percent, logger=self.logger
-    #     )
+    def _save_data(self, data: np.ndarray, name: str):
+        """calls the appropriate method to save data
 
-    #     # Setup initial values for every physical quantity that we want to track
-    #     self.current_spectrum = self.spec_0.copy()
-    #     self.stored_spectra = [self.current_spectrum.copy()]
-    #     self.cons_qty = [
-    #         self.conserved_quantity_func(
-    #             self.current_spectrum,
-    #             self.w_c + self.w0,
-    #             self.d_w,
-    #             self.gamma,
-    #         ),
-    #         0,
-    #     ]
-    #     self.size_fac = 2 ** (1 / 5)
-
-    #     if self.save_data:
-    #         _save_current_spectrum(
-    #             self.current_spectrum, self.cons_qty, 0, self.id, self.job_identifier
-    #         )
-
-    #     # Initial step size
-    #     if self.adapt_step_size:
-    #         self.initial_h = (self.z_targets[0] - self.z) / 2
-    #     else:
-    #         self.initial_h = self.error_ok
+        Parameters
+        ----------
+        data : np.ndarray
+            data to save
+        name : str
+            file name
+        """
+        io.save_data(data, name, self.id, self.job_identifier)
 
     def run(self):
 
@@ -229,13 +209,7 @@ class RK4IP:
 
                 self.stored_spectra.append(self.current_spectrum)
                 if self.save_data:
-                    _save_current_spectrum(
-                        self.current_spectrum,
-                        self.cons_qty,
-                        len(self.stored_spectra) - 1,
-                        self.id,
-                        self.job_identifier,
-                    )
+                    self._save_current_spectrum(len(self.stored_spectra) - 1)
 
                 self.z_stored.append(self.z)
                 del self.z_targets[0]
@@ -261,7 +235,7 @@ class RK4IP:
         )
 
         if self.save_data:
-            io.save_data(self.z_stored, "z.npy", self.id, self.job_identifier)
+            self._save_data(self.z_stored, "z.npy")
 
         return self.stored_spectra
 
@@ -327,6 +301,23 @@ class RK4IP:
         return h, h_next_step, new_spectrum
 
 
+class RayRK4IP(RK4IP):
+    def __init__(
+        self, sim_params, data_queue, save_data=False, job_identifier="", task_id=0, n_percent=10
+    ):
+        self.queue = data_queue
+        super().__init__(
+            sim_params,
+            save_data=save_data,
+            job_identifier=job_identifier,
+            task_id=task_id,
+            n_percent=n_percent,
+        )
+
+    def _save_data(self, data: np.ndarray, name: str):
+        self.queue.put((name, self.job_identifier, data))
+
+
 class Simulations:
     """The recommended way to run simulations.
     New Simulations child classes can be written and must implement the following
@@ -366,6 +357,7 @@ class Simulations:
         io.save_toml(os.path.join(self.data_folder, "initial_config.toml"), self.param_seq.config)
 
         self.sim_jobs_per_node = 1
+        self.max_concurrent_jobs = np.inf
 
         self.propagator = RK4IP
 
@@ -379,10 +371,15 @@ class Simulations:
         except IncompleteDataFolderError:
             return False
 
+    def limit_concurrent_jobs(self, max_concurrent_jobs):
+        self.max_concurrent_jobs = max_concurrent_jobs
+
     def update(self, param_seq):
         self.param_seq = param_seq
         self.progress_tracker = utils.ProgressTracker(
-            len(self.param_seq), percent_incr=1, logger=self.logger
+            len(self.param_seq) * self.param_seq["simulation", "z_num"],
+            percent_incr=1,
+            logger=self.logger,
         )
 
     def run(self):
@@ -443,7 +440,7 @@ class SequencialSimulations(Simulations, available=True, priority=0):
             job_identifier=v_list_str,
             task_id=self.id,
         ).run()
-        self.progress_tracker.update()
+        self.progress_tracker.update(self.param_seq["simulation", "z_num"])
 
     def stop(self):
         pass
@@ -455,11 +452,15 @@ class SequencialSimulations(Simulations, available=True, priority=0):
 class RaySimulations(Simulations, available=using_ray, priority=1):
     """runs simulation with the help of the ray module. ray must be initialized before creating an instance of RaySimulations"""
 
-    def __init__(self, param_seq: initialize.ParamSequence, task_id=0, data_folder="scgenerator/"):
+    def __init__(
+        self,
+        param_seq: initialize.ParamSequence,
+        task_id=0,
+        data_folder="scgenerator/",
+    ):
         super().__init__(param_seq, task_id, data_folder)
-        self._init_ray()
+        self.buffer = io.DataBuffer(self.id)
 
-    def _init_ray(self):
         nodes = ray.nodes()
         self.logger.info(
             f"{len(nodes)} node{'s' if len(nodes) > 1 else ''} in the Ray cluster : "
@@ -471,7 +472,7 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
             )
         )
 
-        self.propagator = ray.remote(self.propagator).options(
+        self.propagator = ray.remote(RayRK4IP).options(
             override_environment_variables=io.get_all_environ()
         )
         self.sim_jobs_per_node = min(
@@ -488,7 +489,7 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
         v_list_str = utils.format_variable_list(variable_list)
 
         new_actor = self.propagator.remote(
-            params, save_data=True, job_identifier=v_list_str, task_id=self.id
+            params, self.buffer.queue, save_data=True, job_identifier=v_list_str, task_id=self.id
         )
         new_job = new_actor.run.remote()
 
@@ -503,17 +504,18 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
 
     def _collect_1_job(self):
         ready, self.jobs = ray.wait(self.jobs, timeout=self.update_cluster_frequency)
+        num_saved = self.buffer.empty()
+        self.progress_tracker.update(num_saved)
 
         if len(ready) == 0:
             return
-
-        try:
-            ray.get(ready)
-            self.progress_tracker.update()
-        except Exception as e:
-            self.logger.warning("A problem occured with 1 or more worker :")
-            self.logger.warning(e)
-            ray.kill(self.actors[ready[0].task_id()])
+        ray.get(ready)
+        # try:
+        #     ray.get(ready)
+        # except Exception as e:
+        #     self.logger.warning("A problem occured with 1 or more worker :")
+        #     self.logger.warning(e)
+        #     ray.kill(self.actors[ready[0].task_id()])
 
         del self.actors[ready[0].task_id()]
 
@@ -523,15 +525,18 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
     @property
     def sim_jobs_total(self):
         tot_cpus = sum([node.get("Resources", {}).get("CPU", 0) for node in ray.nodes()])
+        tot_cpus = min(tot_cpus, self.max_concurrent_jobs)
         return int(min(self.param_seq.num_sim, tot_cpus))
 
 
 def new_simulations(
-    config_file: str, task_id: int, data_folder="scgenerator/", Method: Type[Simulations] = None
-):
+    config_file: str,
+    task_id: int,
+    data_folder="scgenerator/",
+    Method: Type[Simulations] = None,
+) -> Simulations:
 
     config = io.load_toml(config_file)
-    io.set_environ(config)
     param_seq = initialize.ParamSequence(config)
 
     return _new_simulations(param_seq, task_id, data_folder, Method)
@@ -549,7 +554,10 @@ def resume_simulations(
 
 
 def _new_simulations(
-    param_seq: initialize.ParamSequence, task_id, data_folder, Method: Type[Simulations]
+    param_seq: initialize.ParamSequence,
+    task_id,
+    data_folder,
+    Method: Type[Simulations],
 ):
     if Method is not None:
         return Method(param_seq, task_id, data_folder=data_folder)
@@ -557,25 +565,3 @@ def _new_simulations(
         return Simulations.get_best_method()(param_seq, task_id, data_folder=data_folder)
     else:
         return SequencialSimulations(param_seq, task_id, data_folder=data_folder)
-
-
-def _save_current_spectrum(
-    spectrum: np.ndarray, cons_qty: np.ndarray, num: int, task_id: int, job_identifier: str
-):
-    """saves the spectrum and the corresponding cons_qty array
-
-    Parameters
-    ----------
-    spectrum : np.ndarray
-        spectrum as function of w
-    cons_qty : np.ndarray
-        cons_qty array
-    num : int
-        index of the z postition
-    task_id : int
-        unique number identifyin the session
-    job_identifier : str
-        to differentiate this particular run from the others in the session
-    """
-    io.save_data(spectrum, f"spectrum_{num}", task_id, job_identifier)
-    io.save_data(cons_qty, f"cons_qty", task_id, job_identifier)

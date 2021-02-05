@@ -11,11 +11,6 @@ def integer(n):
     return isinstance(n, int) and n > 0
 
 
-def generic_dict(d):
-    """must be a dictionary"""
-    return isinstance(d, dict)
-
-
 def boolean(b):
     """must be a boolean"""
     return type(b) == bool
@@ -151,9 +146,6 @@ valid_param_types = dict(
         upper_wavelength_interp_limit=num,
         frep=num,
     ),
-    environment=dict(
-        path_prefixes=generic_dict,
-    ),
 )
 
 hc_model_specific_parameters = dict(
@@ -198,7 +190,6 @@ valid_variable = dict(
         "soliton_num",
     ],
     simulation=["behaviors", "raman_type", "tolerated_error", "step_size", "ideal_gas"],
-    environment=[],
 )
 
 ENVIRON_KEY_BASE = "SCGENERATOR_"
