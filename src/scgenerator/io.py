@@ -411,11 +411,13 @@ def merge_same_simulations(path: str):
         logger.warning(f"could not send send {len(base_folders)} folder(s) to trash")
 
 
-def get_data_folder(task_id: int, name_if_new: str = ""):
+def get_data_folder(task_id: int, name_if_new: str = "data"):
+    if name_if_new == "":
+        name_if_new = "data"
     idstr = str(int(task_id))
     tmp = os.getenv(TMP_FOLDER_KEY_BASE + idstr)
     if tmp is None:
-        tmp = ensure_folder("scgenerator_" + name_if_new + idstr)
+        tmp = ensure_folder("scgenerator " + name_if_new)
         os.environ[TMP_FOLDER_KEY_BASE + idstr] = tmp
     return tmp
 

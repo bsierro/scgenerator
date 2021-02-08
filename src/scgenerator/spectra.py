@@ -5,11 +5,31 @@ from typing import Any, List, Tuple
 
 import numpy as np
 
-from . import io
+from . import io, initialize, math
+from .plotting import units
 from .logger import get_logger
 
 
-class Spectra(Sequence):
+class Spectrum(np.ndarray):
+    def __new__(cls, input_array, wl, frep=1):
+        # Input array is an already formed ndarray instance
+        # We first cast to be our class type
+        obj = np.asarray(input_array).view(cls)
+        # add the new attribute to the created instance
+        obj.frep = frep
+        obj.wl = wl
+        # Finally, we must return the newly created object:
+        return obj
+
+    def __array_finalize__(self, obj):
+        # see InfoArray.__array_finalize__ for comments
+        if obj is None:
+            return
+        self.frep = getattr(obj, "frep", None)
+        self.wl = getattr(obj, "wl", None)
+
+
+class Pulse(Sequence):
     def __init__(self, path: str):
         self.logger = get_logger(__name__)
         self.path = path
@@ -35,6 +55,12 @@ class Spectra(Sequence):
         if self.nmax <= 0:
             raise FileNotFoundError(f"No appropriate file in specified folder {self.path}")
 
+        self.t = self.params["t"]
+        w = initialize.wspace(self.t) + units.m(self.params["wavelength"])
+        self.w_order = np.argsort(w)
+        self.w = w
+        self.wl = units.m.inv(self.w)
+
     def __iter__(self):
         """
         similar to all_spectra but works as an iterator
@@ -42,13 +68,81 @@ class Spectra(Sequence):
 
         self.logger.debug(f"iterating through {self.path}")
         for i in range(self.nmax):
-            yield io.load_single_spectrum(self.path, i)
+            yield self._load1(i)
 
     def __len__(self):
         return self.nmax
 
     def __getitem__(self, key):
         return self.all_spectra(ind=range(self.nmax)[key])
+
+    def intensity(self, unit):
+        if unit.type in ["WL", "FREQ", "AFREQ"]:
+            x_axis = unit.inv(self.w)
+        else:
+            x_axis = unit.inv(self.t)
+
+        order = np.argsort(x_axis)
+        func = dict(
+            WL=self._to_wl_int,
+            FREQ=self._to_freq_int,
+            AFREQ=self._to_afreq_int,
+            TIME=self._to_time_int,
+        )[unit.type]
+
+        for spec in self:
+            yield x_axis[order], func(spec)[:, order]
+
+    def _to_wl_int(self, spectrum):
+        return units.to_WL(math.abs2(spectrum), spectrum.frep, spectrum.wl)
+
+    def _to_freq_int(self, spectrum):
+        return math.abs2(spectrum)
+
+    def _to_afreq_int(self, spectrum):
+        return math.abs2(spectrum)
+
+    def _to_time_int(self, spectrum):
+        return math.abs2(np.fft.ifft(spectrum))
+
+    def amplitude(self, unit):
+        if unit.type in ["WL", "FREQ", "AFREQ"]:
+            x_axis = unit.inv(self.w)
+        else:
+            x_axis = unit.inv(self.t)
+
+        order = np.argsort(x_axis)
+        func = dict(
+            WL=self._to_wl_amp,
+            FREQ=self._to_freq_amp,
+            AFREQ=self._to_afreq_amp,
+            TIME=self._to_time_amp,
+        )[unit.type]
+
+        for spec in self:
+            yield x_axis[order], func(spec)[:, order]
+
+    def _to_wl_amp(self, spectrum):
+        return (
+            np.sqrt(
+                units.to_WL(
+                    math.abs2(spectrum),
+                    spectrum.frep,
+                    spectrum.wl,
+                )
+            )
+            * spectrum
+            / np.abs(spectrum)
+        )
+
+    def _to_freq_amp(self, spectrum):
+        return spectrum
+
+    def _to_afreq_amp(self, spectrum):
+        return spectrum
+
+    def _to_time_amp(self, spectrum):
+        return np.fft.ifft(spectrum)
 
     def all_spectra(self, ind=None):
         """
@@ -85,6 +179,11 @@ class Spectra(Sequence):
         self.logger.debug(f"all spectra from {self.path} successfully loaded")
 
         return spectra.squeeze()
+
+    def _load1(self, i: int):
+        return Spectrum(
+            np.atleast_2d(io.load_single_spectrum(self.path, i)), self.wl, self.params["frep"]
+        )
 
 
 class SpectraCollection(Mapping, Sequence):

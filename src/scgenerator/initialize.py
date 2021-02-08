@@ -140,15 +140,15 @@ def tspace(time_window=None, t_num=None, dt=None):
         raise TypeError("not enough parameter to determine time vector")
 
 
-def validate_single_parameter(parent, key, value):
+def validate_single_parameter(section, key, value):
     try:
-        func = valid_param_types[parent][key]
+        func = valid_param_types[section][key]
     except KeyError:
         s = f"The parameter '{key}' does not belong "
-        if parent == "root":
+        if section == "root":
             s += "at the root of the config file"
         else:
-            s += f"in the category '{parent}'"
+            s += f"in the category '{section}'"
         s += ". Make sure it is a valid parameter in the first place"
         raise TypeError(s)
     if not func(value):
@@ -178,11 +178,11 @@ def _validate_types(config):
                 if param_name == "variable":
                     for k_vary, v_vary in param_value.items():
                         if not isinstance(v_vary, list):
-                            raise TypeError(f"Varying parameters should be specified in a list")
+                            raise TypeError(f"Variable parameters should be specified in a list")
 
                         if len(v_vary) < 1:
                             raise ValueError(
-                                f"Varying parameters lists should contain at least 1 element"
+                                f"Variable parameters lists should contain at least 1 element"
                             )
 
                         if k_vary not in valid_variable[domain]:
