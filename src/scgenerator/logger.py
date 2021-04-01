@@ -49,7 +49,7 @@ def get_logger(name=None):
 #             handler.setLevel(lvl_map[lvl])
 
 
-def configure_logger(logger, logfile="scgenerator.log"):
+def configure_logger(logger):
     """configures a logging.Logger obj
 
     Parameters
@@ -65,16 +65,16 @@ def configure_logger(logger, logfile="scgenerator.log"):
         updated logger
     """
     if not hasattr(logger, "already_configured"):
-        if logfile is not None:
-            file_handler = logging.FileHandler("scgenerator.log", "a+")
-            file_handler.setFormatter(
-                logging.Formatter("{levelname}: {name}: {message}", style="{")
-            )
-            logger.addHandler(file_handler)
+        formatter = logging.Formatter("{levelname}: {name}: {message}", style="{")
+        file_handler1 = logging.FileHandler("sc-DEBUG.log", "a+")
+        file_handler1.setFormatter(formatter)
+        file_handler1.setLevel(logging.DEBUG)
+        logger.addHandler(file_handler1)
 
         stream_handler = logging.StreamHandler()
+        stream_handler.setLevel(logging.INFO)
         logger.addHandler(stream_handler)
-        logger.setLevel(DEFAULT_LEVEL)
+        logger.setLevel(logging.DEBUG)
 
         logger.already_configured = True
     return logger

@@ -26,8 +26,14 @@ except ModuleNotFoundError:
 
 
 class Paths:
-    home = os.path.expanduser("~")
-    _data_files = ["silica.toml", "gas.toml", "hr_t.npz"]
+    _data_files = [
+        "silica.toml",
+        "gas.toml",
+        "hr_t.npz",
+        "submit_job_template.txt",
+        "start_worker.sh",
+        "start_head.sh",
+    ]
 
     paths = {
         f.split(".")[0]: os.path.abspath(
@@ -81,6 +87,8 @@ class DataBuffer:
 
     def empty(self):
         num = self.queue.size()
+        if num == 0:
+            return 0
         self.logger.info(f"buffer length at time of emptying : {num}")
         while not self.queue.empty():
             name, identifier, data = self.queue.get()
@@ -372,8 +380,8 @@ def merge_same_simulations(path: str):
         if len(base_folder) > 0:
             base_folders.add(base_folder)
 
-    num_operations = z_num * len(base_folders) + len(base_folders)
-    pt = utils.ProgressTracker(num_operations, logger=logger, prefix="merging data : ")
+    sim_num, param_num = utils.count_variations(config)
+    pt = utils.ProgressTracker(sim_num, logger=logger, prefix="merging data : ")
 
     spectra = []
     for z_id in range(z_num):
@@ -386,6 +394,7 @@ def merge_same_simulations(path: str):
 
             in_path = os.path.join(path, utils.format_variable_list(variable_and_ind))
             spectra.append(np.load(os.path.join(in_path, f"spectrum_{z_id}.npy")))
+            pt.update()
 
             # write new files only once all those from one parameter set are collected
             if repeat_id == max_repeat_id:
@@ -393,7 +402,6 @@ def merge_same_simulations(path: str):
                 out_path = ensure_folder(out_path, prevent_overwrite=False)
                 spectra = np.array(spectra).reshape(repeat, len(spectra[0]))
                 np.save(os.path.join(out_path, f"spectra_{z_id}.npy"), spectra.squeeze())
-                pt.update()
 
                 # copy other files only once
                 if z_id == 0:
@@ -402,7 +410,6 @@ def merge_same_simulations(path: str):
                             os.path.join(in_path, file_name),
                             os.path.join(out_path, ""),
                         )
-                    pt.update()
 
     try:
         for sub_folder in sub_folders:

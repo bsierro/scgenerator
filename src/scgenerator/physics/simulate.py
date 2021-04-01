@@ -110,7 +110,7 @@ class RK4IP:
             if "raman" in self.behaviors:
                 self.conserved_quantity_func = pulse.photon_number
             else:
-                self.logger.info("energy conserved")
+                self.logger.debug("energy conserved")
                 self.conserved_quantity_func = pulse.pulse_energy
         else:
             self.conserved_quantity_func = lambda a, b, c, d: 0
@@ -179,7 +179,7 @@ class RK4IP:
     def run(self):
 
         # Print introduction
-        self.logger.info(
+        self.logger.debug(
             "Computing {} new spectra, first one at {}m".format(self.store_num, self.z_targets[0])
         )
         self.progress_tracker.set(self.z)
@@ -228,7 +228,7 @@ class RK4IP:
                 store = True
                 h_next_step = self.z_targets[0] - self.z
 
-        self.logger.info(
+        self.logger.debug(
             "propagation finished in {} steps ({} seconds)".format(
                 step, (datetime.today() - time_start).total_seconds()
             )
@@ -286,7 +286,7 @@ class RK4IP:
 
                 if curr_p_change > 2 * cons_qty_change_ok:
                     progress_str = f"step {step} rejected with h = {h:.4e}, doing over"
-                    self.logger.info(progress_str)
+                    self.logger.debug(progress_str)
                     keep = False
                     h_next_step = h / 2
                 elif cons_qty_change_ok < curr_p_change <= 2 * cons_qty_change_ok:
@@ -380,6 +380,7 @@ class Simulations:
             len(self.param_seq) * self.param_seq["simulation", "z_num"],
             percent_incr=1,
             logger=self.logger,
+            prefix="Overall : ",
         )
 
     def run(self):
@@ -478,7 +479,7 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
         self.sim_jobs_per_node = min(
             self.param_seq.num_sim, self.param_seq["simulation", "parallel"]
         )
-        self.update_cluster_frequency = 5
+        self.update_cluster_frequency = 3
         self.jobs = []
         self.actors = {}
 
@@ -510,12 +511,6 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
         if len(ready) == 0:
             return
         ray.get(ready)
-        # try:
-        #     ray.get(ready)
-        # except Exception as e:
-        #     self.logger.warning("A problem occured with 1 or more worker :")
-        #     self.logger.warning(e)
-        #     ray.kill(self.actors[ready[0].task_id()])
 
         del self.actors[ready[0].task_id()]
 

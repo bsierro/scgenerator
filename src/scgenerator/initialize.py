@@ -153,7 +153,7 @@ def validate_single_parameter(section, key, value):
         raise TypeError(s)
     if not func(value):
         raise TypeError(
-            f"value '{value}' of type {type(value)} for key '{key}' is not valid, {func.__doc__}"
+            f"value '{value}' of type {type(value).__name__} for key '{key}' is not valid, {func.__doc__}"
         )
     return
 

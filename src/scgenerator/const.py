@@ -1,6 +1,26 @@
 import numpy as np
 
 
+def in_range_excl(func, r):
+    def _in_range(n):
+        if not func(n):
+            return False
+        return n > r[0] and n < r[1]
+
+    _in_range.__doc__ = func.__doc__ + f" between {r[0]} and {r[1]}"
+    return _in_range
+
+
+def in_range_incl(func, r):
+    def _in_range(n):
+        if not func(n):
+            return False
+        return n >= r[0] and n <= r[1]
+
+    _in_range.__doc__ = func.__doc__ + f" between {r[0]} and {r[1]}"
+    return _in_range
+
+
 def num(n):
     """must be a single, real, non-negative number"""
     return isinstance(n, (float, int)) and n >= 0
@@ -83,32 +103,24 @@ def capillary_nested(n):
     return isinstance(n, int) and n >= 0
 
 
-# def find_parent(param):
-#     """find the parent dictionary name of param"""
-#     for k, v in valid_param_types.items():
-#         if param in v:
-#             return k
-#     raise ValueError(f"'{param}' is an invalid parameter name")
-
-
 valid_param_types = dict(
     root=dict(
         name=lambda s: isinstance(s, str),
     ),
     fiber=dict(
         gamma=num,
-        pitch=num,
-        pitch_ratio=num,
-        core_radius=num,
+        pitch=in_range_excl(num, (0, 1e-3)),
+        pitch_ratio=in_range_excl(num, (0, 1)),
+        core_radius=in_range_excl(num, (0, 1e-3)),
         he_mode=he_mode,
         fit_parameters=fit_parameters,
         beta=beta,
         model=string(["pcf", "marcatili", "marcatili_adjusted", "hasan", "custom"]),
         length=num,
         capillary_num=integer,
-        capillary_outer_d=num,
-        capillary_thickness=num,
-        capillary_spacing=num,
+        capillary_outer_d=in_range_excl(num, (0, 1e-3)),
+        capillary_thickness=in_range_excl(num, (0, 1e-3)),
+        capillary_spacing=in_range_excl(num, (0, 1e-3)),
         capillary_resonance_strengths=capillary_resonance_strengths,
         capillary_nested=capillary_nested,
     ),
@@ -125,10 +137,10 @@ valid_param_types = dict(
         soliton_num=num,
         quantum_noise=boolean,
         shape=string(["gaussian", "sech"]),
-        wavelength=num,
-        intensity_noise=num,
-        width=num,
-        t0=num,
+        wavelength=in_range_excl(num, (100e-9, 3000e-9)),
+        intensity_noise=in_range_incl(num, (0, 1)),
+        width=in_range_excl(num, (0, 1e-9)),
+        t0=in_range_excl(num, (0, 1e-9)),
     ),
     simulation=dict(
         behaviors=behaviors,
@@ -139,11 +151,11 @@ valid_param_types = dict(
         t_num=integer,
         z_num=integer,
         time_window=num,
-        dt=num,
-        tolerated_error=num,
+        dt=in_range_excl(num, (0, 5e-15)),
+        tolerated_error=in_range_excl(num, (1e-15, 1e-5)),
         step_size=num,
-        lower_wavelength_interp_limit=num,
-        upper_wavelength_interp_limit=num,
+        lower_wavelength_interp_limit=in_range_excl(num, (100e-9, 3000e-9)),
+        upper_wavelength_interp_limit=in_range_excl(num, (100e-9, 5000e-9)),
         frep=num,
     ),
 )

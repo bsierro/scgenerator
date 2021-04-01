@@ -35,8 +35,6 @@ def create_parser():
     )
     resume_parser.set_defaults(func=resume_sim)
 
-    newconfig_parser = subparsers.add_parser("newconfig", help="create a new configuration file")
-
     return parser
 
 
