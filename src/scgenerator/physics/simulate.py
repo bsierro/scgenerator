@@ -1,13 +1,14 @@
 import os
+import sys
 from datetime import datetime
 from typing import List, Tuple, Type
 
 import numpy as np
 
 from .. import initialize, io, utils
+from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
 from . import pulse
-from ..errors import IncompleteDataFolderError
 from .fiber import create_non_linear_op, fast_dispersion_op
 
 using_ray = False
@@ -301,23 +302,6 @@ class RK4IP:
         return h, h_next_step, new_spectrum
 
 
-class RayRK4IP(RK4IP):
-    def __init__(
-        self, sim_params, data_queue, save_data=False, job_identifier="", task_id=0, n_percent=10
-    ):
-        self.queue = data_queue
-        super().__init__(
-            sim_params,
-            save_data=save_data,
-            job_identifier=job_identifier,
-            task_id=task_id,
-            n_percent=n_percent,
-        )
-
-    def _save_data(self, data: np.ndarray, name: str):
-        self.queue.put((name, self.job_identifier, data))
-
-
 class Simulations:
     """The recommended way to run simulations.
     New Simulations child classes can be written and must implement the following
@@ -473,7 +457,7 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
             )
         )
 
-        self.propagator = ray.remote(RayRK4IP).options(
+        self.propagator = ray.remote(RK4IP).options(
             override_environment_variables=io.get_all_environ()
         )
         self.sim_jobs_per_node = min(
@@ -490,7 +474,7 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
         v_list_str = utils.format_variable_list(variable_list)
 
         new_actor = self.propagator.remote(
-            params, self.buffer.queue, save_data=True, job_identifier=v_list_str, task_id=self.id
+            params, save_data=True, job_identifier=v_list_str, task_id=self.id
         )
         new_job = new_actor.run.remote()
 
@@ -560,3 +544,12 @@ def _new_simulations(
         return Simulations.get_best_method()(param_seq, task_id, data_folder=data_folder)
     else:
         return SequencialSimulations(param_seq, task_id, data_folder=data_folder)
+
+
+if __name__ == "__main__":
+    try:
+        ray.init()
+    except NameError:
+        pass
+    config_file, *opts = sys.argv[1:]
+    new_simulations(config_file, *opts)

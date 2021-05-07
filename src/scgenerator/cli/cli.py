@@ -1,9 +1,10 @@
 import argparse
 import os
 import random
+import sys
 
 import ray
-from scgenerator.physics.simulate import new_simulations, resume_simulations
+from scgenerator.physics.simulate import new_simulations, resume_simulations, SequencialSimulations
 
 
 def create_parser():
@@ -21,6 +22,12 @@ def create_parser():
         "--start-ray",
         action="store_true",
         help="assume no ray instance has been started beforehand",
+    )
+
+    parser.add_argument(
+        "--no-ray",
+        action="store_true",
+        help="force not to use ray",
     )
 
     run_parser = subparsers.add_parser("run", help="run a simulation from a config file")
@@ -48,15 +55,18 @@ def run_sim(args):
 
     if args.start_ray:
         init_str = ray.init()
-    else:
+    elif not args.no_ray:
         init_str = ray.init(
             address="auto",
             _node_ip_address=os.environ.get("ip_head", "127.0.0.1").split(":")[0],
             _redis_password=os.environ.get("redis_password", "caco1234"),
         )
 
-    print(init_str)
-    sim = new_simulations(args.config, args.id)
+        print(init_str)
+    if args.no_ray:
+        sim = new_simulations(args.config, args.id, Method=SequencialSimulations)
+    else:
+        sim = new_simulations(args.config, args.id)
 
     sim.run()
 
@@ -71,7 +81,7 @@ def resume_sim(args):
             _redis_password=os.environ.get("redis_password", "caco1234"),
         )
 
-    print(init_str)
+        print(init_str)
     sim = resume_simulations(args.data_dir, args.id)
 
     sim.run()

@@ -381,7 +381,8 @@ def merge_same_simulations(path: str):
             base_folders.add(base_folder)
 
     sim_num, param_num = utils.count_variations(config)
-    pt = utils.ProgressTracker(sim_num, logger=logger, prefix="merging data : ")
+    pt = utils.ProgressTracker(sim_num * z_num, logger=logger, prefix="merging data : ")
+    print(f"{pt.max=}")
 
     spectra = []
     for z_id in range(z_num):
