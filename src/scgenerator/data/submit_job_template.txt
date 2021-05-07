@@ -29,6 +29,7 @@ echo $ip > ~/ip_head
 port=6379
 ip_head=$ip:$port
 export ip_head
+export RAY_ADDRESS=$ip_head
 echo "IP Head: $ip_head"
 
 ip_submit=$(hostname --ip-address)

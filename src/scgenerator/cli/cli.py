@@ -53,37 +53,27 @@ def main():
 
 def run_sim(args):
 
+    method = prep_ray(args)
+    sim = new_simulations(args.config, args.id, Method=method)
+    sim.run()
+
+
+def prep_ray(args):
     if args.start_ray:
         init_str = ray.init()
     elif not args.no_ray:
         init_str = ray.init(
             address="auto",
-            _node_ip_address=os.environ.get("ip_head", "127.0.0.1").split(":")[0],
+            # _node_ip_address=os.environ.get("ip_head", "127.0.0.1").split(":")[0],
             _redis_password=os.environ.get("redis_password", "caco1234"),
         )
-
         print(init_str)
-    if args.no_ray:
-        sim = new_simulations(args.config, args.id, Method=SequencialSimulations)
-    else:
-        sim = new_simulations(args.config, args.id)
-
-    sim.run()
+    return SequencialSimulations if args.no_ray else None
 
 
 def resume_sim(args):
-    if args.start_ray:
-        init_str = ray.init()
-    else:
-        init_str = ray.init(
-            address="auto",
-            _node_ip_address=os.environ.get("ip_head", "127.0.0.1").split(":")[0],
-            _redis_password=os.environ.get("redis_password", "caco1234"),
-        )
-
-        print(init_str)
-    sim = resume_simulations(args.data_dir, args.id)
-
+    method = prep_ray(args)
+    sim = resume_simulations(args.data_dir, args.id, Method=method)
     sim.run()
 
 
