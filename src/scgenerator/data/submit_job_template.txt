@@ -1,6 +1,7 @@
 #!/bin/bash
 
 #SBATCH --time={time}
+#SBATCH --job-name="{job_name}"
 
 ### This script works for any number of nodes, Ray will find and manage all resources
 #SBATCH --nodes={nodes}

@@ -65,7 +65,8 @@ def main():
     sim_num, _ = count_variations(config)
 
     file_name = "submit " + config["name"] + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh"
-    submit_sh = template.format(**vars(args))
+    job_name = f"supercontinuum {config['name']}"
+    submit_sh = template.format(job_name=job_name, **vars(args))
     with open(file_name, "w") as file:
         file.write(submit_sh)
     subprocess.run(["sbatch", "--test-only", file_name])
