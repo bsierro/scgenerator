@@ -444,7 +444,6 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
         data_folder="scgenerator/",
     ):
         super().__init__(param_seq, task_id, data_folder)
-        self.buffer = io.DataBuffer(self.id)
 
         nodes = ray.nodes()
         self.logger.info(
@@ -489,8 +488,7 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
 
     def _collect_1_job(self):
         ready, self.jobs = ray.wait(self.jobs, timeout=self.update_cluster_frequency)
-        num_saved = self.buffer.empty()
-        self.progress_tracker.update(num_saved)
+        self.progress_tracker.update(self.param_seq["simulation", "z_num"])
 
         if len(ready) == 0:
             return
