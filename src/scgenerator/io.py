@@ -302,7 +302,7 @@ def check_data_integrity(sub_folders: List[str], init_z_num: int):
         raised if not all spectra are present in any folder
     """
     for sub_folder in sub_folders:
-        if not propagation_completed(sub_folder, init_z_num):
+        if num_left_to_propagate(sub_folder, init_z_num) != 0:
             raise IncompleteDataFolderError(
                 f"not enough spectra of the specified {init_z_num} found in {sub_folder}"
             )
@@ -314,7 +314,7 @@ def propagation_initiated(sub_folder) -> bool:
     return False
 
 
-def propagation_completed(sub_folder: str, init_z_num: int):
+def num_left_to_propagate(sub_folder: str, init_z_num: int) -> int:
     """checks if a propagation has completed
 
     Parameters
@@ -344,7 +344,7 @@ def propagation_completed(sub_folder: str, init_z_num: int):
             + f" but the parameter file in {sub_folder} specifies {z_num}"
         )
 
-    return num_spectra == z_num
+    return z_num - num_spectra
 
 
 def find_last_spectrum_file(path: str):

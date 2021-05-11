@@ -20,10 +20,11 @@ class ParamSequence(Mapping):
         self.name = self.config["name"]
 
         self.num_sim, self.num_variable = count_variations(self.config)
+        self.num_steps = self.num_sim * self.config["simulation", "z_num"]
         self.single_sim = self.num_sim == 1
 
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
-        """iterates through all possible parameters, yielding a config as welle as a flattened
+        """iterates through all possible parameters, yielding a config as well as a flattened
         computed parameters set each time"""
         for variable_list, full_config in required_simulations(self.config):
             yield variable_list, compute_init_parameters(full_config)
@@ -42,9 +43,12 @@ class RecoveryParamSequence(ParamSequence):
     def __init__(self, config, task_id):
         super().__init__(config)
         self.id = task_id
+        self.num_steps = 0
         for sub_folder in io.get_data_subfolders(io.get_data_folder(self.id)):
-            if io.propagation_completed(sub_folder, config["simulation"]["z_num"]):
+            num_left = io.num_left_to_propagate(sub_folder, config["simulation"]["z_num"])
+            if num_left == 0:
                 self.num_sim -= 1
+            self.num_steps += num_left
         self.single_sim = self.num_sim == 1
 
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
@@ -56,7 +60,7 @@ class RecoveryParamSequence(ParamSequence):
 
             if not io.propagation_initiated(sub_folder):
                 yield variable_list, compute_init_parameters(full_config)
-            elif not io.propagation_completed(sub_folder, self.config["simulation"]["z_num"]):
+            elif io.num_left_to_propagate(sub_folder, self.config["simulation"]["z_num"]) != 0:
                 yield variable_list, recover_params(full_config, variable_list, self.id)
             else:
                 continue

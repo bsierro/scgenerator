@@ -358,10 +358,10 @@ class Simulations:
     def limit_concurrent_jobs(self, max_concurrent_jobs):
         self.max_concurrent_jobs = max_concurrent_jobs
 
-    def update(self, param_seq):
+    def update(self, param_seq: initialize.ParamSequence):
         self.param_seq = param_seq
         self.progress_tracker = utils.ProgressTracker(
-            len(self.param_seq) * self.param_seq["simulation", "z_num"],
+            self.param_seq.num_steps,
             percent_incr=1,
             logger=self.logger,
             prefix="Overall : ",
