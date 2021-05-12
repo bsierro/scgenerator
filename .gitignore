@@ -14,5 +14,6 @@ tmp*
 paths.json
 scgenerator_log*
 .scgenerator_tmp
+sc-*.log
 
 .vscode

@@ -4,3 +4,4 @@ scipy
 ray
 send2trash
 toml
+tqdm
