@@ -1,9 +1,12 @@
+import multiprocessing
 import os
 import sys
 from datetime import datetime
-from typing import List, Tuple, Type
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
 import numpy as np
+from numba import jit
+from tqdm import tqdm
 
 from .. import initialize, io, utils
 from ..errors import IncompleteDataFolderError
@@ -68,11 +71,13 @@ class RK4IP:
             print/log progress update every n_percent, by default 10
         """
 
+        self.set_new_params(sim_params, save_data, job_identifier, task_id, n_percent)
+
+    def set_new_params(self, sim_params, save_data, job_identifier, task_id, n_percent):
         self.job_identifier = job_identifier
         self.id = task_id
         self.n_percent = n_percent
         self.logger = get_logger(self.job_identifier)
-
         self.resuming = False
         self.save_data = save_data
         self._extract_params(sim_params)
@@ -101,6 +106,7 @@ class RK4IP:
         self.N_func = create_non_linear_op(
             self.behaviors, self.w_c, self.w0, self.gamma, self.raman_type, self.f_r, self.hr_w
         )
+
         if self.dynamic_dispersion:
             self.disp = lambda r: fast_dispersion_op(self.w_c, self.beta(r), self.w_power_fact)
         else:
@@ -126,10 +132,6 @@ class RK4IP:
         self.d_w = self.w_c[1] - self.w_c[0]  # resolution of the frequency grid
         self.z = self.z_targets.pop(0)
         self.z_stored = list(self.z_targets.copy()[0 : self.starting_num + 1])
-
-        self.progress_tracker = utils.ProgressTracker(
-            self.z_final, percent_incr=self.n_percent, logger=self.logger
-        )
 
         # Setup initial values for every physical quantity that we want to track
         self.current_spectrum = self.spec_0.copy()
@@ -183,7 +185,6 @@ class RK4IP:
         self.logger.debug(
             "Computing {} new spectra, first one at {}m".format(self.store_num, self.z_targets[0])
         )
-        self.progress_tracker.set(self.z)
 
         # Start of the integration
         step = 1
@@ -203,16 +204,14 @@ class RK4IP:
 
             # Whether the current spectrum has to be stored depends on previous step
             if store:
-                self.progress_tracker.suffix = " ({} steps). z = {:.4f}, h = {:.5g}".format(
-                    step, self.z, h_taken
-                )
-                self.progress_tracker.set(self.z)
+                self.logger.debug("{} steps, z = {:.4f}, h = {:.5g}".format(step, self.z, h_taken))
 
                 self.stored_spectra.append(self.current_spectrum)
                 if self.save_data:
                     self._save_current_spectrum(len(self.stored_spectra) - 1)
 
                 self.z_stored.append(self.z)
+                self.step_saved()
                 del self.z_targets[0]
 
                 # reset the constant step size after a spectrum is stored
@@ -229,7 +228,7 @@ class RK4IP:
                 store = True
                 h_next_step = self.z_targets[0] - self.z
 
-        self.logger.debug(
+        self.logger.info(
             "propagation finished in {} steps ({} seconds)".format(
                 step, (datetime.today() - time_start).total_seconds()
             )
@@ -301,6 +300,60 @@ class RK4IP:
                     h_next_step = h
         return h, h_next_step, new_spectrum
 
+    def step_saved(self):
+        pass
+
+
+class MutliProcRK4IP(RK4IP):
+    def __init__(
+        self,
+        sim_params,
+        p_queue: multiprocessing.Queue,
+        worker_id: int,
+        save_data=False,
+        job_identifier="",
+        task_id=0,
+        n_percent=10,
+    ):
+        super().__init__(
+            sim_params,
+            save_data=save_data,
+            job_identifier=job_identifier,
+            task_id=task_id,
+            n_percent=n_percent,
+        )
+        self.worker_id = worker_id
+        self.p_queue = p_queue
+
+    def step_saved(self):
+        self.p_queue.put((self.worker_id, self.z / self.z_final))
+
+
+class RayRK4IP(RK4IP):
+    def __init__(
+        self,
+        sim_params,
+        p_actor,
+        worker_id: int,
+        save_data=False,
+        job_identifier="",
+        task_id=0,
+        n_percent=10,
+    ):
+        super().__init__(
+            sim_params,
+            save_data=save_data,
+            job_identifier=job_identifier,
+            task_id=task_id,
+            n_percent=n_percent,
+        )
+        self.worker_id = worker_id
+        self.p_actor = p_actor
+
+    def step_saved(self):
+        self.p_actor.update.remote(self.worker_id, self.z / self.z_final)
+        self.p_actor.update.remote(0)
+
 
 class Simulations:
     """The recommended way to run simulations.
@@ -343,8 +396,6 @@ class Simulations:
         self.sim_jobs_per_node = 1
         self.max_concurrent_jobs = np.inf
 
-        self.propagator = RK4IP
-
     @property
     def finished_and_complete(self):
         try:
@@ -360,12 +411,6 @@ class Simulations:
 
     def update(self, param_seq: initialize.ParamSequence):
         self.param_seq = param_seq
-        self.progress_tracker = utils.ProgressTracker(
-            self.param_seq.num_steps,
-            percent_incr=1,
-            logger=self.logger,
-            prefix="Overall : ",
-        )
 
     def run(self):
         self._run_available()
@@ -416,16 +461,10 @@ class Simulations:
 
 
 class SequencialSimulations(Simulations, available=True, priority=0):
-    def new_sim(self, variable_list: List[tuple], params: dict):
+    def new_sim(self, variable_list: List[tuple], params: Dict[str, Any]):
         v_list_str = utils.format_variable_list(variable_list)
         self.logger.info(f"launching simulation with {v_list_str}")
-        self.propagator(
-            params,
-            save_data=True,
-            job_identifier=v_list_str,
-            task_id=self.id,
-        ).run()
-        self.progress_tracker.update(self.param_seq["simulation", "z_num"])
+        RK4IP(params, save_data=True, job_identifier=v_list_str, task_id=self.id).run()
 
     def stop(self):
         pass
@@ -434,7 +473,94 @@ class SequencialSimulations(Simulations, available=True, priority=0):
         pass
 
 
-class RaySimulations(Simulations, available=using_ray, priority=1):
+class MultiProcSimulations(Simulations, available=True, priority=1):
+    def __init__(self, param_seq: initialize.ParamSequence, task_id, data_folder):
+        super().__init__(param_seq, task_id=task_id, data_folder=data_folder)
+        self.sim_jobs_per_node = max(1, os.cpu_count() // 2)
+        self.queue = multiprocessing.JoinableQueue(self.sim_jobs_per_node)
+        self.progress_queue = multiprocessing.Queue()
+        self.workers = [
+            multiprocessing.Process(
+                target=MultiProcSimulations.worker,
+                args=(self.id, i + 1, self.queue, self.progress_queue),
+            )
+            for i in range(self.sim_jobs_per_node)
+        ]
+        self.p_worker = multiprocessing.Process(
+            target=MultiProcSimulations.progress_worker,
+            args=(self.param_seq.num_steps, self.progress_queue),
+        )
+        self.p_worker.start()
+
+    def run(self):
+        for worker in self.workers:
+            worker.start()
+        super().run()
+
+    def new_sim(self, variable_list: List[tuple], params: dict):
+        self.queue.put((variable_list, params), block=True, timeout=None)
+
+    def finish(self):
+        """0 means finished"""
+        for worker in self.workers:
+            self.queue.put(0)
+        for worker in self.workers:
+            worker.join()
+        self.queue.join()
+        self.progress_queue.put(0)
+
+    def stop(self):
+        self.finish()
+
+    @staticmethod
+    def worker(
+        task_id,
+        worker_id: int,
+        queue: multiprocessing.JoinableQueue,
+        p_queue: multiprocessing.Queue,
+    ):
+        while True:
+            raw_data: Tuple[List[tuple], Dict[str, Any]] = queue.get()
+            if raw_data == 0:
+                queue.task_done()
+                return
+            variable_list, params = raw_data
+            v_list_str = utils.format_variable_list(variable_list)
+            MutliProcRK4IP(
+                params,
+                p_queue,
+                worker_id,
+                save_data=True,
+                job_identifier=v_list_str,
+                task_id=task_id,
+            ).run()
+            queue.task_done()
+
+    @staticmethod
+    def progress_worker(num_steps: int, progress_queue: multiprocessing.Queue):
+        pbars: Dict[int, tqdm] = {}
+        with tqdm(total=num_steps, desc="Simulating", unit="step", position=0) as tq:
+            while True:
+                raw = progress_queue.get()
+                if raw == 0:
+                    for pbar in pbars.values():
+                        pbar.close()
+                    return
+                i, rel_pos = raw
+                if i not in pbars:
+                    pbars[i] = tqdm(
+                        total=1,
+                        desc=f"Worker {i}",
+                        position=i,
+                        bar_format="{l_bar}{bar}"
+                        "|[{elapsed}<{remaining}, "
+                        "{rate_fmt}{postfix}]",
+                    )
+                pbars[i].update(rel_pos - pbars[i].n)
+                tq.update()
+
+
+class RaySimulations(Simulations, available=using_ray, priority=2):
     """runs simulation with the help of the ray module. ray must be initialized before creating an instance of RaySimulations"""
 
     def __init__(
@@ -456,7 +582,7 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
             )
         )
 
-        self.propagator = ray.remote(RK4IP).options(
+        self.propagator = ray.remote(RayRK4IP).options(
             override_environment_variables=io.get_all_environ()
         )
         self.sim_jobs_per_node = min(
@@ -465,15 +591,44 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
         self.update_cluster_frequency = 3
         self.jobs = []
         self.actors = {}
+        self.rolling_id = 0
+        self.p_actor = ray.remote(utils.ProgressBarActor).remote(self.sim_jobs_total)
+        self.p_bars = utils.PBars(
+            [
+                tqdm(
+                    total=self.param_seq.num_steps,
+                    unit="step",
+                    desc="Simulating",
+                    smoothing=0,
+                    ncols=100,
+                )
+            ]
+        )
+        for i in range(1, self.sim_jobs_total + 1):
+            self.p_bars.append(
+                tqdm(
+                    total=1,
+                    desc=f"Worker {i}",
+                    position=i,
+                    ncols=100,
+                    bar_format="{l_bar}{bar}" "|[{elapsed}<{remaining}, " "{rate_fmt}{postfix}]",
+                )
+            )
 
     def new_sim(self, variable_list: List[tuple], params: dict):
         while len(self.jobs) >= self.sim_jobs_total:
             self._collect_1_job()
 
+        self.rolling_id = (self.rolling_id + 1) % self.sim_jobs_total
         v_list_str = utils.format_variable_list(variable_list)
 
         new_actor = self.propagator.remote(
-            params, save_data=True, job_identifier=v_list_str, task_id=self.id
+            params,
+            self.p_actor,
+            self.rolling_id + 1,
+            save_data=True,
+            job_identifier=v_list_str,
+            task_id=self.id,
         )
         new_job = new_actor.run.remote()
 
@@ -485,11 +640,11 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
     def finish(self):
         while len(self.jobs) > 0:
             self._collect_1_job()
+        self.p_bars.close()
 
     def _collect_1_job(self):
         ready, self.jobs = ray.wait(self.jobs, timeout=self.update_cluster_frequency)
-        self.progress_tracker.update(self.param_seq["simulation", "z_num"])
-
+        self.update_pbars()
         if len(ready) == 0:
             return
         ray.get(ready)
@@ -504,6 +659,12 @@ class RaySimulations(Simulations, available=using_ray, priority=1):
         tot_cpus = sum([node.get("Resources", {}).get("CPU", 0) for node in ray.nodes()])
         tot_cpus = min(tot_cpus, self.max_concurrent_jobs)
         return int(min(self.param_seq.num_sim, tot_cpus))
+
+    def update_pbars(self):
+        counters = ray.get(self.p_actor.wait_for_update.remote())
+        for counter, pbar in zip(counters, self.p_bars):
+            pbar.update(counter - pbar.n)
+        self.p_bars.print()
 
 
 def new_simulations(
@@ -535,7 +696,7 @@ def _new_simulations(
     task_id,
     data_folder,
     Method: Type[Simulations],
-):
+) -> Simulations:
     if Method is not None:
         return Method(param_seq, task_id, data_folder=data_folder)
     elif param_seq.num_sim > 1 and param_seq["simulation", "parallel"] and using_ray:

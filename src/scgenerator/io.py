@@ -6,12 +6,13 @@ from typing import Any, Dict, Iterable, List, Tuple
 
 import numpy as np
 import pkg_resources as pkg
-from ray import util
 import toml
+from ray import util
 from send2trash import TrashPermissionError, send2trash
+from tqdm import tqdm
 
 from . import utils
-from .const import PARAM_SEPARATOR, PREFIX_KEY_BASE, TMP_FOLDER_KEY_BASE, ENVIRON_KEY_BASE
+from .const import ENVIRON_KEY_BASE, PARAM_SEPARATOR, PREFIX_KEY_BASE, TMP_FOLDER_KEY_BASE
 from .errors import IncompleteDataFolderError
 from .logger import get_logger
 
@@ -381,8 +382,7 @@ def merge_same_simulations(path: str):
             base_folders.add(base_folder)
 
     sim_num, param_num = utils.count_variations(config)
-    pt = utils.ProgressTracker(sim_num * z_num, logger=logger, prefix="merging data : ")
-    print(f"{pt.max=}")
+    pbar = utils.PBars(tqdm(total=sim_num * z_num, desc="merging data"))
 
     spectra = []
     for z_id in range(z_num):
@@ -395,7 +395,7 @@ def merge_same_simulations(path: str):
 
             in_path = os.path.join(path, utils.format_variable_list(variable_and_ind))
             spectra.append(np.load(os.path.join(in_path, f"spectrum_{z_id}.npy")))
-            pt.update()
+            pbar.update()
 
             # write new files only once all those from one parameter set are collected
             if repeat_id == max_repeat_id:
@@ -411,6 +411,7 @@ def merge_same_simulations(path: str):
                             os.path.join(in_path, file_name),
                             os.path.join(out_path, ""),
                         )
+    pbar.close()
 
     try:
         for sub_folder in sub_folders:

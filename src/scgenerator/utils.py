@@ -8,12 +8,16 @@ scgenerator module but some function may be used in any python program
 import datetime as dt
 import itertools
 import logging
+import re
 import socket
 from typing import Any, Callable, Iterator, List, Tuple, Union
+from asyncio import Event
 
 import numpy as np
 import ray
 from copy import deepcopy
+
+from tqdm import tqdm
 
 from .const import PARAM_SEPARATOR, PREFIX_KEY_BASE, valid_variable
 from .logger import get_logger
@@ -24,13 +28,49 @@ from .math import *
 # XXX ############################################
 
 
+class PBars:
+    def __init__(self, pbars: Union[tqdm, List[tqdm]]) -> None:
+        if isinstance(pbars, tqdm):
+            self.pbars = [pbars]
+        else:
+            self.pbars = pbars
+        self.logger = get_logger(__name__)
+
+    def print(self):
+        if len(self.pbars) > 1:
+            s = [""]
+        else:
+            s = []
+        for pbar in self.pbars:
+            s.append(str(pbar))
+        self.logger.info("\n".join(s))
+
+    def __iter__(self):
+        yield from self.pbars
+
+    def __getitem__(self, key):
+        return self.pbars[key]
+
+    def update(self):
+        for pbar in self:
+            pbar.update()
+        self.print()
+
+    def append(self, pbar: tqdm):
+        self.pbars.append(pbar)
+
+    def close(self):
+        for pbar in self.pbars:
+            pbar.close()
+
+
 class ProgressTracker:
     def __init__(
         self,
         max: Union[int, float],
         prefix: str = "",
         suffix: str = "",
-        logger: logging.Logger = get_logger(),
+        logger: logging.Logger = None,
         auto_print: bool = True,
         percent_incr: Union[int, float] = 5,
         default_update: Union[int, float] = 1,
@@ -44,7 +84,7 @@ class ProgressTracker:
         self.next_percent = percent_incr
         self.percent_incr = percent_incr
         self.default_update = default_update
-        self.logger = logger
+        self.logger = logger if logger is not None else get_logger()
 
     def _update(self):
         if self.auto_print and self.current / self.max >= self.next_percent / 100:
@@ -81,6 +121,44 @@ class ProgressTracker:
 
     def __str__(self):
         return "{}/{}".format(self.current, self.max)
+
+
+class ProgressBarActor:
+    counter: int
+    delta: int
+    event: Event
+
+    def __init__(self, num_workers: int) -> None:
+        self.counters = [0 for _ in range(num_workers + 1)]
+        self.event = Event()
+
+    def update(self, worker_id: int, rel_pos: float = None) -> None:
+        """update a counter
+
+        Parameters
+        ----------
+        worker_id : int
+            id of the worker
+        rel_pos : float, optional
+            if None, increase the counter by one, if set, will set
+            the counter to the specified value (instead of incrementing it), by default None
+        """
+        if rel_pos is None:
+            self.counters[worker_id] += 1
+        else:
+            self.counters[worker_id] = rel_pos
+        self.event.set()
+
+    async def wait_for_update(self) -> List[float]:
+        """Blocking call.
+
+        Waits until somebody calls `update`, then returns a tuple of
+        the number of updates since the last call to
+        `wait_for_update`, and the total number of completed items.
+        """
+        await self.event.wait()
+        self.event.clear()
+        return self.counters
 
 
 def count_variations(config: dict) -> Tuple[int, int]:

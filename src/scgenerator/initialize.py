@@ -4,6 +4,7 @@ from typing import Any, Iterator, List, Tuple
 
 import numpy as np
 from numpy import pi
+from tqdm import tqdm
 
 from . import defaults, io, utils
 from .const import hc_model_specific_parameters, valid_param_types, valid_variable
@@ -18,9 +19,10 @@ class ParamSequence(Mapping):
     def __init__(self, config):
         self.config = validate(config)
         self.name = self.config["name"]
+        self.logger = get_logger(__name__)
 
         self.num_sim, self.num_variable = count_variations(self.config)
-        self.num_steps = self.num_sim * self.config["simulation", "z_num"]
+        self.num_steps = self.num_sim * self.config["simulation"]["z_num"]
         self.single_sim = self.num_sim == 1
 
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
@@ -44,11 +46,31 @@ class RecoveryParamSequence(ParamSequence):
         super().__init__(config)
         self.id = task_id
         self.num_steps = 0
-        for sub_folder in io.get_data_subfolders(io.get_data_folder(self.id)):
-            num_left = io.num_left_to_propagate(sub_folder, config["simulation"]["z_num"])
+
+        z_num = config["simulation"]["z_num"]
+        started = self.num_sim
+        sub_folders = io.get_data_subfolders(io.get_data_folder(self.id))
+
+        pbar_store = utils.PBars(
+            tqdm(
+                total=len(sub_folders),
+                desc="Initial recovery process",
+                unit="sim",
+                ncols=100,
+            )
+        )
+
+        for sub_folder in sub_folders:
+            num_left = io.num_left_to_propagate(sub_folder, z_num)
             if num_left == 0:
                 self.num_sim -= 1
             self.num_steps += num_left
+            started -= 1
+            pbar_store.update()
+
+        pbar_store.close()
+
+        self.num_steps += started * z_num
         self.single_sim = self.num_sim == 1
 
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
@@ -579,7 +601,7 @@ def _generate_sim_grid(params):
     params["w0"] = w0
     params["w_c"] = w_c
     params["w"] = w_c + w0
-    params["w_power_fact"] = [power_fact(w_c, k) for k in range(2, 11)]
+    params["w_power_fact"] = np.array([power_fact(w_c, k) for k in range(2, 11)])
 
     params["z_targets"] = np.linspace(0, params["length"], params["z_num"])
 

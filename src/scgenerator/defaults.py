@@ -23,7 +23,7 @@ default_parameters = dict(
     parallel=False,
     repeat=1,
     tolerated_error=1e-11,
-    lower_wavelength_interp_limit=0,
+    lower_wavelength_interp_limit=300e-9,
     upper_wavelength_interp_limit=1900e-9,
     ideal_gas=False,
 )

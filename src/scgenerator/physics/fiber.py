@@ -1,5 +1,7 @@
 import numpy as np
+from numpy.lib.arraysetops import isin
 import toml
+from numba import jit
 from numpy.fft import fft, ifft
 from numpy.polynomial.chebyshev import Chebyshev, cheb2poly
 from scipy.interpolate import interp1d
@@ -841,33 +843,37 @@ def create_non_linear_op(behaviors, w_c, w0, gamma, raman_type="stolen", f_r=Non
                 elif raman_type == "agrawal":
                     f_r = 0.245
 
-    # Define the non linear operator
-    def N_func(spectrum, r=0):
-        field = ifft(spectrum)
+    if "spm" in behaviors:
+        spm_part = lambda fi: (1 - f_r) * abs2(fi)
+    else:
+        spm_part = lambda fi: 0
 
-        ss_part = w_c / w0 if "ss" in behaviors else 0
-        spm_part = (1 - f_r) * abs2(field) if "spm" in behaviors else 0
-        raman_part = f_r * ifft(hr_w * fft(abs2(field))) if "raman" in behaviors else 0
-        raman_noise_part = 1j * 0
-        if isinstance(gamma, (float, int)):
+    if "raman" in behaviors:
+        raman_part = lambda fi: f_r * ifft(hr_w * fft(abs2(fi)))
+    else:
+        raman_part = lambda fi: 0
+
+    spm_part = jit(spm_part, nopython=True)
+    ss_part = w_c / w0 if "ss" in behaviors else 0
+
+    if isinstance(gamma, (float, int)):
+
+        def N_func(spectrum: np.ndarray, r=0):
+            field = ifft(spectrum)
+            return -1j * gamma * (1 + ss_part) * fft(field * (spm_part(field) + raman_part(field)))
+
+    else:
+
+        def N_func(spectrum: np.ndarray, r=0):
+            field = ifft(spectrum)
             return (
-                -1j
-                * gamma
-                * (1 + ss_part)
-                * fft(field * (spm_part + raman_part) + raman_noise_part)
-            )
-        else:
-            return (
-                -1j
-                * gamma(r)
-                * (1 + ss_part)
-                * fft(field * (spm_part + raman_part) + raman_noise_part)
+                -1j * gamma(r) * (1 + ss_part) * fft(field * (spm_part(field) + raman_part(field)))
             )
 
     return N_func
 
 
-def fast_dispersion_op(w_c, beta_arr, power_fact, where=slice(None)):
+def fast_dispersion_op(w_c, beta_arr, power_fact_arr, where=slice(None)):
     """
     dispersive operator
 
@@ -888,15 +894,19 @@ def fast_dispersion_op(w_c, beta_arr, power_fact, where=slice(None)):
         dispersive component
     """
 
-    dispersion = np.zeros_like(w_c)
-
-    for k, beta in reversed(list(enumerate(beta_arr))):
-        dispersion = dispersion + beta * power_fact[k]
+    dispersion = _fast_disp_loop(np.zeros_like(w_c), beta_arr, power_fact_arr)
 
     out = np.zeros_like(dispersion)
     out[where] = dispersion[where]
 
     return -1j * out
+
+
+@jit(nopython=True)
+def _fast_disp_loop(dispersion: np.ndarray, beta_arr, power_fact_arr):
+    for k in range(len(beta_arr) - 1, -1, -1):
+        dispersion = dispersion + beta_arr[k] * power_fact_arr[k]
+    return dispersion
 
 
 def dispersion_op(w_c, beta_arr, where=None):

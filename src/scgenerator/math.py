@@ -1,7 +1,8 @@
-from typing import Type
+from typing import Type, Union
 import numpy as np
 from scipy.special import jn_zeros
 from scipy.interpolate import interp1d, griddata
+from numba import jit
 
 
 def span(*vec):
@@ -21,7 +22,7 @@ def span(*vec):
     return out
 
 
-def argclosest(array, target):
+def argclosest(array: np.ndarray, target: Union[float, int]):
     """returns the index/indices corresponding to the closest matches of target in array"""
     min_dist = np.inf
     index = None
@@ -45,21 +46,31 @@ def power_fact(x, n):
     returns x ^ n / n!
     """
     if isinstance(x, (int, float)):
-        x = float(x)
-        result = 1.0
+        return _power_fact_single(x, n)
 
     elif isinstance(x, np.ndarray):
-        if x.dtype == int:
-            x = np.array(x, dtype=float)
-        result = np.ones(len(x))
+        return _power_fact_array(x, n)
     else:
         raise TypeError(f"type {type(x)} of x not supported.")
 
+
+@jit(nopython=True)
+def _power_fact_single(x, n):
+    result = 1.0
     for k in range(n):
         result = result * x / (n - k)
     return result
 
 
+@jit(nopython=True)
+def _power_fact_array(x, n):
+    result = np.ones(len(x), dtype=np.float64)
+    for k in range(n):
+        result = result * x / (n - k)
+    return result
+
+
+@jit(nopython=True)
 def abs2(z):
     return z.real ** 2 + z.imag ** 2
 

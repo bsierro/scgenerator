@@ -17,6 +17,7 @@ import numpy as np
 from numpy import pi
 from numpy.fft import fft, fftshift, ifft
 from scipy.interpolate import UnivariateSpline
+from numba import jit
 
 from ..defaults import default_plotting
 
@@ -184,10 +185,12 @@ def gauss_pulse(t, t0, P0, offset=0):
     return np.sqrt(P0) * np.exp(-(((t - offset) / t0) ** 2))
 
 
+@jit(nopython=True)
 def photon_number(spectrum, w, dw, gamma):
     return np.sum(1 / gamma * abs2(spectrum) / w * dw)
 
 
+@jit(nopython=True)
 def pulse_energy(spectrum, w, dw, _):
     return np.sum(abs2(spectrum) * dw)
 
