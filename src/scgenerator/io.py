@@ -382,7 +382,7 @@ def merge_same_simulations(path: str):
             base_folders.add(base_folder)
 
     sim_num, param_num = utils.count_variations(config)
-    pbar = utils.PBars(tqdm(total=sim_num * z_num, desc="merging data"))
+    pbar = utils.PBars(tqdm(total=sim_num * z_num, desc="merging data", ncols=100))
 
     spectra = []
     for z_id in range(z_num):
