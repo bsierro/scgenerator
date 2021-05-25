@@ -130,8 +130,8 @@ class RK4IP:
 
         # Initial setup of simulation parameters
         self.d_w = self.w_c[1] - self.w_c[0]  # resolution of the frequency grid
-        self.z = self.z_targets.pop(0)
         self.z_stored = list(self.z_targets.copy()[0 : self.starting_num + 1])
+        self.z = self.z_targets.pop(0)
 
         # Setup initial values for every physical quantity that we want to track
         self.current_spectrum = self.spec_0.copy()
@@ -416,11 +416,6 @@ class Simulations:
         self._run_available()
         self.ensure_finised_and_complete()
 
-        self.logger.info(f"Merging data...")
-        self.merge_data()
-
-        self.logger.info(f"Finished simulations from config {self.name} !")
-
     def _run_available(self):
         for variable, params in self.param_seq:
             io.save_parameters(
@@ -456,9 +451,6 @@ class Simulations:
     def stop(self):
         raise NotImplementedError()
 
-    def merge_data(self):
-        io.merge_same_simulations(self.data_folder)
-
 
 class SequencialSimulations(Simulations, available=True, priority=0):
     def new_sim(self, variable_list: List[tuple], params: Dict[str, Any]):
@@ -473,7 +465,7 @@ class SequencialSimulations(Simulations, available=True, priority=0):
         pass
 
 
-class MultiProcSimulations(Simulations, available=True, priority=1):
+class MultiProcSimulations(Simulations, available=True, priority=10):
     def __init__(self, param_seq: initialize.ParamSequence, task_id, data_folder):
         super().__init__(param_seq, task_id=task_id, data_folder=data_folder)
         self.sim_jobs_per_node = max(1, os.cpu_count() // 2)
@@ -671,34 +663,40 @@ def new_simulations(
     config_file: str,
     task_id: int,
     data_folder="scgenerator/",
-    Method: Type[Simulations] = None,
+    method: Type[Simulations] = None,
+    initial=True,
 ) -> Simulations:
 
     config = io.load_toml(config_file)
-    param_seq = initialize.ParamSequence(config)
+    if initial:
+        param_seq = initialize.ParamSequence(config)
+    else:
+        param_seq = initialize.ContinuationParamSequence(data_folder, config)
 
-    return _new_simulations(param_seq, task_id, data_folder, Method)
+    print(f"{param_seq.name=}")
+
+    return _new_simulations(param_seq, task_id, data_folder, method)
 
 
 def resume_simulations(
-    data_folder: str, task_id: int = 0, Method: Type[Simulations] = None
+    data_folder: str, task_id: int = 0, method: Type[Simulations] = None
 ) -> Simulations:
 
     config = io.load_toml(os.path.join(data_folder, "initial_config.toml"))
     io.set_data_folder(task_id, data_folder)
     param_seq = initialize.RecoveryParamSequence(config, task_id)
 
-    return _new_simulations(param_seq, task_id, data_folder, Method)
+    return _new_simulations(param_seq, task_id, data_folder, method)
 
 
 def _new_simulations(
     param_seq: initialize.ParamSequence,
     task_id,
     data_folder,
-    Method: Type[Simulations],
+    method: Type[Simulations],
 ) -> Simulations:
-    if Method is not None:
-        return Method(param_seq, task_id, data_folder=data_folder)
+    if method is not None:
+        return method(param_seq, task_id, data_folder=data_folder)
     elif param_seq.num_sim > 1 and param_seq["simulation", "parallel"] and using_ray:
         return Simulations.get_best_method()(param_seq, task_id, data_folder=data_folder)
     else:

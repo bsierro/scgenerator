@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from .errors import MissingParameterError
 
 default_parameters = dict(
+    input_transmission=1.0,
     name="no name",
     he_mode=(1, 1),
     fit_parameters=(0.08, 200e-9),

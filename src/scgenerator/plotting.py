@@ -7,7 +7,7 @@ from matplotlib.colors import ListedColormap
 from scipy.interpolate import UnivariateSpline
 
 from . import io, math
-from .math import abs2, make_uniform_1D, span
+from .math import abs2, length, make_uniform_1D, span
 from .physics import pulse, units
 from .defaults import default_plotting as defaults
 
@@ -296,7 +296,7 @@ def _finish_plot_2D(
 
     folder_name = ""
     if is_new_plot:
-        folder_name, file_name, fig, ax = io.plot_setup(
+        folder_name, file_name, fig, ax = plot_setup(
             file_name=file_name, file_type=file_type, params=params
         )
     else:
@@ -549,11 +549,22 @@ def plot_results_2D(
             [make_uniform_1D(v, x_axis, n=len(x_axis), method="linear") for v in values]
         )
 
+    z = params["z_targets"]
+    lim_diff = 1e-5 * np.max(z)
+    dz_s = np.diff(z)
+    if not np.all(np.diff(dz_s) < lim_diff):
+        new_z = np.linspace(
+            *span(z), int(np.floor((np.max(z) - np.min(z)) / np.min(dz_s[dz_s > lim_diff])))
+        )
+        values = np.array(
+            [make_uniform_1D(v, z, n=len(new_z), method="linear") for v in values.T]
+        ).T
+        z = new_z
     return _finish_plot_2D(
         values,
         x_axis,
         plt_range[2].label,
-        params["z_targets"],
+        z,
         "propagation distance (m)",
         log,
         vmin,
@@ -681,7 +692,7 @@ def plot_results_1D(
 
     folder_name = ""
     if is_new_plot:
-        folder_name, file_name, fig, ax = io.plot_setup(
+        folder_name, file_name, fig, ax = plot_setup(
             file_name=file_name, file_type=file_type, params=params
         )
     else:
@@ -845,11 +856,11 @@ def plot_avg(
     if is_new_plot:
         if add_coherence:
             mode = "coherence_T" if transpose else "coherence"
-            folder_name, file_name, fig, (top, bot) = io.plot_setup(
+            folder_name, file_name, fig, (top, bot) = plot_setup(
                 file_name=file_name, file_type=file_type, params=params, mode=mode
             )
         else:
-            folder_name, file_name, fig, top = io.plot_setup(
+            folder_name, file_name, fig, top = plot_setup(
                 file_name=file_name, file_type=file_type, params=params
             )
             bot = top

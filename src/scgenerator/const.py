@@ -108,6 +108,7 @@ valid_param_types = dict(
         name=lambda s: isinstance(s, str),
     ),
     fiber=dict(
+        input_transmission=in_range_incl(num, (0, 1)),
         gamma=num,
         pitch=in_range_excl(num, (0, 1e-3)),
         pitch_ratio=in_range_excl(num, (0, 1)),
@@ -190,6 +191,7 @@ valid_variable = dict(
         "capillary_nested",
         "he_mode",
         "fit_parameters",
+        "input_transmission",
     ],
     gas=["pressure", "temperature", "gas_name", "plasma_density"],
     pulse=[

@@ -60,6 +60,8 @@ class Pulse(Sequence):
         self.w_order = np.argsort(w)
         self.w = w
         self.wl = units.m.inv(self.w)
+        self.params["w"] = self.w
+        self.params["z_targets"] = self.z
 
     def __iter__(self):
         """

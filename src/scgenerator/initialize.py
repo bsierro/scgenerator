@@ -1,6 +1,6 @@
 import os
 from collections.abc import Mapping
-from typing import Any, Iterator, List, Tuple
+from typing import Any, Dict, Iterator, List, Tuple
 
 import numpy as np
 from numpy import pi
@@ -25,7 +25,7 @@ class ParamSequence(Mapping):
         self.num_steps = self.num_sim * self.config["simulation"]["z_num"]
         self.single_sim = self.num_sim == 1
 
-    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
+    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Dict[str, Any]]]:
         """iterates through all possible parameters, yielding a config as well as a flattened
         computed parameters set each time"""
         for variable_list, full_config in required_simulations(self.config):
@@ -39,6 +39,22 @@ class ParamSequence(Mapping):
 
     def __str__(self) -> str:
         return f"dispatcher generated from config {self.name}"
+
+
+class ContinuationParamSequence(ParamSequence):
+    def __init__(self, folder: str, new_config: Dict[str, Any]):
+        self.path = folder
+        init_config = io.load_previous_parameters(os.path.join(self.path, "initial_config.toml"))
+        new_config = utils.deep_update(init_config, new_config)
+        super().__init__(new_config)
+
+    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Dict[str, Any]]]:
+        """iterates through all possible parameters, yielding a config as well as a flattened
+        computed parameters set each time"""
+        for variable_list, full_config in required_simulations(self.config):
+            sim_folder = os.path.join(self.path, utils.format_variable_list(variable_list))
+
+            yield variable_list, compute_subsequent_paramters(sim_folder, full_config, self.config)
 
 
 class RecoveryParamSequence(ParamSequence):
@@ -166,7 +182,7 @@ def tspace(time_window=None, t_num=None, dt=None):
         raise TypeError("not enough parameter to determine time vector")
 
 
-def validate_single_parameter(section, key, value):
+def validate_single_parameter(section: str, key: str, value: Any):
     try:
         func = valid_param_types[section][key]
     except KeyError:
@@ -273,8 +289,8 @@ def _ensure_consistency_fiber(fiber):
         else:
             for param in hc_model_specific_parameters[fiber["model"]]:
                 fiber = defaults.get_fiber(fiber, param)
-
-    fiber = defaults.get(fiber, "length")
+    for param in ["length", "input_transmission"]:
+        fiber = defaults.get(fiber, param)
     return fiber
 
 
@@ -402,6 +418,7 @@ def _ensure_consistency(config):
 
     # ensure every required parameter has a value
     config["name"] = config.get("name", "no name")
+
     config["fiber"] = _ensure_consistency_fiber(config.get("fiber", {}))
 
     if config["fiber"]["model"] in hc_model_specific_parameters:
@@ -425,7 +442,7 @@ def recover_params(params: dict, variable_only: List[Tuple[str, Any]], task_id: 
     return params
 
 
-def compute_init_parameters(config):
+def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
     """computes all derived values from a config dictionary
 
     Parameters
@@ -511,6 +528,22 @@ def compute_init_parameters(config):
         )
 
     params["spec_0"] = np.fft.fft(params["field_0"])
+
+    return params
+
+
+def compute_subsequent_paramters(
+    sim_folder: str, init_config: Dict[str, Any], new_config: Dict[str, Any]
+) -> Dict[str, Any]:
+
+    init_config["fiber"] = new_config["fiber"]
+    init_config["simulation"]["z_num"] = new_config.get("simulation", init_config["simulation"])[
+        "z_num"
+    ]
+
+    params = compute_init_parameters(init_config)
+    params["spec_0"] = io.load_last_spectrum(sim_folder)[1]
+    params["field_0"] = np.fft.ifft(params["spec_0"]) * params["input_transmission"]
 
     return params
 

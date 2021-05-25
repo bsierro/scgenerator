@@ -96,6 +96,12 @@ gamma: float, optional unless beta is directly provided
 length: float, optional
     length of the fiber in m. default : 1
 
+fiber_id : int
+    in case multiple fibers are chained together, indicates the index of this particular fiber, default : 0
+
+input_transmission : float
+    number between 0 and 1 indicating how much light enters the fiber, default : 1
+
 
 ## Gas parameters
 this section is completely optional and ignored if the fiber model is "pcf"

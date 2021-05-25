@@ -5,11 +5,13 @@ from glob import glob
 from typing import Any, Dict, Iterable, List, Tuple
 
 import numpy as np
+from numpy.lib import delete
 import pkg_resources as pkg
 import toml
 from ray import util
 from send2trash import TrashPermissionError, send2trash
 from tqdm import tqdm
+from pathlib import Path
 
 from . import utils
 from .const import ENVIRON_KEY_BASE, PARAM_SEPARATOR, PREFIX_KEY_BASE, TMP_FOLDER_KEY_BASE
@@ -358,12 +360,53 @@ def find_last_spectrum_file(path: str):
             return num - 1
 
 
-def load_last_spectrum(path: str):
+def load_last_spectrum(path: str) -> Tuple[int, np.ndarray]:
     num = find_last_spectrum_file(path)
     return num, np.load(os.path.join(path, f"spectrum_{num}.npy"))
 
 
-def merge_same_simulations(path: str):
+def merge(paths: List[str]):
+    for path in paths:
+        merge_same_simulations(path, delete=False)
+
+    if len(paths) < 2:
+        return
+
+    append_simulations(paths)
+
+
+def append_simulations(paths: List[os.PathLike]):
+    paths: List[Path] = [Path(p).resolve() for p in paths]
+    master_sim = paths[0]
+    merged_path = master_sim.parent / "merged_sims"
+    merged_path.mkdir(exist_ok=True)
+    for i, path in enumerate(paths):
+        shutil.copy(path / "initial_config.toml", merged_path / f"initial_config{i}.toml")
+    for sim in master_sim.glob("*"):
+        if not sim.is_dir() or not str(sim).endswith("merged"):
+            continue
+        sim_name = sim.name
+        merge_sim_path = merged_path / sim_name
+        merge_sim_path.mkdir(exist_ok=True)
+        shutil.copy(sim / "params.toml", merge_sim_path / f"params.toml")
+        z = []
+        z_num = 0
+        last_z = 0
+        for path in paths:
+            curr_z_num = load_toml(str(path / sim_name / "params.toml"))["z_num"]
+            for i in range(curr_z_num):
+                shutil.copy(
+                    path / sim_name / f"spectra_{i}.npy",
+                    merge_sim_path / f"spectra_{i + z_num}.npy",
+                )
+            z_arr = np.load(path / sim_name / "z.npy")
+            z.append(z_arr + last_z)
+            last_z += z_arr[-1]
+            z_num += curr_z_num
+        np.save(merge_sim_path / "z.npy", np.concatenate(z))
+
+
+def merge_same_simulations(path: str, delete=True):
     logger = get_logger(__name__)
     num_separator = PARAM_SEPARATOR + "num" + PARAM_SEPARATOR
     sub_folders = get_data_subfolders(path)
@@ -399,7 +442,10 @@ def merge_same_simulations(path: str):
 
             # write new files only once all those from one parameter set are collected
             if repeat_id == max_repeat_id:
-                out_path = os.path.join(path, utils.format_variable_list(variable_and_ind[:-1]))
+                out_path = os.path.join(
+                    path,
+                    utils.format_variable_list(variable_and_ind[:-1]) + PARAM_SEPARATOR + "merged",
+                )
                 out_path = ensure_folder(out_path, prevent_overwrite=False)
                 spectra = np.array(spectra).reshape(repeat, len(spectra[0]))
                 np.save(os.path.join(out_path, f"spectra_{z_id}.npy"), spectra.squeeze())
@@ -413,11 +459,12 @@ def merge_same_simulations(path: str):
                         )
     pbar.close()
 
-    try:
-        for sub_folder in sub_folders:
-            send2trash(sub_folder)
-    except TrashPermissionError:
-        logger.warning(f"could not send send {len(base_folders)} folder(s) to trash")
+    if delete:
+        try:
+            for sub_folder in sub_folders:
+                send2trash(sub_folder)
+        except TrashPermissionError:
+            logger.warning(f"could not send send {len(base_folders)} folder(s) to trash")
 
 
 def get_data_folder(task_id: int, name_if_new: str = "data"):

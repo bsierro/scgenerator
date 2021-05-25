@@ -5,12 +5,13 @@ scgenerator module but some function may be used in any python program
 """
 
 
+import collections
 import datetime as dt
 import itertools
 import logging
 import re
 import socket
-from typing import Any, Callable, Iterator, List, Tuple, Union
+from typing import Any, Callable, Iterator, List, Mapping, Tuple, Union
 from asyncio import Event
 
 import numpy as np
@@ -335,6 +336,15 @@ def parallelize(func, arg_iter, sim_jobs=4, progress_tracker_kwargs=None, const_
             ray.get(pt.update.remote())
 
     return np.array(results)
+
+
+def deep_update(d: Mapping, u: Mapping):
+    for k, v in u.items():
+        if isinstance(v, collections.abc.Mapping):
+            d[k] = deep_update(d.get(k, {}), v)
+        else:
+            d[k] = v
+    return d
 
 
 def formatted_hostname():
