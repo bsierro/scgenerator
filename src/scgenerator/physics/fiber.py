@@ -1,4 +1,5 @@
 import numpy as np
+from numpy.lib import disp
 from numpy.lib.arraysetops import isin
 import toml
 from numba import jit
@@ -85,14 +86,14 @@ def dispersion_parameter(n_eff, lambda_):
     return -lambda_ / c * (np.gradient(np.gradient(n_eff, lambda_), lambda_))
 
 
-def beta2_to_D(beta2, lambda_):
-    """returns the beta2 parameters corresponding to D(lambda_)"""
-    return -(2 * pi * c) / (lambda_ ** 2) * beta2
+def beta2_to_D(beta2, λ):
+    """returns the D parameter corresponding to beta2(λ)"""
+    return -(2 * pi * c) / (λ ** 2) * beta2
 
 
-def D_to_beta2(D, lambda_):
-    """returns the D parameter corresponding to beta2(lambda_)"""
-    return -(lambda_ ** 2) / (2 * pi * c) * D
+def D_to_beta2(D, λ):
+    """returns the beta2 parameters corresponding to D(λ)"""
+    return -(λ ** 2) / (2 * pi * c) * D
 
 
 def plasma_dispersion(lambda_, number_density, simple=False):
@@ -524,7 +525,7 @@ def dynamic_HCPCF_dispersion(lambda_, params, material_dico, deg):
     n2 = lambda r: mat.non_linear_refractive_index(material_dico, pressure(r), temp)
     ratio_range = np.linspace(0, 1, 256)
 
-    gamma_grid = np.array([n2(r) * w0 / (A_eff * c) for r in ratio_range])
+    gamma_grid = np.array([gamma_parameter(n2(r), w0, A_eff) for r in ratio_range])
     gamma_interp = interp1d(ratio_range, gamma_grid)
 
     beta2_grid = np.array(
@@ -543,7 +544,11 @@ def dynamic_HCPCF_dispersion(lambda_, params, material_dico, deg):
     return beta2_func, gamma_func
 
 
-def PCF_dispersion(lambda_, pitch, ratio_d, w0=None):
+def gamma_parameter(n2, w0, A_eff):
+    return n2 * w0 / (A_eff * c)
+
+
+def PCF_dispersion(lambda_, pitch, ratio_d, w0=None, n2=None, A_eff=None):
     """
     semi-analytical computation of the dispersion profile of a triangular Index-guiding PCF
 
@@ -623,12 +628,14 @@ def PCF_dispersion(lambda_, pitch, ratio_d, w0=None):
 
     else:
         # effective mode field area (koshiba2004)
-        V_eff = pi2a / lambda_ * np.sqrt(n_co ** 2 - n_FSM2)
-        w_eff = a_eff * (0.65 + 1.619 / V_eff ** 1.5 + 2.879 / V_eff ** 6)
-        A_eff = interp1d(lambda_, w_eff, kind="linear")(units.m.inv(w0)) ** 2 * pi
+        if A_eff is None:
+            V_eff = pi2a / lambda_ * np.sqrt(n_co ** 2 - n_FSM2)
+            w_eff = a_eff * (0.65 + 1.619 / V_eff ** 1.5 + 2.879 / V_eff ** 6)
+            A_eff = interp1d(lambda_, w_eff, kind="linear")(units.m.inv(w0)) ** 2 * pi
 
-        n2 = 2.6e-20  # FIXME
-        gamma = n2 * w0 / (A_eff * c)
+        if n2 is None:
+            n2 = 2.6e-20
+        gamma = gamma_parameter(n2, w0, A_eff)
 
         return beta2, gamma
 
@@ -652,59 +659,74 @@ def dispersion_central(fiber_model, params, deg=8):
     gamma : float
         nonlinear parameter
     """
-    lambda_ = lambda_for_dispersion()
-    beta2 = np.zeros_like(lambda_)
 
-    fiber_model = fiber_model.lower()
-
-    if fiber_model == "pcf":
-        beta2, gamma = PCF_dispersion(
-            lambda_,
-            params["pitch"],
-            params["pitch_ratio"],
-            w0=params["w0"],
-        )
-
+    if "dispersion_file" in params:
+        disp_file = np.load(params["dispersion_file"])
+        lambda_ = disp_file["wavelength"]
+        D = disp_file["dispersion"]
+        beta2 = D_to_beta2(D, lambda_)
+        gamma = None
     else:
-        # Load material info
-        gas_name = params["gas_name"]
+        lambda_ = lambda_for_dispersion()
+        beta2 = np.zeros_like(lambda_)
+        fiber_model = fiber_model.lower()
 
-        if gas_name == "vacuum":
-            material_dico = None
-        else:
-            material_dico = toml.loads(io.Paths.gets("gas"))[gas_name]
-
-        # compute dispersion
-        if params.get("dynamic_dispersion", False):
-            return dynamic_HCPCF_dispersion(lambda_, params, material_dico, deg)
-        else:
-
-            # actually compute the dispersion
-
-            beta2 = HCPCF_dispersion(
+        if fiber_model == "pcf":
+            beta2, gamma = PCF_dispersion(
                 lambda_,
-                material_dico,
-                fiber_model,
-                {k: params[k] for k in hc_model_specific_parameters[fiber_model]},
-                params["pressure"],
-                params["temperature"],
-                params["ideal_gas"],
+                params["pitch"],
+                params["pitch_ratio"],
+                w0=params["w0"],
+                n2=params.get("n2"),
+                A_eff=params.get("A_eff"),
             )
 
-            if material_dico is not None:
-                A_eff = 1.5 * params["core_radius"] ** 2
-                n2 = mat.non_linear_refractive_index(
-                    material_dico, params["pressure"], params["temperature"]
-                )
-                gamma = n2 * params["w0"] / (A_eff * c)
-            else:
-                gamma = 0
+        else:
+            # Load material info
+            gas_name = params["gas_name"]
 
-        # add plasma if wanted
-        if params["plasma_density"] > 0:
-            beta2 += plasma_dispersion(lambda_, params["plasma_density"])
+            if gas_name == "vacuum":
+                material_dico = None
+            else:
+                material_dico = toml.loads(io.Paths.gets("gas"))[gas_name]
+
+            # compute dispersion
+            if params.get("dynamic_dispersion", False):
+                return dynamic_HCPCF_dispersion(lambda_, params, material_dico, deg)
+            else:
+
+                # actually compute the dispersion
+
+                beta2 = HCPCF_dispersion(
+                    lambda_,
+                    material_dico,
+                    fiber_model,
+                    {k: params[k] for k in hc_model_specific_parameters[fiber_model]},
+                    params["pressure"],
+                    params["temperature"],
+                    params["ideal_gas"],
+                )
+
+                if material_dico is not None:
+                    A_eff = 1.5 * params["core_radius"] ** 2
+                    n2 = mat.non_linear_refractive_index(
+                        material_dico, params["pressure"], params["temperature"]
+                    )
+                    gamma = gamma_parameter(n2, params["w0"], A_eff)
+                else:
+                    gamma = None
+
+            # add plasma if wanted
+            if params["plasma_density"] > 0:
+                beta2 += plasma_dispersion(lambda_, params["plasma_density"])
 
     beta2_coef = dispersion_coefficients(lambda_, beta2, params["w0"], params["interp_range"], deg)
+
+    if gamma is None:
+        if "A_eff" in params:
+            gamma = gamma_parameter(params.get("n2", 2.6e-20), params["w0"], params["A_eff"])
+        else:
+            gamma = 0
 
     return beta2_coef, gamma
 

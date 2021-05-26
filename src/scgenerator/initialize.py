@@ -1,10 +1,13 @@
 import os
 from collections.abc import Mapping
-from typing import Any, Dict, Iterator, List, Tuple
+from typing import Any, Dict, Iterator, List, Set, Tuple
 
 import numpy as np
 from numpy import pi
+from numpy.core.numeric import full
+from scipy.interpolate.interpolate import interp1d
 from tqdm import tqdm
+from pathlib import Path
 
 from . import defaults, io, utils
 from .const import hc_model_specific_parameters, valid_param_types, valid_variable
@@ -42,19 +45,65 @@ class ParamSequence(Mapping):
 
 
 class ContinuationParamSequence(ParamSequence):
-    def __init__(self, folder: str, new_config: Dict[str, Any]):
-        self.path = folder
+    def __init__(self, prev_data_folder: str, new_config: Dict[str, Any]):
+        """Parameter sequence that builds on a previous simulation but with a new configuration
+        It is recommended that only the fiber and the number of points stored may be changed and
+        changing other parameters could results in unexpected behaviors. The new config doesn't have to
+        be a full configuration (specify only the new parameters).
+
+        Parameters
+        ----------
+        prev_data_folder : str
+            path to the folder of the previous simulation containing 'initial_config.toml'
+        new_config : Dict[str, Any]
+            new config
+        """
+        self.path = Path(prev_data_folder)
         init_config = io.load_previous_parameters(os.path.join(self.path, "initial_config.toml"))
-        new_config = utils.deep_update(init_config, new_config)
+
+        self.prev_variable_lists = [
+            (set(variable_list[1:]), self.path / utils.format_variable_list(variable_list))
+            for variable_list, _ in required_simulations(init_config)
+        ]
+
+        new_config = utils.override_config(init_config, new_config)
         super().__init__(new_config)
 
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Dict[str, Any]]]:
         """iterates through all possible parameters, yielding a config as well as a flattened
         computed parameters set each time"""
         for variable_list, full_config in required_simulations(self.config):
-            sim_folder = os.path.join(self.path, utils.format_variable_list(variable_list))
+            prev_sim_folder = self.find_prev_data_folder(variable_list)
+            full_config["prev_data_dir"] = str(prev_sim_folder.resolve())
 
-            yield variable_list, compute_subsequent_paramters(sim_folder, full_config, self.config)
+            yield variable_list, compute_subsequent_paramters(prev_sim_folder, full_config)
+
+    def find_prev_data_folder(self, new_variable_list: List[Tuple[str, Any]]) -> Path:
+        """finds the previous simulation data that this new config should start from
+
+        Parameters
+        ----------
+        new_variable_list : List[Tuple[str, Any]]
+            as yielded by required_simulations
+
+        Returns
+        -------
+        Path
+            path to the data folder
+
+        Raises
+        ------
+        ValueError
+            no data folder found
+        """
+        to_test = set(new_variable_list[1:])
+        for old_v_list, path in self.prev_variable_lists:
+            if to_test.issuperset(old_v_list):
+                return path
+
+        raise ValueError(
+            f"cannot find a previous data folder for {new_variable_list} in {self.path}"
+        )
 
 
 class RecoveryParamSequence(ParamSequence):
@@ -244,7 +293,7 @@ def _contains(sub_conf, param):
     return param in sub_conf or param in sub_conf.get("variable", {})
 
 
-def _ensure_consistency_fiber(fiber):
+def _ensure_consistency_fiber(fiber: Dict[str, Any]):
     """ensure the fiber sub-dictionary of the parameter set is consistent
 
     Parameters
@@ -263,9 +312,17 @@ def _ensure_consistency_fiber(fiber):
         When at least one required parameter with no default is missing
     """
 
-    if _contains(fiber, "beta"):
+    if _contains(fiber, "beta") and not (
+        _contains(fiber, "n2") and _contains(fiber, "effective_mode_diameter")
+    ):
         fiber = defaults.get(fiber, "gamma", specified_parameters=["beta"])
-        fiber["model"] = fiber.get("model", "custom")
+        fiber.setdefault("model", "custom")
+
+    elif _contains(fiber, "dispersion_file") and not (
+        _contains(fiber, "n2") and _contains(fiber, "effective_mode_diameter")
+    ):
+        fiber = defaults.get(fiber, "gamma", specified_parameters=["dispersion_file"])
+        fiber.setdefault("model", "custom")
 
     else:
         fiber = defaults.get(fiber, "model")
@@ -335,17 +392,20 @@ def _ensure_consistency_pulse(pulse):
     MissingParameterError
         When at least one required parameter with no default is missing
     """
-    for param in ["wavelength", "shape", "quantum_noise", "intensity_noise"]:
+    for param in ["wavelength", "quantum_noise", "intensity_noise"]:
         pulse = defaults.get(pulse, param)
 
-    if _contains(pulse, "soliton_num"):
-        pulse = defaults.get_multiple(
-            pulse, ["power", "energy", "width", "t0"], 1, specified_parameters=["soliton_num"]
-        )
+    if not _contains(pulse, "field_file"):
+        pulse = defaults.get(pulse, "shape")
 
-    else:
-        pulse = defaults.get_multiple(pulse, ["t0", "width"], 1)
-        pulse = defaults.get_multiple(pulse, ["power", "energy"], 1)
+        if _contains(pulse, "soliton_num"):
+            pulse = defaults.get_multiple(
+                pulse, ["power", "energy", "width", "t0"], 1, specified_parameters=["soliton_num"]
+            )
+
+        else:
+            pulse = defaults.get_multiple(pulse, ["t0", "width"], 1)
+            pulse = defaults.get_multiple(pulse, ["power", "energy"], 1)
     return pulse
 
 
@@ -461,7 +521,7 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
     logger = get_logger(__name__)
 
     # copy and flatten the config
-    params = dict(name=config["name"])
+    params = {k: v for k, v in config.items() if isinstance(v, (str, int, float))}
     for section in ["pulse", "fiber", "simulation", "gas"]:
         for key, value in config.get(section, {}).items():
             params[key] = value
@@ -481,9 +541,11 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
         params["lower_wavelength_interp_limit"],
     )
 
+    temp_gamma = None
+    if "effective_mode_diameter" in params:
+        params["A_eff"] = (params["effective_mode_diameter"] / 2) ** 2 * pi
     if "beta" in params:
         params["beta"] = np.array(params["beta"])
-        temp_gamma = 0
         params["dynamic_dispersion"] = False
     else:
         params["dynamic_dispersion"] = fiber.is_dynamic_dispersion(params)
@@ -503,21 +565,29 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
         params["hr_w"] = fiber.delayed_raman_w(params["t"], params["dt"], params["raman_type"])
 
     # PULSE
-    params = _update_pulse_parameters(params)
-    logger.info(f"computed initial N = {params['soliton_num']:.3g}")
-
-    params["L_D"] = params["t0"] ** 2 / abs(params["beta"][0])
-    params["L_NL"] = 1 / (params["gamma"] * params["power"]) if params["gamma"] else np.inf
-    params["L_sol"] = pi / 2 * params["L_D"]
-
-    # Technical noise
-    if "intensity_noise" in params:
-        params = _technical_noise(params)
-
+    if "field_file" in params:
+        field_data = np.load(params["field_file"])
+        field_interp = interp1d(
+            field_data["time"], field_data["field"], bounds_error=False, fill_value=(0, 0)
+        )
+        params["field_0"] = field_interp(params["t"])
+        params = _comform_custom_field(params)
     # Initial field
-    if "field_0" in params:
+    elif "field_0" in params:
         params = _validate_custom_init_field(params)
+        params = _comform_custom_field(params)
     else:
+        params = _update_pulse_parameters(params)
+        logger.info(f"computed initial N = {params['soliton_num']:.3g}")
+
+        params["L_D"] = params["t0"] ** 2 / abs(params["beta"][0])
+        params["L_NL"] = 1 / (params["gamma"] * params["power"]) if params["gamma"] else np.inf
+        params["L_sol"] = pi / 2 * params["L_D"]
+
+        # Technical noise
+        if "intensity_noise" in params:
+            params = _technical_noise(params)
+
         params["field_0"] = pulse.initial_field(
             params["t"], params["shape"], params["t0"], params["power"]
         )
@@ -532,19 +602,22 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
     return params
 
 
-def compute_subsequent_paramters(
-    sim_folder: str, init_config: Dict[str, Any], new_config: Dict[str, Any]
-) -> Dict[str, Any]:
+def compute_subsequent_paramters(sim_folder: str, config: Dict[str, Any]) -> Dict[str, Any]:
 
-    init_config["fiber"] = new_config["fiber"]
-    init_config["simulation"]["z_num"] = new_config.get("simulation", init_config["simulation"])[
-        "z_num"
-    ]
-
-    params = compute_init_parameters(init_config)
+    params = compute_init_parameters(config)
     params["spec_0"] = io.load_last_spectrum(sim_folder)[1]
     params["field_0"] = np.fft.ifft(params["spec_0"]) * params["input_transmission"]
 
+    return params
+
+
+def _comform_custom_field(params):
+    params["field_0"] = params["field_0"] * pulse.modify_field_ratio(
+        params["field_o"], params.get("power"), params.get("intensity_noise")
+    )
+    params["width"], params["power"], params["energy"] = pulse.measure_field(
+        params["t"], params["field_0"]
+    )
     return params
 
 
@@ -568,10 +641,11 @@ def _update_pulse_parameters(params):
 
 
 def _validate_custom_init_field(params):
-    if isinstance(params["field_0"], str):
-        field_0 = evaluate_field_equation(params["field_0"], **params)
+    field_info = params["field_0"]
+    if isinstance(field_info, str):
+        field_0 = evaluate_field_equation(field_info, **params)
         params["field_0"] = field_0
-    elif len(params["field_0"]) != params["t_num"]:
+    elif len(field_info) != params["t_num"]:
         raise ValueError(
             "initial field is given but doesn't match size and type with the time array"
         )

@@ -75,18 +75,19 @@ def run_sim(args):
     method = prep_ray(args)
     configs = args.configs.copy()
     first_config = configs.pop(0)
+
     if args.appendto is None:
-        sim = new_simulations(first_config, args.id, method=method)
+        sim = new_simulations(first_config, method=method)
     else:
         sim = new_simulations(
-            first_config, args.id, data_folder=args.appendto, method=method, initial=False
+            first_config, prev_data_folder=args.appendto, method=method, initial=False
         )
     sim.run()
     data_folders = [sim.data_folder]
     for config in configs:
         print("launching", config)
         sim = new_simulations(
-            config, args.id, data_folder=data_folders[-1], method=method, initial=False
+            config, prev_data_folder=data_folders[-1], method=method, initial=False
         )
         sim.run()
         data_folders.append(sim.data_folder)

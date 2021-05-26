@@ -166,6 +166,7 @@ class RK4IP:
         """
         self._save_data(self.current_spectrum, f"spectrum_{num}")
         self._save_data(self.cons_qty, f"cons_qty")
+        self.step_saved()
 
     def _save_data(self, data: np.ndarray, name: str):
         """calls the appropriate method to save data
@@ -211,7 +212,6 @@ class RK4IP:
                     self._save_current_spectrum(len(self.stored_spectra) - 1)
 
                 self.z_stored.append(self.z)
-                self.step_saved()
                 del self.z_targets[0]
 
                 # reset the constant step size after a spectrum is stored
@@ -315,6 +315,8 @@ class MutliProcRK4IP(RK4IP):
         task_id=0,
         n_percent=10,
     ):
+        self.worker_id = worker_id
+        self.p_queue = p_queue
         super().__init__(
             sim_params,
             save_data=save_data,
@@ -322,8 +324,6 @@ class MutliProcRK4IP(RK4IP):
             task_id=task_id,
             n_percent=n_percent,
         )
-        self.worker_id = worker_id
-        self.p_queue = p_queue
 
     def step_saved(self):
         self.p_queue.put((self.worker_id, self.z / self.z_final))
@@ -340,6 +340,8 @@ class RayRK4IP(RK4IP):
         task_id=0,
         n_percent=10,
     ):
+        self.worker_id = worker_id
+        self.p_actor = p_actor
         super().__init__(
             sim_params,
             save_data=save_data,
@@ -347,8 +349,6 @@ class RayRK4IP(RK4IP):
             task_id=task_id,
             n_percent=n_percent,
         )
-        self.worker_id = worker_id
-        self.p_actor = p_actor
 
     def step_saved(self):
         self.p_actor.update.remote(self.worker_id, self.z / self.z_final)
@@ -361,11 +361,13 @@ class Simulations:
     """
 
     _available_simulation_methods = []
+    _available_simulation_methods_dict: Dict[str, Type["Simulations"]] = dict()
 
     def __init_subclass__(cls, available: bool, priority=0, **kwargs):
         cls._available = available
         if available:
             Simulations._available_simulation_methods.append((cls, priority))
+            Simulations._available_simulation_methods_dict[cls.__name__] = cls
         Simulations._available_simulation_methods.sort(key=lambda el: el[1])
         super().__init_subclass__(**kwargs)
 
@@ -373,7 +375,7 @@ class Simulations:
     def get_best_method(cls):
         return Simulations._available_simulation_methods[-1][0]
 
-    def __init__(self, param_seq: initialize.ParamSequence, task_id=0, data_folder="scgenerator/"):
+    def __init__(self, param_seq: initialize.ParamSequence, task_id=0):
         """
         Parameters
         ----------
@@ -466,8 +468,8 @@ class SequencialSimulations(Simulations, available=True, priority=0):
 
 
 class MultiProcSimulations(Simulations, available=True, priority=10):
-    def __init__(self, param_seq: initialize.ParamSequence, task_id, data_folder):
-        super().__init__(param_seq, task_id=task_id, data_folder=data_folder)
+    def __init__(self, param_seq: initialize.ParamSequence, task_id):
+        super().__init__(param_seq, task_id=task_id)
         self.sim_jobs_per_node = max(1, os.cpu_count() // 2)
         self.queue = multiprocessing.JoinableQueue(self.sim_jobs_per_node)
         self.progress_queue = multiprocessing.Queue()
@@ -559,9 +561,8 @@ class RaySimulations(Simulations, available=using_ray, priority=2):
         self,
         param_seq: initialize.ParamSequence,
         task_id=0,
-        data_folder="scgenerator/",
     ):
-        super().__init__(param_seq, task_id, data_folder)
+        super().__init__(param_seq, task_id)
 
         nodes = ray.nodes()
         self.logger.info(
@@ -661,21 +662,21 @@ class RaySimulations(Simulations, available=using_ray, priority=2):
 
 def new_simulations(
     config_file: str,
-    task_id: int,
-    data_folder="scgenerator/",
+    prev_data_folder=None,
     method: Type[Simulations] = None,
-    initial=True,
 ) -> Simulations:
 
     config = io.load_toml(config_file)
-    if initial:
+    task_id = np.random.randint(1e9, 1e12)
+
+    if prev_data_folder is None:
         param_seq = initialize.ParamSequence(config)
     else:
-        param_seq = initialize.ContinuationParamSequence(data_folder, config)
+        param_seq = initialize.ContinuationParamSequence(prev_data_folder, config)
 
     print(f"{param_seq.name=}")
 
-    return _new_simulations(param_seq, task_id, data_folder, method)
+    return _new_simulations(param_seq, task_id, method)
 
 
 def resume_simulations(
@@ -686,21 +687,22 @@ def resume_simulations(
     io.set_data_folder(task_id, data_folder)
     param_seq = initialize.RecoveryParamSequence(config, task_id)
 
-    return _new_simulations(param_seq, task_id, data_folder, method)
+    return _new_simulations(param_seq, task_id, method)
 
 
 def _new_simulations(
     param_seq: initialize.ParamSequence,
     task_id,
-    data_folder,
     method: Type[Simulations],
 ) -> Simulations:
     if method is not None:
-        return method(param_seq, task_id, data_folder=data_folder)
+        if isinstance(method, str):
+            method = Simulations._available_simulation_methods_dict[method]
+        return method(param_seq, task_id)
     elif param_seq.num_sim > 1 and param_seq["simulation", "parallel"] and using_ray:
-        return Simulations.get_best_method()(param_seq, task_id, data_folder=data_folder)
+        return Simulations.get_best_method()(param_seq, task_id)
     else:
-        return SequencialSimulations(param_seq, task_id, data_folder=data_folder)
+        return SequencialSimulations(param_seq, task_id)
 
 
 if __name__ == "__main__":

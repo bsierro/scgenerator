@@ -11,9 +11,12 @@ def load_conf(name):
     return conf
 
 
-def conf_maker(folder):
+def conf_maker(folder, val=True):
     def conf(name):
-        return initialize.validate(load_conf(folder + "/" + name))
+        if val:
+            return initialize.validate(load_conf(folder + "/" + name))
+        else:
+            return load_conf(folder + "/" + name)
 
     return conf
 
@@ -49,6 +52,15 @@ class TestUtilsMethods(unittest.TestCase):
 
         for value, target in zip(values, s):
             self.assertEqual(target, utils.format_value(value))
+
+    def test_override_config(self):
+        conf = conf_maker("override", False)
+        old = conf("initial_config")
+        new = conf("fiber2")
+
+        over = utils.override_config(old, new)
+        self.assertIn("input_transmission", over["fiber"]["variable"])
+        self.assertNotIn("input_transmission", over["fiber"])
 
 
 if __name__ == "__main__":

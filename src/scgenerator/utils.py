@@ -11,7 +11,7 @@ import itertools
 import logging
 import re
 import socket
-from typing import Any, Callable, Iterator, List, Mapping, Tuple, Union
+from typing import Any, Callable, Dict, Iterator, List, Mapping, Tuple, Union
 from asyncio import Event
 
 import numpy as np
@@ -345,6 +345,34 @@ def deep_update(d: Mapping, u: Mapping):
         else:
             d[k] = v
     return d
+
+
+def override_config(old: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, Any]:
+    out = deepcopy(old)
+    for section_name, section in new.items():
+        if isinstance(section, Mapping):
+            for param_name, value in section.items():
+                if param_name == "variable" and isinstance(value, Mapping):
+                    out[section_name].setdefault("variable", {})
+                    for p, v in value.items():
+                        # override previously unvariable param
+                        if p in old[section_name]:
+                            del out[section_name][p]
+                        out[section_name]["variable"][p] = v
+                else:
+                    # override previously variable param
+                    if (
+                        "variable" in old[section_name]
+                        and isinstance(old[section_name]["variable"], Mapping)
+                        and param_name in old[section_name]["variable"]
+                    ):
+                        del out[section_name]["variable"][param_name]
+                        if len(out[section_name]["variable"]) == 0:
+                            del out[section_name["variable"]]
+                    out[section_name][param_name] = value
+        else:
+            out[section_name] = section
+    return out
 
 
 def formatted_hostname():

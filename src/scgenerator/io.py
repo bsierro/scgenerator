@@ -2,7 +2,7 @@ import os
 import shutil
 from datetime import datetime
 from glob import glob
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple, Union
 
 import numpy as np
 from numpy.lib import delete
@@ -127,8 +127,9 @@ class DataBuffer:
 #     return os.path.normpath(p)
 
 
-def load_toml(path: str):
+def load_toml(path: os.PathLike):
     """returns a dictionary parsed from the specified toml file"""
+    path = str(path)
     if not path.lower().endswith(".toml"):
         path += ".toml"
     with open(path, mode="r") as file:
@@ -365,24 +366,21 @@ def load_last_spectrum(path: str) -> Tuple[int, np.ndarray]:
     return num, np.load(os.path.join(path, f"spectrum_{num}.npy"))
 
 
-def merge(paths: List[str]):
+def merge(paths: Union[str, List[str]]):
+    if isinstance(paths, str):
+        paths = [paths]
     for path in paths:
         merge_same_simulations(path, delete=False)
-
-    if len(paths) < 2:
-        return
-
-    append_simulations(paths)
 
 
 def append_simulations(paths: List[os.PathLike]):
     paths: List[Path] = [Path(p).resolve() for p in paths]
-    master_sim = paths[0]
-    merged_path = master_sim.parent / "merged_sims"
+    master_sim_path = paths[-1]
+    merged_path = master_sim_path.parent / "merged_sims"
     merged_path.mkdir(exist_ok=True)
     for i, path in enumerate(paths):
         shutil.copy(path / "initial_config.toml", merged_path / f"initial_config{i}.toml")
-    for sim in master_sim.glob("*"):
+    for sim in master_sim_path.glob("*"):
         if not sim.is_dir() or not str(sim).endswith("merged"):
             continue
         sim_name = sim.name
@@ -404,6 +402,26 @@ def append_simulations(paths: List[os.PathLike]):
             last_z += z_arr[-1]
             z_num += curr_z_num
         np.save(merge_sim_path / "z.npy", np.concatenate(z))
+
+
+def append_and_merge(final_sim_path: os.PathLike, new_name=None):
+    final_sim_path = Path(final_sim_path).resolve()
+    if new_name is None:
+        new_name = final_sim_path.name + " appended"
+
+    appended_path = final_sim_path.parent / new_name
+    appended_path.mkdir(exist_ok=True)
+
+    for sim_path in final_sim_path.glob("id*num*"):
+        path_tree = [sim_path]
+        sim_name = sim_path.name
+        appended_sim_path = appended_path / sim_name
+        appended_sim_path.mkdir(exist_ok=True)
+
+        while (prev_sim_path := load_toml(path_tree[-1] / "params.toml")).get(
+            "prev_sim_dir"
+        ) is not None:
+            path_tree.append(Path(prev_sim_path).resolve())
 
 
 def merge_same_simulations(path: str, delete=True):
@@ -475,6 +493,8 @@ def get_data_folder(task_id: int, name_if_new: str = "data"):
     if tmp is None:
         tmp = ensure_folder("scgenerator " + name_if_new)
         os.environ[TMP_FOLDER_KEY_BASE + idstr] = tmp
+    elif not os.path.exists(tmp):
+        os.mkdir(tmp)
     return tmp
 
 

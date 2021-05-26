@@ -11,6 +11,7 @@ n is the number of spectra at the same z position and nt is the size of the time
 
 import itertools
 import os
+from typing import Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -74,6 +75,34 @@ def initial_field(t, shape, t0, power):
         return sech_pulse(t, t0, power)
     else:
         raise ValueError(f"shape '{shape}' not understood")
+
+
+def modify_field_ratio(
+    field: np.ndarray, target_power: float = None, intensity_noise: float = None
+) -> float:
+    """multiply a field by this number to get the desired effects
+
+    Parameters
+    ----------
+    field : np.ndarray
+        initial field
+    target_power : float, optional
+        abs2(field).max() == target_power, by default None
+    intensity_noise : float, optional
+        intensity noise, by default None
+
+    Returns
+    -------
+    float
+        ratio (multiply field by this number)
+    """
+    ratio = 1
+    if target_power is not None:
+        ratio *= np.sqrt(target_power / abs2(field).max())
+    if intensity_noise is not None:
+        d_int, _ = technical_noise(intensity_noise)
+        ratio *= np.sqrt(d_int)
+    return ratio
 
 
 def conform_pulse_params(
@@ -793,3 +822,12 @@ def measure_properties(spectra, t, compress=True, debug=""):
     t_jitter = np.std(t_offset)
 
     return qf, mean_g12, fwhm_var, fwhm_abs, int_var, t_jitter
+
+
+def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float]:
+    intensity = abs2(field)
+    _, fwhm_lim, _, _ = find_lobe_limits(t, intensity)
+    fwhm = length(fwhm_lim)
+    power = intensity.max()
+    energy = np.trapz(intensity, t)
+    return fwhm, power, energy

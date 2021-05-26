@@ -106,16 +106,21 @@ def capillary_nested(n):
 valid_param_types = dict(
     root=dict(
         name=lambda s: isinstance(s, str),
+        prev_data_dir=lambda s: isinstance(s, str),
     ),
     fiber=dict(
         input_transmission=in_range_incl(num, (0, 1)),
         gamma=num,
+        n2=num,
+        effective_mode_diameter=num,
+        A_eff=num,
         pitch=in_range_excl(num, (0, 1e-3)),
         pitch_ratio=in_range_excl(num, (0, 1)),
         core_radius=in_range_excl(num, (0, 1e-3)),
         he_mode=he_mode,
         fit_parameters=fit_parameters,
         beta=beta,
+        dispersion_file=lambda s: isinstance(s, str),
         model=string(["pcf", "marcatili", "marcatili_adjusted", "hasan", "custom"]),
         length=num,
         capillary_num=integer,
@@ -133,6 +138,7 @@ valid_param_types = dict(
     ),
     pulse=dict(
         field_0=field_0,
+        field_file=lambda s: isinstance(s, str),
         power=num,
         energy=num,
         soliton_num=num,
@@ -207,6 +213,6 @@ valid_variable = dict(
 )
 
 ENVIRON_KEY_BASE = "SCGENERATOR_"
-TMP_FOLDER_KEY_BASE = ENVIRON_KEY_BASE + "TMP_"
+TMP_FOLDER_KEY_BASE = ENVIRON_KEY_BASE + "SC_TMP_"
 PREFIX_KEY_BASE = ENVIRON_KEY_BASE + "PREFIX_"
 PARAM_SEPARATOR = " "
