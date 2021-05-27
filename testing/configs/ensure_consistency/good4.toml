@@ -18,7 +18,7 @@ gas_name = "helium"
 temperature = [300, 350, 400]
 
 [pulse]
-power = 100e3
+peak_power = 100e3
 quantum_noise = true
 shape = "gaussian"
 wavelength = 1050e-9

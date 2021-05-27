@@ -2,8 +2,9 @@
 # For example, nm(X) means "I give the number X in nm, figure out the ang. freq."
 # to be used especially when giving plotting ranges : (400, 1400, nm), (-4, 8, ps), ...
 
+from numba.core.types.misc import Phantom
 import numpy as np
-from numpy import pi
+from numpy import isin, pi
 
 c = 299792458.0
 hbar = 1.05457148e-34
@@ -198,6 +199,30 @@ D_ps_nm_km.label = r"$D$ (ps/(nm km))"
 D_ps_nm_km.type = "OTHER"
 
 
+units_map = dict(
+    nm=nm,
+    um=um,
+    m=m,
+    THz=THz,
+    PHz=PHz,
+    rad_s=rad_s,
+    Prad_s=Prad_s,
+    rel_freq=rel_freq,
+    rel_time=rel_time,
+    s=s,
+    us=us,
+    ns=ns,
+    ps=ps,
+    fs=fs,
+)
+
+
+def get_unit(unit):
+    if isinstance(unit, str):
+        return units_map[unit]
+    return unit
+
+
 def beta2_coef(beta):
     fac = 1e27
     out = np.zeros_like(beta)
@@ -217,11 +242,16 @@ def standardize_dictionary(dico):
         same dictionary with units converted
     Example
     ----------
-    standardize_dictionary({"power": [23, "kW"], "points": [1, 2, 3]})
-    {"power": 23000, "points": [1, 2, 3]})
+    standardize_dictionary({"peak_power": [23, "kW"], "points": [1, 2, 3]})
+    {"peak_power": 23000, "points": [1, 2, 3]})
     """
     for key, item in dico.items():
-        if isinstance(item, list) and len(item) == 2 and isinstance(item[0], (int, float)) and isinstance(item[1], str):
+        if (
+            isinstance(item, list)
+            and len(item) == 2
+            and isinstance(item[0], (int, float))
+            and isinstance(item[1], str)
+        ):
             num, unit = item
             fac = 1
             if len(unit) == 2:
@@ -263,7 +293,7 @@ def sort_axis(axis, plt_range):
     """
 
     r = np.array(plt_range[:2], dtype="float")
-    func = plt_range[2]
+    func = get_unit(plt_range[2])
 
     indices = np.arange(len(axis))[(axis <= np.max(func(r))) & (axis >= np.min(func(r)))]
     cropped = axis[indices]

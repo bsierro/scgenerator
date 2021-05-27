@@ -8,7 +8,7 @@ gamma = 0.018
 length = 1
 
 [pulse]
-power = 100e3
+peak_power = 100e3
 quantum_noise = true
 shape = "gaussian"
 wavelength = 1050e-9

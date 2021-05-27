@@ -1,13 +1,31 @@
 import numpy as np
 
 
+def pbar_format(worker_id: int):
+    if worker_id == 0:
+        return dict(
+            position=0,
+            bar_format="{l_bar}{bar}" "|[{elapsed}<{remaining}, " "{rate_fmt}{postfix}]",
+        )
+    else:
+        return dict(
+            total=1,
+            desc=f"Worker {worker_id}",
+            position=worker_id,
+            bar_format="{l_bar}{bar}" "|[{elapsed}<{remaining}, " "{rate_fmt}{postfix}]",
+        )
+
+
+#####
+
+
 def in_range_excl(func, r):
     def _in_range(n):
         if not func(n):
             return False
         return n > r[0] and n < r[1]
 
-    _in_range.__doc__ = func.__doc__ + f" between {r[0]} and {r[1]}"
+    _in_range.__doc__ = func.__doc__ + f" between {r[0]} and {r[1]} (exclusive) "
     return _in_range
 
 
@@ -17,7 +35,7 @@ def in_range_incl(func, r):
             return False
         return n >= r[0] and n <= r[1]
 
-    _in_range.__doc__ = func.__doc__ + f" between {r[0]} and {r[1]}"
+    _in_range.__doc__ = func.__doc__ + f" between {r[0]} and {r[1]} (inclusive)"
     return _in_range
 
 
@@ -122,7 +140,7 @@ valid_param_types = dict(
         beta=beta,
         dispersion_file=lambda s: isinstance(s, str),
         model=string(["pcf", "marcatili", "marcatili_adjusted", "hasan", "custom"]),
-        length=num,
+        length=in_range_excl(num, (0, 1e9)),
         capillary_num=integer,
         capillary_outer_d=in_range_excl(num, (0, 1e-3)),
         capillary_thickness=in_range_excl(num, (0, 1e-3)),
@@ -139,7 +157,9 @@ valid_param_types = dict(
     pulse=dict(
         field_0=field_0,
         field_file=lambda s: isinstance(s, str),
-        power=num,
+        repetition_rate=num,
+        peak_power=num,
+        mean_power=num,
         energy=num,
         soliton_num=num,
         quantum_noise=boolean,
@@ -201,7 +221,9 @@ valid_variable = dict(
     ],
     gas=["pressure", "temperature", "gas_name", "plasma_density"],
     pulse=[
-        "power",
+        "peak_power",
+        "mean_power",
+        "energy",
         "quantum_noise",
         "shape",
         "wavelength",

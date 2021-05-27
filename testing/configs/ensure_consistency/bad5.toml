@@ -12,7 +12,7 @@ length = 1
 model = "hasan"
 
 [pulse]
-power = 100e3
+peak_power = 100e3
 quantum_noise = true
 shape = "gaussian"
 wavelength = 1050e-9

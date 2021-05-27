@@ -5,9 +5,8 @@ import shutil
 import subprocess
 from datetime import datetime, timedelta
 
-from scgenerator.initialize import validate
-from scgenerator.io import Paths, load_toml
-from scgenerator.utils import count_variations
+from ..initialize import validate_config_sequence
+from ..utils import count_variations
 
 
 def format_time(t):
@@ -20,7 +19,7 @@ def format_time(t):
 
 def create_parser():
     parser = argparse.ArgumentParser(description="submit a job to a slurm cluster")
-    parser.add_argument("config", help="path to the toml configuration file")
+    parser.add_argument("configs", nargs="+", help="path to the toml configuration file")
     parser.add_argument(
         "-t", "--time", required=True, type=str, help="time required for the job in hh:mm:ss"
     )
@@ -59,19 +58,23 @@ def main():
             "time format must be an integer number of minute or must match the pattern hh:mm:ss"
         )
 
-    config = load_toml(args.config)
-    config = validate(config)
+    config_paths = args.configs
+    final_config = validate_config_sequence(*config_paths)
 
-    sim_num, _ = count_variations(config)
+    sim_num, _ = count_variations(final_config)
 
-    file_name = "submit " + config["name"] + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh"
-    job_name = f"supercontinuum {config['name']}"
-    submit_sh = template.format(job_name=job_name, **vars(args))
+    file_name = (
+        "submit " + final_config["name"] + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh"
+    )
+    job_name = f"supercontinuum {final_config['name']}"
+    submit_sh = template.format(
+        job_name=job_name, configs_list=" ".join(args.configs), **vars(args)
+    )
     with open(file_name, "w") as file:
         file.write(submit_sh)
     subprocess.run(["sbatch", "--test-only", file_name])
     submit = input(
-        f"Propagate {sim_num} pulses from config {args.config} with {args.cpus_per_node} cpus"
+        f"Propagate {sim_num} pulses from configs {args.configs} with {args.cpus_per_node} cpus"
         + f" per node on {args.nodes} nodes for {format_time(args.time)} ? (y/[n])\n"
     )
     if submit.lower() in ["y", "yes"]:

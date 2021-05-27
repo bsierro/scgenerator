@@ -6,13 +6,13 @@ class TestPulseMethods(unittest.TestCase):
     def test_conform_pulse_params(self):
         self.assertNotIn(None, conform_pulse_params("gaussian", t0=5, energy=6))
         self.assertNotIn(None, conform_pulse_params("gaussian", width=5, energy=6))
-        self.assertNotIn(None, conform_pulse_params("gaussian", t0=5, power=6))
-        self.assertNotIn(None, conform_pulse_params("gaussian", width=5, power=6))
+        self.assertNotIn(None, conform_pulse_params("gaussian", t0=5, peak_power=6))
+        self.assertNotIn(None, conform_pulse_params("gaussian", width=5, peak_power=6))
 
         self.assertEqual(4, len(conform_pulse_params("gaussian", t0=5, energy=6)))
         self.assertEqual(4, len(conform_pulse_params("gaussian", width=5, energy=6)))
-        self.assertEqual(4, len(conform_pulse_params("gaussian", t0=5, power=6)))
-        self.assertEqual(4, len(conform_pulse_params("gaussian", width=5, power=6)))
+        self.assertEqual(4, len(conform_pulse_params("gaussian", t0=5, peak_power=6)))
+        self.assertEqual(4, len(conform_pulse_params("gaussian", width=5, peak_power=6)))
 
         with self.assertRaisesRegex(
             TypeError, "when soliton number is desired, both gamma and beta2 must be specified"
@@ -30,10 +30,10 @@ class TestPulseMethods(unittest.TestCase):
             5, len(conform_pulse_params("gaussian", width=5, energy=6, gamma=0.01, beta2=2e-6))
         )
         self.assertEqual(
-            5, len(conform_pulse_params("gaussian", t0=5, power=6, gamma=0.01, beta2=2e-6))
+            5, len(conform_pulse_params("gaussian", t0=5, peak_power=6, gamma=0.01, beta2=2e-6))
         )
         self.assertEqual(
-            5, len(conform_pulse_params("gaussian", width=5, power=6, gamma=0.01, beta2=2e-6))
+            5, len(conform_pulse_params("gaussian", width=5, peak_power=6, gamma=0.01, beta2=2e-6))
         )
 
 

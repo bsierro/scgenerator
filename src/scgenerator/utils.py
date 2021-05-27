@@ -9,6 +9,7 @@ import collections
 import datetime as dt
 import itertools
 import logging
+import multiprocessing
 import re
 import socket
 from typing import Any, Callable, Dict, Iterator, List, Mapping, Tuple, Union
@@ -20,7 +21,7 @@ from copy import deepcopy
 
 from tqdm import tqdm
 
-from .const import PARAM_SEPARATOR, PREFIX_KEY_BASE, valid_variable
+from .const import PARAM_SEPARATOR, PREFIX_KEY_BASE, valid_variable, pbar_format
 from .logger import get_logger
 from .math import *
 
@@ -160,6 +161,33 @@ class ProgressBarActor:
         await self.event.wait()
         self.event.clear()
         return self.counters
+
+
+def progress_worker(num_steps: int, progress_queue: multiprocessing.Queue):
+    """keeps track of progress on a separate thread
+
+    Parameters
+    ----------
+    num_steps : int
+        total number of steps, used for the main progress bar (position 0)
+    progress_queue : multiprocessing.Queue
+        values are either
+            Literal[0] : stop the worker and close the progress bars
+            Tuple[int, float] : worker id and relative progress between 0 and 1
+    """
+    pbars: Dict[int, tqdm] = {}
+    with tqdm(total=num_steps, desc="Simulating", unit="step", position=0) as tq:
+        while True:
+            raw = progress_queue.get()
+            if raw == 0:
+                for pbar in pbars.values():
+                    pbar.close()
+                return
+            i, rel_pos = raw
+            if i not in pbars:
+                pbars[i] = tqdm(**pbar_format(i))
+            pbars[i].update(rel_pos - pbars[i].n)
+            tq.update()
 
 
 def count_variations(config: dict) -> Tuple[int, int]:
@@ -347,7 +375,10 @@ def deep_update(d: Mapping, u: Mapping):
     return d
 
 
-def override_config(old: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, Any]:
+def override_config(new: Dict[str, Any], old: Dict[str, Any] = None) -> Dict[str, Any]:
+    """makes sure all the parameters set in new are there, leaves untouched parameters in old"""
+    if old is None:
+        return new
     out = deepcopy(old)
     for section_name, section in new.items():
         if isinstance(section, Mapping):

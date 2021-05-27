@@ -16,8 +16,28 @@ spectra, params = load_sim_data("varyTechNoise100kW_sim_data")
 
 # Configuration
 
-You can load parameters by simpling passing the path to a toml file to the appropriate simulation function. Each possible key of this dictionary is described below. Every value must be given in standard SI units (m, s, W, J, ...)
-The configuration file can have a ```name``` parameter at the root and must otherwise contain the following sections with the specified parameters
+You can load parameters by simply passing the path to a toml file to the appropriate simulation function. Each possible key of this dictionary is described below. Every value must be given in standard SI units (m, s, W, J, ...)
+The configuration file can have a ```name``` parameter at the root and must otherwise contain the following sections with the specified parameters. Every section ("fiber", "gas", "pulse", "simulation") can have a "variable" subsection where parameters are specified in a list INSTEAD of being specified as a single value in the main section. This has the effect of running one simulation per value in the list. If many parameters are variable, all possible combinations are ran.
+Examples : 
+
+```
+[fiber]
+n2 = 2.2e-20
+```
+a single simulation is ran with this value
+```
+[fiber.variable]
+n2 = [2.1e-20, 2.4e-20, 2.6e-20]
+```
+3 simulations are ran, one for each value
+```
+[fiber]
+n2 = 2.2e-20
+[fiber.variable]
+n2 = [2.1e-20, 2.4e-20, 2.6e-20]
+```
+NOT ALLOWED
+
 
 note : internally, another structure with a flattened dictionary is used
 
@@ -28,6 +48,11 @@ If you already know the Taylor coefficients corresponding to the expansion of th
 
 beta: list-like
     list of Taylor coefficients for the beta_2 function
+
+If you already have a dispersion curve, you can convert it to a npz file with the wavelength (key : 'wavelength') in m and the D parameter (key : 'dispersion') in s/m/m. You the refer to this file as
+
+dispersion_file : str
+    path to the npz dispersion file
 
 
 else, you can choose a mathematical fiber model
@@ -81,7 +106,7 @@ capillary_thickness : float
 capillary_spacing : float, optional if d is specified
     spacing between the capillary
 
-capillray_resonance_strengths : list, optional
+capillary_resonance_strengths : list, optional
     list of resonance strengths. Default is []
 
 capillary_nested : int, optional
@@ -93,14 +118,20 @@ capillary_nested : int, optional
 gamma: float, optional unless beta is directly provided
     nonlinear parameter in m^2 / W. Will overwrite any computed gamma parameter.
 
+effective_mode_diameter : float, optional
+    effective mode field diameter in m
+
+n2 : float, optional
+    non linear refractive index
+
+A_eff : float, optional
+    effective mode field area
+
 length: float, optional
     length of the fiber in m. default : 1
 
-fiber_id : int
-    in case multiple fibers are chained together, indicates the index of this particular fiber, default : 0
-
 input_transmission : float
-    number between 0 and 1 indicating how much light enters the fiber, default : 1
+    number between 0 and 1 indicating how much light enters the fiber, useful when chaining many fibers together, default : 1
 
 
 ## Gas parameters
@@ -124,10 +155,16 @@ plasma_density: float
 wavelength: float
     pump wavelength in m
 
-To specify the initial pulse shape, either use one of 2 in (power, energy) together with one of 2 in (width, t0), or use soliton_num together with one of 4 in (power, energy, width, t0)
+To specify the initial pulse properties, either use one of 3 in (peak_power, energy, mean_power) together with one of 2 in (width, t0), or use soliton_num together with one of 5 in (peak_power, mean_power, energy, width, t0)
 
-power: float
+peak_power : float
     peak power in W
+
+mean_power : float
+    mean power of the pulse train in W. if specified, repetition_rate must also be specified
+
+repetition_rate : float
+    repetition rate of the pulse train in Hz
 
 energy: float
     total pulse energy in J
@@ -138,10 +175,13 @@ width: float
 t0: float
     pulse width parameter
 
-solition_num: float
+soliton_num: float
     soliton number
 
 ### optional
+
+field_file : str
+    if you have an initial field to use, convert it to a npz file with time (key : 'time') in s and electric field (key : 'field') in sqrt(W) (can be complex). You the use it with this config key. You can then scale it by settings any 1 of mean_power, energy and peak_power (priority is in this order)
 
 quantum_noise: bool
     whether or not one-photon-per-mode quantum noise is activated. default : False

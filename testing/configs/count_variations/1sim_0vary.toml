@@ -7,7 +7,7 @@ model = "marcatili"
 gas_name = "air"
 
 [pulse]
-power = 100e3
+peak_power = 100e3
 wavelength = 800e-9
 width = 250e-15
 

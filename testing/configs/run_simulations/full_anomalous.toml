@@ -16,7 +16,7 @@ gamma = 0.11
 length = 0.02
 
 [pulse]
-power = 10000
+peak_power = 10000
 t0 = 2.84e-14
 
 [pulse.variable]

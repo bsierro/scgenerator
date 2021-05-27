@@ -92,7 +92,7 @@ class TestInitializeMethods(unittest.TestCase):
 
         with self.assertRaisesRegex(
             MissingParameterError,
-            r"1 of '\['power', 'energy', 'width', 't0'\]' is required when 'soliton_num' is specified and no defaults have been set",
+            r"1 of '\['peak_power', 'energy', 'width', 't0'\]' is required when 'soliton_num' is specified and no defaults have been set",
         ):
             init._ensure_consistency(conf("bad2"))
 

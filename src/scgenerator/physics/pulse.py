@@ -44,7 +44,7 @@ P0T0_to_E0_fac = dict(
 """relates the total energy (amplitue^2) to the t0 parameter of the amplitude and the peak intensity (peak_amplitude^2)"""
 
 
-def initial_field(t, shape, t0, power):
+def initial_field(t, shape, t0, peak_power):
     """returns the initial field
 
     Parameters
@@ -56,7 +56,7 @@ def initial_field(t, shape, t0, power):
     t0 : float
         time parameters. Can be obtained by dividing the FWHM by
         `scgenerator.physics.pulse.fwhm_to_T0_fac[shape]`
-    power : float
+    peak_power : float
         peak power
 
     Returns
@@ -70,20 +70,26 @@ def initial_field(t, shape, t0, power):
         raised when shape is not recognized
     """
     if shape == "gaussian":
-        return gauss_pulse(t, t0, power)
+        return gauss_pulse(t, t0, peak_power)
     elif shape == "sech":
-        return sech_pulse(t, t0, power)
+        return sech_pulse(t, t0, peak_power)
     else:
         raise ValueError(f"shape '{shape}' not understood")
 
 
 def modify_field_ratio(
-    field: np.ndarray, target_power: float = None, intensity_noise: float = None
+    t: np.ndarray,
+    field: np.ndarray,
+    target_power: float = None,
+    target_energy: float = None,
+    intensity_noise: float = None,
 ) -> float:
     """multiply a field by this number to get the desired effects
 
     Parameters
     ----------
+    t : np.ndarray
+        time (only used when target_energy is not None)
     field : np.ndarray
         initial field
     target_power : float, optional
@@ -97,8 +103,11 @@ def modify_field_ratio(
         ratio (multiply field by this number)
     """
     ratio = 1
-    if target_power is not None:
+    if target_energy is not None:
+        ratio *= np.sqrt(target_energy / np.trapz(abs2(field), t))
+    elif target_power is not None:
         ratio *= np.sqrt(target_power / abs2(field).max())
+
     if intensity_noise is not None:
         d_int, _ = technical_noise(intensity_noise)
         ratio *= np.sqrt(d_int)
@@ -109,7 +118,7 @@ def conform_pulse_params(
     shape,
     width=None,
     t0=None,
-    power=None,
+    peak_power=None,
     energy=None,
     soliton_num=None,
     gamma=None,
@@ -125,7 +134,7 @@ def conform_pulse_params(
         fwhm of the intensity pulse, by default None
     t0 : float, optional
         time parameter of the amplitude pulse, by default None
-    power : float, optional
+    peak_power : float, optional
         peak power, by default None
     energy : float, optional
         total energy of the pulse, by default None
@@ -140,17 +149,17 @@ def conform_pulse_params(
     indicated by the order in which the parameters are enumerated below holds,
     meaning the superflous parameters will be overwritten.
     choose one of the possible combinations :
-        1 of (width, t0), 1 of (power, energy), gamma and beta2 together optional (not one without the other)
-        soliton_num, gamma, 1 of (width, power, energy, t0)
+        1 of (width, t0), 1 of (peak_power, energy), gamma and beta2 together optional (not one without the other)
+        soliton_num, gamma, 1 of (width, peak_power, energy, t0)
     examples :
-        specify width, power and energy -> t0 and energy will be computed
-        specify soliton_num, gamma, power, t0 -> width, t0 and energy will be computed
+        specify width, peak_power and energy -> t0 and energy will be computed
+        specify soliton_num, gamma, peak_power, t0 -> width, t0 and energy will be computed
 
     Returns
     -------
-    width, t0, power, energy
+    width, t0, peak_power, energy
         when no gamma is specified
-    width, t0, power, energy, soliton_num
+    width, t0, peak_power, energy, soliton_num
         when gamma is specified
 
     Raises
@@ -167,14 +176,14 @@ def conform_pulse_params(
             raise TypeError("gamma must be specified when soliton_num is")
 
         if width is not None:
-            power = soliton_num ** 2 * abs(beta2) / (gamma * t0 ** 2)
-        elif power is not None:
-            t0 = np.sqrt(soliton_num ** 2 * abs(beta2) / (power * gamma))
+            peak_power = soliton_num ** 2 * abs(beta2) / (gamma * t0 ** 2)
+        elif peak_power is not None:
+            t0 = np.sqrt(soliton_num ** 2 * abs(beta2) / (peak_power * gamma))
         elif energy is not None:
             t0 = P0T0_to_E0_fac[shape] * soliton_num ** 2 * abs(beta2) / (energy * gamma)
         elif t0 is not None:
             width = t0 / fwhm_to_T0_fac[shape]
-            power = soliton_num ** 2 * abs(beta2) / (gamma * t0 ** 2)
+            peak_power = soliton_num ** 2 * abs(beta2) / (gamma * t0 ** 2)
         else:
             raise TypeError("not enough parameters to determine pulse")
 
@@ -183,26 +192,26 @@ def conform_pulse_params(
     else:
         width = t0 / fwhm_to_T0_fac[shape]
 
-    if power is not None:
-        energy = P0_to_E0(power, t0, shape)
+    if peak_power is not None:
+        energy = P0_to_E0(peak_power, t0, shape)
     else:
-        power = E0_to_P0(energy, t0, shape)
+        peak_power = E0_to_P0(energy, t0, shape)
 
     if gamma is None:
-        return width, t0, power, energy
+        return width, t0, peak_power, energy
     else:
         if soliton_num is None:
-            soliton_num = np.sqrt(power * gamma * t0 ** 2 / abs(beta2))
-        return width, t0, power, energy, soliton_num
+            soliton_num = np.sqrt(peak_power * gamma * t0 ** 2 / abs(beta2))
+        return width, t0, peak_power, energy, soliton_num
 
 
 def E0_to_P0(E0, t0, shape="gaussian"):
-    """convert an initial total pulse energy to a pulse peak power"""
+    """convert an initial total pulse energy to a pulse peak peak_power"""
     return E0 / (t0 * P0T0_to_E0_fac[shape])
 
 
 def P0_to_E0(P0, t0, shape="gaussian"):
-    """converts initial peak power to pulse energy"""
+    """converts initial peak peak_power to pulse energy"""
     return P0 * t0 * P0T0_to_E0_fac[shape]
 
 
@@ -234,7 +243,7 @@ def technical_noise(rms_noise, relative_factor=0.4):
         rms_noise : float
             RMS amplitude noise of the laser
         relative factor : float
-            magnitude of the anticorrelation between power and pulse width noise
+            magnitude of the anticorrelation between peak_power and pulse width noise
     Returns
     ----------
         delta_int : float
@@ -825,9 +834,10 @@ def measure_properties(spectra, t, compress=True, debug=""):
 
 
 def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float]:
+    """returns fwhm, peak_power, energy"""
     intensity = abs2(field)
     _, fwhm_lim, _, _ = find_lobe_limits(t, intensity)
     fwhm = length(fwhm_lim)
-    power = intensity.max()
+    peak_power = intensity.max()
     energy = np.trapz(intensity, t)
-    return fwhm, power, energy
+    return fwhm, peak_power, energy

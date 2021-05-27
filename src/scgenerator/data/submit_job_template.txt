@@ -50,5 +50,5 @@ done
 ##############################################################################################
 
 #### call your code below
-scgenerator run {config}
+scgenerator run {configs_list}
 exit

@@ -8,7 +8,7 @@ import numpy as np
 from numba import jit
 from tqdm import tqdm
 
-from .. import initialize, io, utils
+from .. import initialize, io, utils, const
 from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
 from . import pulse
@@ -36,7 +36,7 @@ class RK4IP:
             w0 : float
                 central angular frequency of the pulse
             w_power_fact : numpy.ndarray
-                precomputed factorial/power operations on w_c (scgenerator.math.power_fact)
+                precomputed factorial/peak_power operations on w_c (scgenerator.math.power_fact)
             spec_0 : numpy.ndarray
                 initial spectral envelope as function of w_c
             z_targets : list
@@ -304,6 +304,31 @@ class RK4IP:
         pass
 
 
+class SequentialRK4IP(RK4IP):
+    def __init__(
+        self,
+        sim_params,
+        overall_pbar: tqdm,
+        save_data=False,
+        job_identifier="",
+        task_id=0,
+        n_percent=10,
+    ):
+        self.overall_pbar = overall_pbar
+        self.pbar = tqdm(**const.pbar_format(1))
+        super().__init__(
+            sim_params,
+            save_data=save_data,
+            job_identifier=job_identifier,
+            task_id=task_id,
+            n_percent=n_percent,
+        )
+
+    def step_saved(self):
+        self.overall_pbar.update()
+        self.pbar.update(self.z / self.z_final - self.pbar.n)
+
+
 class MutliProcRK4IP(RK4IP):
     def __init__(
         self,
@@ -360,20 +385,25 @@ class Simulations:
     New Simulations child classes can be written and must implement the following
     """
 
-    _available_simulation_methods = []
-    _available_simulation_methods_dict: Dict[str, Type["Simulations"]] = dict()
+    simulation_methods: List[Tuple[Type["Simulations"], int]] = []
+    simulation_methods_dict: Dict[str, Type["Simulations"]] = dict()
 
-    def __init_subclass__(cls, available: bool, priority=0, **kwargs):
-        cls._available = available
-        if available:
-            Simulations._available_simulation_methods.append((cls, priority))
-            Simulations._available_simulation_methods_dict[cls.__name__] = cls
-        Simulations._available_simulation_methods.sort(key=lambda el: el[1])
+    def __init_subclass__(cls, priority=0, **kwargs):
+        cls._available = cls.is_available()
+        Simulations.simulation_methods.append((cls, priority))
+        Simulations.simulation_methods_dict[cls.__name__] = cls
+        Simulations.simulation_methods.sort(key=lambda el: el[1], reverse=True)
         super().__init_subclass__(**kwargs)
 
     @classmethod
     def get_best_method(cls):
-        return Simulations._available_simulation_methods[-1][0]
+        for method, _ in Simulations.simulation_methods:
+            if method.is_available():
+                return method
+
+    @classmethod
+    def is_available(cls) -> bool:
+        return False
 
     def __init__(self, param_seq: initialize.ParamSequence, task_id=0):
         """
@@ -454,11 +484,23 @@ class Simulations:
         raise NotImplementedError()
 
 
-class SequencialSimulations(Simulations, available=True, priority=0):
+class SequencialSimulations(Simulations, priority=0):
+    @classmethod
+    def is_available(cls):
+        return True
+
+    def __init__(self, param_seq: initialize.ParamSequence, task_id):
+        super().__init__(param_seq, task_id=task_id)
+        self.overall_pbar = tqdm(
+            total=self.param_seq.num_steps, desc="Simulating", unit="step", **const.pbar_format(0)
+        )
+
     def new_sim(self, variable_list: List[tuple], params: Dict[str, Any]):
         v_list_str = utils.format_variable_list(variable_list)
         self.logger.info(f"launching simulation with {v_list_str}")
-        RK4IP(params, save_data=True, job_identifier=v_list_str, task_id=self.id).run()
+        SequentialRK4IP(
+            params, self.overall_pbar, save_data=True, job_identifier=v_list_str, task_id=self.id
+        ).run()
 
     def stop(self):
         pass
@@ -467,7 +509,11 @@ class SequencialSimulations(Simulations, available=True, priority=0):
         pass
 
 
-class MultiProcSimulations(Simulations, available=True, priority=10):
+class MultiProcSimulations(Simulations, priority=1):
+    @classmethod
+    def is_available(cls):
+        return True
+
     def __init__(self, param_seq: initialize.ParamSequence, task_id):
         super().__init__(param_seq, task_id=task_id)
         self.sim_jobs_per_node = max(1, os.cpu_count() // 2)
@@ -481,7 +527,7 @@ class MultiProcSimulations(Simulations, available=True, priority=10):
             for i in range(self.sim_jobs_per_node)
         ]
         self.p_worker = multiprocessing.Process(
-            target=MultiProcSimulations.progress_worker,
+            target=utils.progress_worker,
             args=(self.param_seq.num_steps, self.progress_queue),
         )
         self.p_worker.start()
@@ -530,32 +576,36 @@ class MultiProcSimulations(Simulations, available=True, priority=10):
             ).run()
             queue.task_done()
 
-    @staticmethod
-    def progress_worker(num_steps: int, progress_queue: multiprocessing.Queue):
-        pbars: Dict[int, tqdm] = {}
-        with tqdm(total=num_steps, desc="Simulating", unit="step", position=0) as tq:
-            while True:
-                raw = progress_queue.get()
-                if raw == 0:
-                    for pbar in pbars.values():
-                        pbar.close()
-                    return
-                i, rel_pos = raw
-                if i not in pbars:
-                    pbars[i] = tqdm(
-                        total=1,
-                        desc=f"Worker {i}",
-                        position=i,
-                        bar_format="{l_bar}{bar}"
-                        "|[{elapsed}<{remaining}, "
-                        "{rate_fmt}{postfix}]",
-                    )
-                pbars[i].update(rel_pos - pbars[i].n)
-                tq.update()
+    # @staticmethod
+    # def progress_worker(num_steps: int, progress_queue: multiprocessing.Queue):
+    #     pbars: Dict[int, tqdm] = {}
+    #     with tqdm(total=num_steps, desc="Simulating", unit="step", position=0) as tq:
+    #         while True:
+    #             raw = progress_queue.get()
+    #             if raw == 0:
+    #                 for pbar in pbars.values():
+    #                     pbar.close()
+    #                 return
+    #             i, rel_pos = raw
+    #             if i not in pbars:
+    #                 pbars[i] = tqdm(
+    #                     total=1,
+    #                     desc=f"Worker {i}",
+    #                     position=i,
+    #                     bar_format="{l_bar}{bar}"
+    #                     "|[{elapsed}<{remaining}, "
+    #                     "{rate_fmt}{postfix}]",
+    #                 )
+    #             pbars[i].update(rel_pos - pbars[i].n)
+    #             tq.update()
 
 
-class RaySimulations(Simulations, available=using_ray, priority=2):
+class RaySimulations(Simulations, priority=2):
     """runs simulation with the help of the ray module. ray must be initialized before creating an instance of RaySimulations"""
+
+    @classmethod
+    def is_available(cls):
+        return using_ray and ray.is_initialized()
 
     def __init__(
         self,
@@ -660,8 +710,17 @@ class RaySimulations(Simulations, available=using_ray, priority=2):
         self.p_bars.print()
 
 
-def new_simulations(
-    config_file: str,
+def run_simulation_sequence(*config_files: os.PathLike, method=None, final_name: str = None):
+    prev = None
+    for config_file in config_files:
+        sim = new_simulation(config_file, prev, method)
+        sim.run()
+        prev = sim.data_folder
+    io.append_and_merge(prev, final_name)
+
+
+def new_simulation(
+    config_file: os.PathLike,
     prev_data_folder=None,
     method: Type[Simulations] = None,
 ) -> Simulations:
@@ -697,7 +756,7 @@ def _new_simulations(
 ) -> Simulations:
     if method is not None:
         if isinstance(method, str):
-            method = Simulations._available_simulation_methods_dict[method]
+            method = Simulations.simulation_methods_dict[method]
         return method(param_seq, task_id)
     elif param_seq.num_sim > 1 and param_seq["simulation", "parallel"] and using_ray:
         return Simulations.get_best_method()(param_seq, task_id)
@@ -711,4 +770,4 @@ if __name__ == "__main__":
     except NameError:
         pass
     config_file, *opts = sys.argv[1:]
-    new_simulations(config_file, *opts)
+    new_simulation(config_file, *opts)

@@ -11,7 +11,7 @@ pitch_ratio = 0.37
 
 [pulse]
 intensity_noise = 0.05e-2
-power = 100e3
+peak_power = 100e3
 quantum_noise = true
 shape = "gaussian"
 wavelength = 1050e-9

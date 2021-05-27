@@ -71,7 +71,7 @@ def _power_fact_array(x, n):
 
 
 @jit(nopython=True)
-def abs2(z):
+def abs2(z: np.ndarray) -> np.ndarray:
     return z.real ** 2 + z.imag ** 2
 
 

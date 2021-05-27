@@ -58,7 +58,7 @@ class TestUtilsMethods(unittest.TestCase):
         old = conf("initial_config")
         new = conf("fiber2")
 
-        over = utils.override_config(old, new)
+        over = utils.override_config(new, old)
         self.assertIn("input_transmission", over["fiber"]["variable"])
         self.assertNotIn("input_transmission", over["fiber"])
 

@@ -30,9 +30,10 @@ class Spectrum(np.ndarray):
 
 
 class Pulse(Sequence):
-    def __init__(self, path: str):
+    def __init__(self, path: str, ensure_2d=True):
         self.logger = get_logger(__name__)
         self.path = path
+        self.__ensure_2d = ensure_2d
 
         if not os.path.isdir(self.path):
             raise FileNotFoundError(f"Folder {self.path} does not exist")
@@ -175,17 +176,18 @@ class Pulse(Sequence):
         # Load the spectra
         spectra = []
         for i in ind:
-            spectra.append(io.load_single_spectrum(self.path, i))
+            spectra.append(self._load1(i))
         spectra = np.array(spectra)
 
         self.logger.debug(f"all spectra from {self.path} successfully loaded")
 
-        return spectra.squeeze()
+        return spectra
 
     def _load1(self, i: int):
-        return Spectrum(
-            np.atleast_2d(io.load_single_spectrum(self.path, i)), self.wl, self.params["frep"]
-        )
+        spec = io.load_single_spectrum(self.path, i)
+        if self.__ensure_2d:
+            spec = np.atleast_2d(spec)
+        return Spectrum(spec, self.wl, self.params["frep"])
 
 
 class SpectraCollection(Mapping, Sequence):

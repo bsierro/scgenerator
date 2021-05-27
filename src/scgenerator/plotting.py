@@ -528,12 +528,7 @@ def plot_results_2D(
         print(f"Shape was {values.shape}. plot_results_2D can only plot 2D arrays")
         return
 
-    is_spectrum = values.dtype == "complex"
-
-    if plt_range[2].type in ["WL", "FREQ", "AFREQ"]:
-        x_axis = params["w"].copy()
-    else:
-        x_axis = params["t"].copy()
+    is_spectrum, x_axis, plt_range = _prep_plot(values, plt_range, params)
 
     # crop and convert
     x_axis, ind, ext = units.sort_axis(x_axis[::skip], plt_range)
@@ -648,12 +643,7 @@ def plot_results_1D(
         print(f"Shape was {values.shape}. plot_results_1D can only plot 1D arrays")
         return
 
-    is_spectrum = values.dtype == "complex"
-
-    if plt_range[2].type in ["WL", "FREQ", "AFREQ"]:
-        x_axis = params["w"].copy()
-    else:
-        x_axis = params["t"].copy()
+    is_spectrum, x_axis, plt_range = _prep_plot(values, plt_range, params)
 
     # crop and convert
     x_axis, ind, ext = units.sort_axis(x_axis, plt_range)
@@ -714,6 +704,16 @@ def plot_results_1D(
         fig.savefig(os.path.join(folder_name, file_name), bbox_inches="tight", dpi=200)
         print(f"plot saved in {os.path.join(folder_name, file_name)}")
     return fig, ax
+
+
+def _prep_plot(values, plt_range, params):
+    is_spectrum = values.dtype == "complex"
+    plt_range = (*plt_range[:2], units.get_unit(plt_range[2]))
+    if plt_range[2].type in ["WL", "FREQ", "AFREQ"]:
+        x_axis = params["w"].copy()
+    else:
+        x_axis = params["t"].copy()
+    return is_spectrum, x_axis, plt_range
 
 
 def plot_avg(
@@ -795,12 +795,7 @@ def plot_avg(
         print(f"Shape was {values.shape}. plot_avg can only plot 2D arrays")
         return
 
-    is_spectrum = values.dtype == "complex"
-
-    if plt_range[2].type in ["WL", "FREQ", "AFREQ"]:
-        x_axis = params["w"].copy()
-    else:
-        x_axis = params["t"].copy()
+    is_spectrum, x_axis, plt_range = _prep_plot(values, plt_range, params)
 
     # crop and convert
     x_axis, ind, ext = units.sort_axis(x_axis, plt_range)

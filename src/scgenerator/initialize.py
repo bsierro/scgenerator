@@ -4,7 +4,6 @@ from typing import Any, Dict, Iterator, List, Set, Tuple
 
 import numpy as np
 from numpy import pi
-from numpy.core.numeric import full
 from scipy.interpolate.interpolate import interp1d
 from tqdm import tqdm
 from pathlib import Path
@@ -15,7 +14,7 @@ from .errors import *
 from .logger import get_logger
 from .math import length, power_fact
 from .physics import fiber, pulse, units
-from .utils import count_variations, required_simulations
+from .utils import count_variations, override_config, required_simulations
 
 
 class ParamSequence(Mapping):
@@ -66,7 +65,7 @@ class ContinuationParamSequence(ParamSequence):
             for variable_list, _ in required_simulations(init_config)
         ]
 
-        new_config = utils.override_config(init_config, new_config)
+        new_config = utils.override_config(new_config, init_config)
         super().__init__(new_config)
 
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Dict[str, Any]]]:
@@ -75,7 +74,6 @@ class ContinuationParamSequence(ParamSequence):
         for variable_list, full_config in required_simulations(self.config):
             prev_sim_folder = self.find_prev_data_folder(variable_list)
             full_config["prev_data_dir"] = str(prev_sim_folder.resolve())
-
             yield variable_list, compute_subsequent_paramters(prev_sim_folder, full_config)
 
     def find_prev_data_folder(self, new_variable_list: List[Tuple[str, Any]]) -> Path:
@@ -168,6 +166,28 @@ def validate(config: dict) -> dict:
     """
     _validate_types(config)
     return _ensure_consistency(config)
+
+
+def validate_config_sequence(*configs: os.PathLike) -> Dict[str, Any]:
+    """validates a sequence of configs where all but the first one may have
+    parameters missing
+
+    Parameters
+    ----------
+    configs : os.PathLike
+        sequence of paths to toml config files
+
+    Returns
+    -------
+    Dict[str, Any]
+        the final config as would be simulated, but of course missing input fields in the middle
+    """
+    previous = None
+    for config in configs:
+        dico = io.load_toml(config)
+        previous = override_config(dico, previous)
+        validate(previous)
+    return previous
 
 
 def wspace(t, t_num=0):
@@ -312,16 +332,14 @@ def _ensure_consistency_fiber(fiber: Dict[str, Any]):
         When at least one required parameter with no default is missing
     """
 
-    if _contains(fiber, "beta") and not (
-        _contains(fiber, "n2") and _contains(fiber, "effective_mode_diameter")
-    ):
-        fiber = defaults.get(fiber, "gamma", specified_parameters=["beta"])
+    if _contains(fiber, "beta"):
+        if not (_contains(fiber, "A_eff") or _contains(fiber, "effective_mode_diameter")):
+            fiber = defaults.get(fiber, "gamma", specified_parameters=["beta"])
         fiber.setdefault("model", "custom")
 
-    elif _contains(fiber, "dispersion_file") and not (
-        _contains(fiber, "n2") and _contains(fiber, "effective_mode_diameter")
-    ):
-        fiber = defaults.get(fiber, "gamma", specified_parameters=["dispersion_file"])
+    elif _contains(fiber, "dispersion_file"):
+        if not (_contains(fiber, "A_eff") or _contains(fiber, "effective_mode_diameter")):
+            fiber = defaults.get(fiber, "gamma", specified_parameters=["dispersion_file"])
         fiber.setdefault("model", "custom")
 
     else:
@@ -400,12 +418,17 @@ def _ensure_consistency_pulse(pulse):
 
         if _contains(pulse, "soliton_num"):
             pulse = defaults.get_multiple(
-                pulse, ["power", "energy", "width", "t0"], 1, specified_parameters=["soliton_num"]
+                pulse,
+                ["peak_power", "mean_power", "energy", "width", "t0"],
+                1,
+                specified_parameters=["soliton_num"],
             )
 
         else:
             pulse = defaults.get_multiple(pulse, ["t0", "width"], 1)
-            pulse = defaults.get_multiple(pulse, ["power", "energy"], 1)
+            pulse = defaults.get_multiple(pulse, ["peak_power", "energy", "mean_power"], 1)
+    if _contains(pulse, "mean_power"):
+        pulse = defaults.get(pulse, "repetition_rate", specified_parameters=["mean_power"])
     return pulse
 
 
@@ -565,6 +588,9 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
         params["hr_w"] = fiber.delayed_raman_w(params["t"], params["dt"], params["raman_type"])
 
     # PULSE
+    if "mean_power" in params:
+        params["energy"] = params["mean_power"] / params["repetition_rate"]
+
     if "field_file" in params:
         field_data = np.load(params["field_file"])
         field_interp = interp1d(
@@ -581,7 +607,7 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"computed initial N = {params['soliton_num']:.3g}")
 
         params["L_D"] = params["t0"] ** 2 / abs(params["beta"][0])
-        params["L_NL"] = 1 / (params["gamma"] * params["power"]) if params["gamma"] else np.inf
+        params["L_NL"] = 1 / (params["gamma"] * params["peak_power"]) if params["gamma"] else np.inf
         params["L_sol"] = pi / 2 * params["L_D"]
 
         # Technical noise
@@ -589,7 +615,7 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
             params = _technical_noise(params)
 
         params["field_0"] = pulse.initial_field(
-            params["t"], params["shape"], params["t0"], params["power"]
+            params["t"], params["shape"], params["t0"], params["peak_power"]
         )
 
     if params["quantum_noise"]:
@@ -605,17 +631,22 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
 def compute_subsequent_paramters(sim_folder: str, config: Dict[str, Any]) -> Dict[str, Any]:
 
     params = compute_init_parameters(config)
-    params["spec_0"] = io.load_last_spectrum(sim_folder)[1]
-    params["field_0"] = np.fft.ifft(params["spec_0"]) * params["input_transmission"]
+    spec = io.load_last_spectrum(sim_folder)[1]
+    params["field_0"] = np.fft.ifft(spec) * params["input_transmission"]
+    params["spec_0"] = np.fft.fft(params["field_0"])
 
     return params
 
 
 def _comform_custom_field(params):
     params["field_0"] = params["field_0"] * pulse.modify_field_ratio(
-        params["field_o"], params.get("power"), params.get("intensity_noise")
+        params["t"],
+        params["field_0"],
+        params.get("peak_power"),
+        params.get("energy"),
+        params.get("intensity_noise"),
     )
-    params["width"], params["power"], params["energy"] = pulse.measure_field(
+    params["width"], params["peak_power"], params["energy"] = pulse.measure_field(
         params["t"], params["field_0"]
     )
     return params
@@ -625,14 +656,14 @@ def _update_pulse_parameters(params):
     (
         params["width"],
         params["t0"],
-        params["power"],
+        params["peak_power"],
         params["energy"],
         params["soliton_num"],
     ) = pulse.conform_pulse_params(
         shape=params["shape"],
         width=params.get("width", None),
         t0=params.get("t0", None),
-        power=params.get("power", None),
+        peak_power=params.get("peak_power", None),
         energy=params.get("energy", None),
         gamma=params["gamma"],
         beta2=params["beta"][0],
@@ -658,7 +689,7 @@ def _technical_noise(params):
     if params["intensity_noise"] > 0:
         logger.info(f"intensity noise of {params['intensity_noise']}")
         delta_int, delta_T0 = pulse.technical_noise(params["intensity_noise"])
-        params["power"] *= delta_int
+        params["peak_power"] *= delta_int
         params["t0"] *= delta_T0
         params["width"] *= delta_T0
         params = _update_pulse_parameters(params)

@@ -6,7 +6,7 @@ import sys
 import ray
 
 from scgenerator import initialize
-from ..physics.simulate import new_simulations, resume_simulations, SequencialSimulations
+from ..physics.simulate import run_simulation_sequence, resume_simulations, SequencialSimulations
 from .. import io
 
 
@@ -37,10 +37,13 @@ def create_parser():
 
     run_parser.add_argument("configs", help="path(s) to the toml configuration file(s)", nargs="+")
     run_parser.add_argument(
-        "appendto",
+        "--append-to",
+        "-a",
         help="optional directory where a compatible simulation has already been ran",
-        nargs="?",
         default=None,
+    )
+    run_parser.add_argument(
+        "--output-name", "--o", help="path to the final output folder", default=None
     )
     run_parser.set_defaults(func=run_sim)
 
@@ -53,11 +56,10 @@ def create_parser():
 
     merge_parser = subparsers.add_parser("merge", help="merge simulation results")
     merge_parser.add_argument(
-        "paths",
-        nargs="+",
-        help="path(s) to simulation folder(s) containing 'initial_config.toml'. If more "
-        "than one path is given, simulations are appended to each other as if they're "
-        "physically the continuation of the previous one.",
+        "path", help="path to the final simulation folder containing 'initial_config.toml'"
+    )
+    merge_parser.add_argument(
+        "--output-name", "--o", help="path to the final output folder", default=None
     )
     merge_parser.set_defaults(func=merge)
 
@@ -73,29 +75,11 @@ def main():
 def run_sim(args):
 
     method = prep_ray(args)
-    configs = args.configs.copy()
-    first_config = configs.pop(0)
-
-    if args.appendto is None:
-        sim = new_simulations(first_config, method=method)
-    else:
-        sim = new_simulations(
-            first_config, prev_data_folder=args.appendto, method=method, initial=False
-        )
-    sim.run()
-    data_folders = [sim.data_folder]
-    for config in configs:
-        print("launching", config)
-        sim = new_simulations(
-            config, prev_data_folder=data_folders[-1], method=method, initial=False
-        )
-        sim.run()
-        data_folders.append(sim.data_folder)
-    io.merge(data_folders)
+    run_simulation_sequence(*args.configs, method=method, final_name=args.output_name)
 
 
 def merge(args):
-    io.merge(args.paths)
+    io.append_and_merge(args.path, args.output_name)
 
 
 def prep_ray(args):

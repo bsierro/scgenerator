@@ -5,10 +5,8 @@ from glob import glob
 from typing import Any, Dict, Iterable, List, Tuple, Union
 
 import numpy as np
-from numpy.lib import delete
 import pkg_resources as pkg
 import toml
-from ray import util
 from send2trash import TrashPermissionError, send2trash
 from tqdm import tqdm
 from pathlib import Path
@@ -139,6 +137,7 @@ def load_toml(path: os.PathLike):
 
 def save_toml(path, dico):
     """saves a dictionary into a toml file"""
+    path = str(path)
     if not path.lower().endswith(".toml"):
         path += ".toml"
     with open(path, mode="w") as file:
@@ -366,42 +365,11 @@ def load_last_spectrum(path: str) -> Tuple[int, np.ndarray]:
     return num, np.load(os.path.join(path, f"spectrum_{num}.npy"))
 
 
-def merge(paths: Union[str, List[str]]):
-    if isinstance(paths, str):
+def merge(paths: Union[str, List[str]], delete=False):
+    if isinstance(paths, (str, Path)):
         paths = [paths]
     for path in paths:
-        merge_same_simulations(path, delete=False)
-
-
-def append_simulations(paths: List[os.PathLike]):
-    paths: List[Path] = [Path(p).resolve() for p in paths]
-    master_sim_path = paths[-1]
-    merged_path = master_sim_path.parent / "merged_sims"
-    merged_path.mkdir(exist_ok=True)
-    for i, path in enumerate(paths):
-        shutil.copy(path / "initial_config.toml", merged_path / f"initial_config{i}.toml")
-    for sim in master_sim_path.glob("*"):
-        if not sim.is_dir() or not str(sim).endswith("merged"):
-            continue
-        sim_name = sim.name
-        merge_sim_path = merged_path / sim_name
-        merge_sim_path.mkdir(exist_ok=True)
-        shutil.copy(sim / "params.toml", merge_sim_path / f"params.toml")
-        z = []
-        z_num = 0
-        last_z = 0
-        for path in paths:
-            curr_z_num = load_toml(str(path / sim_name / "params.toml"))["z_num"]
-            for i in range(curr_z_num):
-                shutil.copy(
-                    path / sim_name / f"spectra_{i}.npy",
-                    merge_sim_path / f"spectra_{i + z_num}.npy",
-                )
-            z_arr = np.load(path / sim_name / "z.npy")
-            z.append(z_arr + last_z)
-            last_z += z_arr[-1]
-            z_num += curr_z_num
-        np.save(merge_sim_path / "z.npy", np.concatenate(z))
+        merge_same_simulations(path, delete=delete)
 
 
 def append_and_merge(final_sim_path: os.PathLike, new_name=None):
@@ -409,19 +377,55 @@ def append_and_merge(final_sim_path: os.PathLike, new_name=None):
     if new_name is None:
         new_name = final_sim_path.name + " appended"
 
-    appended_path = final_sim_path.parent / new_name
-    appended_path.mkdir(exist_ok=True)
+    destination_path = final_sim_path.parent / new_name
+    destination_path.mkdir(exist_ok=True)
 
-    for sim_path in final_sim_path.glob("id*num*"):
+    for sim_path in tqdm(list(final_sim_path.glob("id*num*")), position=0, desc="Appending"):
         path_tree = [sim_path]
         sim_name = sim_path.name
-        appended_sim_path = appended_path / sim_name
+        appended_sim_path = destination_path / sim_name
         appended_sim_path.mkdir(exist_ok=True)
 
-        while (prev_sim_path := load_toml(path_tree[-1] / "params.toml")).get(
-            "prev_sim_dir"
+        while (
+            prev_sim_path := load_toml(path_tree[-1] / "params.toml").get("prev_data_dir")
         ) is not None:
             path_tree.append(Path(prev_sim_path).resolve())
+
+        z: List[np.ndarray] = []
+        z_num = 0
+        last_z = 0
+        for path in tqdm(list(reversed(path_tree)), position=1, leave=False):
+            curr_z_num = load_toml(path / "params.toml")["z_num"]
+            for i in range(curr_z_num):
+                shutil.copy(
+                    path / f"spectrum_{i}.npy",
+                    appended_sim_path / f"spectrum_{i + z_num}.npy",
+                )
+            z_arr = np.load(path / "z.npy")
+            z.append(z_arr + last_z)
+            last_z += z_arr[-1]
+            z_num += curr_z_num
+        z_arr = np.concatenate(z)
+        update_appended_params(sim_path / "params.toml", appended_sim_path / "params.toml", z_arr)
+        np.save(appended_sim_path / "z.npy", z_arr)
+
+    update_appended_params(
+        final_sim_path / "initial_config.toml", destination_path / "initial_config.toml", z_arr
+    )
+
+    merge(destination_path, delete=True)
+
+
+def update_appended_params(param_path, new_path, z):
+    z_num = len(z)
+    params = load_toml(param_path)
+    if "simulation" in params:
+        params["simulation"]["z_num"] = z_num
+        params["simulation"]["z_targets"] = z_num
+    else:
+        params["z_num"] = z_num
+        params["z_targets"] = z_num
+    save_toml(new_path, params)
 
 
 def merge_same_simulations(path: str, delete=True):
@@ -443,7 +447,7 @@ def merge_same_simulations(path: str, delete=True):
             base_folders.add(base_folder)
 
     sim_num, param_num = utils.count_variations(config)
-    pbar = utils.PBars(tqdm(total=sim_num * z_num, desc="merging data", ncols=100))
+    pbar = utils.PBars(tqdm(total=sim_num * z_num, desc="Merging data", ncols=100))
 
     spectra = []
     for z_id in range(z_num):
@@ -462,7 +466,7 @@ def merge_same_simulations(path: str, delete=True):
             if repeat_id == max_repeat_id:
                 out_path = os.path.join(
                     path,
-                    utils.format_variable_list(variable_and_ind[:-1]) + PARAM_SEPARATOR + "merged",
+                    utils.format_variable_list(variable_and_ind[1:-1]) + PARAM_SEPARATOR + "merged",
                 )
                 out_path = ensure_folder(out_path, prevent_overwrite=False)
                 spectra = np.array(spectra).reshape(repeat, len(spectra[0]))
