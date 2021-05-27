@@ -124,13 +124,13 @@ class RK4IP:
 
     def _setup_sim_parameters(self):
         # making sure to keep only the z that we want
+        self.z_stored = list(self.z_targets.copy()[0 : self.starting_num + 1])
         self.z_targets = list(self.z_targets.copy()[self.starting_num :])
         self.z_targets.sort()
         self.store_num = len(self.z_targets)
 
         # Initial setup of simulation parameters
         self.d_w = self.w_c[1] - self.w_c[0]  # resolution of the frequency grid
-        self.z_stored = list(self.z_targets.copy()[0 : self.starting_num + 1])
         self.z = self.z_targets.pop(0)
 
         # Setup initial values for every physical quantity that we want to track
@@ -497,7 +497,7 @@ class SequencialSimulations(Simulations, priority=0):
 
     def new_sim(self, variable_list: List[tuple], params: Dict[str, Any]):
         v_list_str = utils.format_variable_list(variable_list)
-        self.logger.info(f"launching simulation with {v_list_str}")
+        self.logger.info(f"{self.param_seq.name} : launching simulation with {v_list_str}")
         SequentialRK4IP(
             params, self.overall_pbar, save_data=True, job_identifier=v_list_str, task_id=self.id
         ).run()
@@ -678,7 +678,9 @@ class RaySimulations(Simulations, priority=2):
         self.actors[new_job.task_id()] = new_actor
         self.jobs.append(new_job)
 
-        self.logger.info(f"launching simulation with {v_list_str}, job : {self.jobs[-1].hex()}")
+        self.logger.info(
+            f"{self.param_seq.name} : launching simulation with {v_list_str}, job : {self.jobs[-1].hex()}"
+        )
 
     def finish(self):
         while len(self.jobs) > 0:

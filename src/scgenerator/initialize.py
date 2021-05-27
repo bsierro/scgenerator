@@ -139,14 +139,14 @@ class RecoveryParamSequence(ParamSequence):
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
         for variable_list, full_config in required_simulations(self.config):
 
-            sub_folder = os.path.join(
+            data_dir = os.path.join(
                 io.get_data_folder(self.id), utils.format_variable_list(variable_list)
             )
 
-            if not io.propagation_initiated(sub_folder):
+            if not io.propagation_initiated(data_dir):
                 yield variable_list, compute_init_parameters(full_config)
-            elif io.num_left_to_propagate(sub_folder, self.config["simulation"]["z_num"]) != 0:
-                yield variable_list, recover_params(full_config, variable_list, self.id)
+            elif io.num_left_to_propagate(data_dir, self.config["simulation"]["z_num"]) != 0:
+                yield variable_list, recover_params(full_config, data_dir)
             else:
                 continue
 
@@ -515,15 +515,20 @@ def _ensure_consistency(config):
     return config
 
 
-def recover_params(params: dict, variable_only: List[Tuple[str, Any]], task_id: int):
-    params = compute_init_parameters(params)
-    vary_str = utils.format_variable_list(variable_only)
-    path = os.path.join(io.get_data_folder(task_id), vary_str)
-    num, last_spectrum = io.load_last_spectrum(path)
+def recover_params(config: Dict[str, Any], data_folder: os.PathLike) -> Dict[str, Any]:
+    path = Path(data_folder)
+    params = compute_init_parameters(config)
+    try:
+        prev_params = io.load_toml(path / "params.toml")
+    except FileNotFoundError:
+        prev_params = {}
+    for k, v in prev_params.items():
+        params.setdefault(k, v)
+    num, last_spectrum = io.load_last_spectrum(str(path))
     params["spec_0"] = last_spectrum
     params["field_0"] = np.fft.ifft(last_spectrum)
     params["recovery_last_stored"] = num
-    params["cons_qty"] = np.load(os.path.join(path, "cons_qty.npy"))
+    params["cons_qty"] = np.load(os.path.join(data_folder, "cons_qty.npy"))
     return params
 
 

@@ -43,7 +43,7 @@ def create_parser():
         default=None,
     )
     run_parser.add_argument(
-        "--output-name", "--o", help="path to the final output folder", default=None
+        "--output-name", "-o", help="path to the final output folder", default=None
     )
     run_parser.set_defaults(func=run_sim)
 
@@ -65,7 +65,7 @@ def create_parser():
         "path", help="path to the final simulation folder containing 'initial_config.toml'"
     )
     merge_parser.add_argument(
-        "--output-name", "--o", help="path to the final output folder", default=None
+        "--output-name", "-o", help="path to the final output folder", default=None
     )
     merge_parser.set_defaults(func=merge)
 

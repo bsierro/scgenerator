@@ -361,6 +361,7 @@ def find_last_spectrum_file(path: str):
 
 
 def load_last_spectrum(path: str) -> Tuple[int, np.ndarray]:
+    """return the last spectrum stored in path as well as its id"""
     num = find_last_spectrum_file(path)
     return num, np.load(os.path.join(path, f"spectrum_{num}.npy"))
 
@@ -421,10 +422,10 @@ def update_appended_params(param_path, new_path, z):
     params = load_toml(param_path)
     if "simulation" in params:
         params["simulation"]["z_num"] = z_num
-        params["simulation"]["z_targets"] = z_num
+        params["simulation"]["z_targets"] = z
     else:
         params["z_num"] = z_num
-        params["z_targets"] = z_num
+        params["z_targets"] = z
     save_toml(new_path, params)
 
 
