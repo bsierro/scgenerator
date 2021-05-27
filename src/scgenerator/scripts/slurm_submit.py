@@ -6,6 +6,7 @@ import subprocess
 from datetime import datetime, timedelta
 
 from ..initialize import validate_config_sequence
+from ..io import Paths
 from ..utils import count_variations
 
 
