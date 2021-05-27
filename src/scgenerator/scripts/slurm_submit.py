@@ -34,6 +34,9 @@ def create_parser():
         default=f"source {os.path.expanduser('~/anaconda3/etc/profile.d/conda.sh')} && conda activate sc",
         help="commands to run to setup the environement (default : activate the sc environment with conda)",
     )
+    parser.add_argument(
+        "--command", default="run", choices=["run", "resume"], help="command to run"
+    )
     return parser
 
 
@@ -47,6 +50,9 @@ def copy_starting_files():
 
 
 def main():
+
+    command_map = dict(run="Propagate", resume="Resuming")
+
     parser = create_parser()
     template = Paths.gets("submit_job_template")
     args = parser.parse_args()
@@ -69,13 +75,13 @@ def main():
     )
     job_name = f"supercontinuum {final_config['name']}"
     submit_sh = template.format(
-        job_name=job_name, configs_list=" ".join(args.configs), **vars(args)
+        job_name=job_name, configs_list=" ".join(f'"{c}"' for c in args.configs), **vars(args)
     )
     with open(file_name, "w") as file:
         file.write(submit_sh)
     subprocess.run(["sbatch", "--test-only", file_name])
     submit = input(
-        f"Propagate {sim_num} pulses from configs {args.configs} with {args.cpus_per_node} cpus"
+        f"{command_map[args.command]} {sim_num} pulses from configs {args.configs} with {args.cpus_per_node} cpus"
         + f" per node on {args.nodes} nodes for {format_time(args.time)} ? (y/[n])\n"
     )
     if submit.lower() in ["y", "yes"]:

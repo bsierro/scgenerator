@@ -710,8 +710,13 @@ class RaySimulations(Simulations, priority=2):
         self.p_bars.print()
 
 
-def run_simulation_sequence(*config_files: os.PathLike, method=None, final_name: str = None):
-    prev = None
+def run_simulation_sequence(
+    *config_files: os.PathLike,
+    method=None,
+    final_name: str = None,
+    prev_data_folder: os.PathLike = None,
+):
+    prev = prev_data_folder
     for config_file in config_files:
         sim = new_simulation(config_file, prev, method)
         sim.run()
@@ -738,10 +743,9 @@ def new_simulation(
     return _new_simulations(param_seq, task_id, method)
 
 
-def resume_simulations(
-    data_folder: str, task_id: int = 0, method: Type[Simulations] = None
-) -> Simulations:
+def resume_simulations(data_folder: str, method: Type[Simulations] = None) -> Simulations:
 
+    task_id = np.random.randint(1e9, 1e12)
     config = io.load_toml(os.path.join(data_folder, "initial_config.toml"))
     io.set_data_folder(task_id, data_folder)
     param_seq = initialize.RecoveryParamSequence(config, task_id)

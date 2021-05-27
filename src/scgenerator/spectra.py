@@ -32,7 +32,7 @@ class Spectrum(np.ndarray):
 class Pulse(Sequence):
     def __init__(self, path: str, ensure_2d=True):
         self.logger = get_logger(__name__)
-        self.path = path
+        self.path = str(path)
         self.__ensure_2d = ensure_2d
 
         if not os.path.isdir(self.path):

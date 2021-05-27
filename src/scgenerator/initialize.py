@@ -175,7 +175,7 @@ def validate_config_sequence(*configs: os.PathLike) -> Dict[str, Any]:
     Parameters
     ----------
     configs : os.PathLike
-        sequence of paths to toml config files
+        sequence of paths to toml config files. The first element may be a folder containing data intead
 
     Returns
     -------
@@ -184,6 +184,8 @@ def validate_config_sequence(*configs: os.PathLike) -> Dict[str, Any]:
     """
     previous = None
     for config in configs:
+        if (p := Path(config)).is_dir():
+            config = p / "initial_config.toml"
         dico = io.load_toml(config)
         previous = override_config(dico, previous)
         validate(previous)

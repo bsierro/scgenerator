@@ -52,6 +52,12 @@ def create_parser():
         "data_dir",
         help="path to the directory where the initial_config.toml and the data is stored",
     )
+    resume_parser.add_argument(
+        "configs",
+        nargs="*",
+        default=[],
+        help="list of subsequent config files (excluding the resumed one)",
+    )
     resume_parser.set_defaults(func=resume_sim)
 
     merge_parser = subparsers.add_parser("merge", help="merge simulation results")
@@ -99,9 +105,11 @@ def prep_ray(args):
 
 
 def resume_sim(args):
+
     method = prep_ray(args)
-    sim = resume_simulations(args.data_dir, args.id, method=method)
+    sim = resume_simulations(args.data_dir, method=method)
     sim.run()
+    run_simulation_sequence(*args.configs, method=method, prev_data_folder=sim.data_folder)
 
 
 if __name__ == "__main__":
