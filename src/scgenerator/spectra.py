@@ -1,7 +1,7 @@
 import os
 from collections.abc import Mapping, Sequence
 from glob import glob
-from typing import Any, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -51,7 +51,7 @@ class Pulse(Sequence):
                 self.z = self.params["z_targets"]
             else:
                 raise
-
+        self.cache: Dict[int, Spectrum] = {}
         self.nmax = len(glob(os.path.join(self.path, "spectra_*.npy")))
         if self.nmax <= 0:
             raise FileNotFoundError(f"No appropriate file in specified folder {self.path}")
@@ -183,11 +183,18 @@ class Pulse(Sequence):
 
         return spectra
 
+    def all_fields(self, ind=None):
+        return np.fft.ifft(self.all_spectra(ind=ind), axis=-1)
+
     def _load1(self, i: int):
+        if i in self.cache:
+            return self.cache[i]
         spec = io.load_single_spectrum(self.path, i)
         if self.__ensure_2d:
             spec = np.atleast_2d(spec)
-        return Spectrum(spec, self.wl, self.params["frep"])
+        spec = Spectrum(spec, self.wl, self.params["frep"])
+        self.cache[i] = spec
+        return spec
 
 
 class SpectraCollection(Mapping, Sequence):

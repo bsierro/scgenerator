@@ -10,6 +10,7 @@ import toml
 from send2trash import TrashPermissionError, send2trash
 from tqdm import tqdm
 from pathlib import Path
+import itertools
 
 from . import utils
 from .const import ENVIRON_KEY_BASE, PARAM_SEPARATOR, PREFIX_KEY_BASE, TMP_FOLDER_KEY_BASE
@@ -313,7 +314,7 @@ def check_data_integrity(sub_folders: List[str], init_z_num: int):
 
 def propagation_initiated(sub_folder) -> bool:
     if os.path.isdir(sub_folder):
-        return find_last_spectrum_file(sub_folder) > 0
+        return find_last_spectrum_num(sub_folder) > 0
     return False
 
 
@@ -339,7 +340,7 @@ def num_left_to_propagate(sub_folder: str, init_z_num: int) -> int:
     """
     params = load_toml(os.path.join(sub_folder, "params.toml"))
     z_num = params["z_num"]
-    num_spectra = find_last_spectrum_file(sub_folder) + 1  # because of zero-indexing
+    num_spectra = find_last_spectrum_num(sub_folder) + 1  # because of zero-indexing
 
     if z_num != init_z_num:
         raise IncompleteDataFolderError(
@@ -350,20 +351,21 @@ def num_left_to_propagate(sub_folder: str, init_z_num: int) -> int:
     return z_num - num_spectra
 
 
-def find_last_spectrum_file(path: str):
-    num = 0
-    while True:
-        if os.path.isfile(os.path.join(path, f"spectrum_{num}.npy")):
-            num += 1
-            pass
-        else:
+def find_last_spectrum_num(data_dir: Path):
+    for num in itertools.count():
+        if not (data_dir / f"spectrum_{num}.npy").is_file():
             return num - 1
 
 
-def load_last_spectrum(path: str) -> Tuple[int, np.ndarray]:
+def load_last_spectrum(data_dir: Path) -> Tuple[int, np.ndarray]:
     """return the last spectrum stored in path as well as its id"""
-    num = find_last_spectrum_file(path)
-    return num, np.load(os.path.join(path, f"spectrum_{num}.npy"))
+    num = find_last_spectrum_num(data_dir)
+    return num, np.load(data_dir / f"spectrum_{num}.npy")
+
+
+def last_spectrum_path(path: Path) -> Path:
+    num = find_last_spectrum_num(path)
+    return path / f"spectrum_{num}.npy"
 
 
 def merge(paths: Union[str, List[str]], delete=False):

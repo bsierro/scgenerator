@@ -607,7 +607,7 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
         params = _comform_custom_field(params)
     # Initial field
     elif "field_0" in params:
-        params = _validate_custom_init_field(params)
+        params = _evalutate_custom_field_equation(params)
         params = _comform_custom_field(params)
     else:
         params = _update_pulse_parameters(params)
@@ -636,7 +636,6 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def compute_subsequent_paramters(sim_folder: str, config: Dict[str, Any]) -> Dict[str, Any]:
-
     params = compute_init_parameters(config)
     spec = io.load_last_spectrum(sim_folder)[1]
     params["field_0"] = np.fft.ifft(spec) * params["input_transmission"]
@@ -656,6 +655,7 @@ def _comform_custom_field(params):
     params["width"], params["peak_power"], params["energy"] = pulse.measure_field(
         params["t"], params["field_0"]
     )
+    wl = params["wavelength"]
     return params
 
 
@@ -678,10 +678,22 @@ def _update_pulse_parameters(params):
     return params
 
 
-def _validate_custom_init_field(params):
+def _evalutate_custom_field_equation(params):
     field_info = params["field_0"]
     if isinstance(field_info, str):
-        field_0 = evaluate_field_equation(field_info, **params)
+        field_0 = eval(
+            field_info,
+            dict(
+                sin=np.sin,
+                cos=np.cos,
+                tan=np.tan,
+                exp=np.exp,
+                pi=np.pi,
+                sqrt=np.sqrt,
+                **params,
+            ),
+        )
+
         params["field_0"] = field_0
     elif len(field_info) != params["t_num"]:
         raise ValueError(
@@ -741,15 +753,20 @@ def _generate_sim_grid(params):
     params["dt"] = t[1] - t[0]
     params["t_num"] = len(t)
 
-    w_c = wspace(t)
+    params = _update_frequency_domain(params)
+
+    params["z_targets"] = np.linspace(0, params["length"], params["z_num"])
+
+    return params
+
+
+def _update_frequency_domain(params):
+    w_c = wspace(params["t"])
     w0 = units.m(params["wavelength"])
     params["w0"] = w0
     params["w_c"] = w_c
     params["w"] = w_c + w0
     params["w_power_fact"] = np.array([power_fact(w_c, k) for k in range(2, 11)])
-
-    params["z_targets"] = np.linspace(0, params["length"], params["z_num"])
-
     return params
 
 
@@ -784,18 +801,3 @@ def sanitize_z_targets(z_targets):
         z_targets = [0] + z_targets
 
     return z_targets
-
-
-def evaluate_field_equation(eq, **kwargs):
-    return eval(
-        eq,
-        dict(
-            sin=np.sin,
-            cos=np.cos,
-            tan=np.tan,
-            exp=np.exp,
-            pi=np.pi,
-            sqrt=np.sqrt,
-            **kwargs,
-        ),
-    )
