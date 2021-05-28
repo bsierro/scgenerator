@@ -559,6 +559,29 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
             params[key] = value
 
     params = _generate_sim_grid(params)
+
+    # Initial field may influence the grid
+    custom_field = False
+    if "field_file" in params:
+        custom_field = True
+        field_data = np.load(params["field_file"])
+        field_interp = interp1d(
+            field_data["time"], field_data["field"], bounds_error=False, fill_value=(0, 0)
+        )
+        params["field_0"] = field_interp(params["t"])
+        params = _comform_custom_field(params)
+    elif "field_0" in params:
+        custom_field = True
+        params = _evalutate_custom_field_equation(params)
+        params = _comform_custom_field(params)
+
+    # central wavelength may be off with custom fields
+    if custom_field:
+        delta_w = params["w_c"][np.argmax(abs2(np.fft.fft(params["field_0"])))]
+        logger.debug(f"had to adjust w by {delta_w}")
+        params["wavelength"] = units.m.inv(units.m(params["wavelength"]) - delta_w)
+        _update_frequency_domain(params)
+
     if "step_size" in params:
         params["error_ok"] = params["step_size"]
         params["adapt_step_size"] = False
@@ -600,19 +623,7 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
     if "mean_power" in params:
         params["energy"] = params["mean_power"] / params["repetition_rate"]
 
-    custom_field = True
-    if "field_file" in params:
-        field_data = np.load(params["field_file"])
-        field_interp = interp1d(
-            field_data["time"], field_data["field"], bounds_error=False, fill_value=(0, 0)
-        )
-        params["field_0"] = field_interp(params["t"])
-        params = _comform_custom_field(params)
-    # Initial field
-    elif "field_0" in params:
-        params = _evalutate_custom_field_equation(params)
-        params = _comform_custom_field(params)
-    else:
+    if not custom_field:
         custom_field = False
         params = _update_pulse_parameters(params)
         logger.info(f"computed initial N = {params['soliton_num']:.3g}")
@@ -636,12 +647,6 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
 
     params["spec_0"] = np.fft.fft(params["field_0"])
 
-    # central wavelength may be off with custom fields
-    if custom_field:
-        delta_w = params["w_c"][np.argmax(abs2(params["spec_0"]))]
-        logger.debug(f"had to adjust w by {delta_w}")
-        params["wavelength"] = units.m.inv(units.m(params["wavelength"]) - delta_w)
-        _update_frequency_domain(params)
     return params
 
 
@@ -762,11 +767,8 @@ def _generate_sim_grid(params):
     params["time_window"] = length(t)
     params["dt"] = t[1] - t[0]
     params["t_num"] = len(t)
-
-    params = _update_frequency_domain(params)
-
     params["z_targets"] = np.linspace(0, params["length"], params["z_num"])
-
+    params = _update_frequency_domain(params)
     return params
 
 
