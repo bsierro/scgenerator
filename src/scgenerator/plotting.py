@@ -4,6 +4,7 @@ import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import ListedColormap
+from scgenerator.utils import variable_iterator
 from scipy.interpolate import UnivariateSpline
 
 from . import io, math
@@ -703,7 +704,7 @@ def plot_results_1D(
     if is_new_plot:
         fig.savefig(os.path.join(folder_name, file_name), bbox_inches="tight", dpi=200)
         print(f"plot saved in {os.path.join(folder_name, file_name)}")
-    return fig, ax
+    return fig, ax, x_axis, values
 
 
 def _prep_plot(values, plt_range, params):
