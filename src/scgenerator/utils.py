@@ -10,10 +10,11 @@ import datetime as dt
 import itertools
 import logging
 import multiprocessing
-import re
 import socket
-from typing import Any, Callable, Dict, Iterator, List, Mapping, Tuple, Union
+import os
+from typing import Any, Dict, Iterator, List, Mapping, Tuple, Union
 from asyncio import Event
+from io import StringIO
 
 import numpy as np
 import ray
@@ -21,7 +22,7 @@ from copy import deepcopy
 
 from tqdm import tqdm
 
-from .const import PARAM_SEPARATOR, PREFIX_KEY_BASE, valid_variable, pbar_format
+from .const import PARAM_SEPARATOR, PREFIX_KEY_BASE, valid_variable, pbar_format, HUSH_PROGRESS
 from .logger import get_logger
 from .math import *
 
@@ -175,8 +176,11 @@ def progress_worker(num_steps: int, progress_queue: multiprocessing.Queue):
             Literal[0] : stop the worker and close the progress bars
             Tuple[int, float] : worker id and relative progress between 0 and 1
     """
+    kwargs = {}
+    if os.getenv(HUSH_PROGRESS) is not None:
+        kwargs = dict(file=StringIO())
     pbars: Dict[int, tqdm] = {}
-    with tqdm(total=num_steps, desc="Simulating", unit="step", position=0) as tq:
+    with tqdm(total=num_steps, desc="Simulating", unit="step", position=0, **kwargs) as tq:
         while True:
             raw = progress_queue.get()
             if raw == 0:
@@ -185,7 +189,7 @@ def progress_worker(num_steps: int, progress_queue: multiprocessing.Queue):
                 return
             i, rel_pos = raw
             if i not in pbars:
-                pbars[i] = tqdm(**pbar_format(i))
+                pbars[i] = tqdm(**pbar_format(i), **kwargs)
             pbars[i].update(rel_pos - pbars[i].n)
             tq.update()
 

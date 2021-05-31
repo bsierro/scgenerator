@@ -50,5 +50,6 @@ done
 ##############################################################################################
 
 #### call your code below
+export SCGENERATOR_HUSH_PROGRESS=""
 scgenerator {command} {configs_list}
 exit

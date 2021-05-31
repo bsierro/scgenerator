@@ -2,10 +2,9 @@ import multiprocessing
 import os
 import sys
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Tuple, Type
 
 import numpy as np
-from numba import jit
 from tqdm import tqdm
 
 from .. import initialize, io, utils, const
