@@ -605,6 +605,8 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
     params = _generate_sim_grid(params)
 
     # Initial field may influence the grid
+    if "mean_power" in params:
+        params["energy"] = params["mean_power"] / params["repetition_rate"]
     custom_field = setup_custom_field(params)
 
     if "step_size" in params:
@@ -644,10 +646,7 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
     if "raman" in params["behaviors"]:
         params["hr_w"] = fiber.delayed_raman_w(params["t"], params["dt"], params["raman_type"])
 
-    # PULSE
-    if "mean_power" in params:
-        params["energy"] = params["mean_power"] / params["repetition_rate"]
-
+    # GENERIC PULSE
     if not custom_field:
         custom_field = False
         params = _update_pulse_parameters(params)

@@ -1,4 +1,4 @@
-from .initialize import compute_init_parameters
+from .initialize import ParamSequence, RecoveryParamSequence, ContinuationParamSequence
 from .io import Paths, load_toml
 from .math import abs2, argclosest, span
 from .physics import fiber, materials, pulse, simulate, units
