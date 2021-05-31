@@ -46,12 +46,12 @@ class PBars:
 
         if os.getenv(HUSH_PROGRESS) is not None:
             head_kwargs["file"] = worker_kwargs["file"] = StringIO()
-        p = cls([tqdm(total=num_tot, ncols=100, **head_kwargs)])
+        p = cls([tqdm(total=num_tot, ncols=100, ascii=False, **head_kwargs)])
         for i in range(1, num_sub_bars + 1):
             kwargs = {k: v for k, v in worker_kwargs.items()}
             if "desc" in kwargs:
                 kwargs["desc"] = kwargs["desc"].format(worker_id=i)
-            p.append(tqdm(position=i, ncols=100, **kwargs))
+            p.append(tqdm(position=i, ncols=100, ascii=False, **kwargs))
         return p
 
     def __init__(self, pbars: Union[tqdm, List[tqdm]]) -> None:
