@@ -13,7 +13,6 @@ import multiprocessing
 import socket
 import os
 from typing import Any, Dict, Iterator, List, Mapping, Tuple, Union
-from asyncio import Event
 from io import StringIO
 
 import numpy as np
@@ -22,7 +21,7 @@ from copy import deepcopy
 
 from tqdm import tqdm
 
-from .const import PARAM_SEPARATOR, PREFIX_KEY_BASE, valid_variable, pbar_format, HUSH_PROGRESS
+from .const import PARAM_SEPARATOR, PREFIX_KEY_BASE, valid_variable, HUSH_PROGRESS
 from .logger import get_logger
 from .math import *
 
@@ -32,6 +31,29 @@ from .math import *
 
 
 class PBars:
+    @classmethod
+    def auto(
+        cls, num_tot: int, num_sub_bars: int = 0, head_kwargs=None, worker_kwargs=None
+    ) -> "PBars":
+        if head_kwargs is None:
+            head_kwargs = dict(unit="step", desc="Simulating", smoothing=0)
+        if worker_kwargs is None:
+            worker_kwargs = dict(
+                total=1,
+                desc="Worker {worker_id}",
+                bar_format="{l_bar}{bar}" "|[{elapsed}<{remaining}, " "{rate_fmt}{postfix}]",
+            )
+
+        if os.getenv(HUSH_PROGRESS) is not None:
+            head_kwargs["file"] = worker_kwargs["file"] = StringIO()
+        p = cls([tqdm(total=num_tot, ncols=100, **head_kwargs)])
+        for i in range(1, num_sub_bars + 1):
+            kwargs = {k: v for k, v in worker_kwargs.items()}
+            if "desc" in kwargs:
+                kwargs["desc"] = kwargs["desc"].format(worker_id=i)
+            p.append(tqdm(position=i, ncols=100, **kwargs))
+        return p
+
     def __init__(self, pbars: Union[tqdm, List[tqdm]]) -> None:
         if isinstance(pbars, tqdm):
             self.pbars = [pbars]
@@ -54,13 +76,21 @@ class PBars:
     def __getitem__(self, key):
         return self.pbars[key]
 
-    def update(self):
-        for pbar in self:
-            pbar.update()
+    def update(self, i=None, value=1):
+        if i is None:
+            for pbar in self.pbars[1:]:
+                pbar.update(value)
+        else:
+            self.pbars[i].update(value)
+        self.pbars[0].update()
         self.print()
 
     def append(self, pbar: tqdm):
         self.pbars.append(pbar)
+
+    def reset(self, i):
+        self.pbars[i].update(-self.pbars[i].n)
+        self.print()
 
     def close(self):
         for pbar in self.pbars:
@@ -127,13 +157,9 @@ class ProgressTracker:
 
 
 class ProgressBarActor:
-    counter: int
-    delta: int
-    event: Event
-
-    def __init__(self, num_workers: int) -> None:
+    def __init__(self, num_workers: int, num_steps: int) -> None:
         self.counters = [0 for _ in range(num_workers + 1)]
-        self.event = Event()
+        self.p_bars = PBars.auto(num_steps, num_workers)
 
     def update(self, worker_id: int, rel_pos: float = None) -> None:
         """update a counter
@@ -150,21 +176,17 @@ class ProgressBarActor:
             self.counters[worker_id] += 1
         else:
             self.counters[worker_id] = rel_pos
-        self.event.set()
 
-    async def wait_for_update(self) -> List[float]:
-        """Blocking call.
+    def update_pbars(self):
+        for counter, pbar in zip(self.counters, self.p_bars):
+            pbar.update(counter - pbar.n)
+        self.p_bars.print()
 
-        Waits until somebody calls `update`, then returns a tuple of
-        the number of updates since the last call to
-        `wait_for_update`, and the total number of completed items.
-        """
-        await self.event.wait()
-        self.event.clear()
-        return self.counters
+    def close(self):
+        self.p_bars.close()
 
 
-def progress_worker(num_steps: int, progress_queue: multiprocessing.Queue):
+def progress_worker(num_workers: int, num_steps: int, progress_queue: multiprocessing.Queue):
     """keeps track of progress on a separate thread
 
     Parameters
@@ -176,22 +198,15 @@ def progress_worker(num_steps: int, progress_queue: multiprocessing.Queue):
             Literal[0] : stop the worker and close the progress bars
             Tuple[int, float] : worker id and relative progress between 0 and 1
     """
-    kwargs = {}
-    if os.getenv(HUSH_PROGRESS) is not None:
-        kwargs = dict(file=StringIO())
-    pbars: Dict[int, tqdm] = {}
-    with tqdm(total=num_steps, desc="Simulating", unit="step", position=0, **kwargs) as tq:
-        while True:
-            raw = progress_queue.get()
-            if raw == 0:
-                for pbar in pbars.values():
-                    pbar.close()
-                return
-            i, rel_pos = raw
-            if i not in pbars:
-                pbars[i] = tqdm(**pbar_format(i), **kwargs)
-            pbars[i].update(rel_pos - pbars[i].n)
-            tq.update()
+    pbars = PBars.auto(num_steps, num_workers)
+    while True:
+        raw = progress_queue.get()
+        if raw == 0:
+            pbars.close()
+            return
+        i, rel_pos = raw
+        pbars[i].update(rel_pos - pbars[i].n)
+        pbars[0].update()
 
 
 def count_variations(config: dict) -> Tuple[int, int]:

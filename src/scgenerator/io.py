@@ -370,7 +370,15 @@ def append_and_merge(final_sim_path: os.PathLike, new_name=None):
     destination_path = final_sim_path.parent / new_name
     destination_path.mkdir(exist_ok=True)
 
-    for sim_path in tqdm(list(final_sim_path.glob("id*num*")), position=0, desc="Appending"):
+    sim_paths = list(final_sim_path.glob("id*num*"))
+    pbars = utils.PBars.auto(
+        len(sim_paths),
+        0,
+        head_kwargs=dict(desc="Appending"),
+        worker_kwargs=dict(desc=""),
+    )
+
+    for sim_path in sim_paths:
         path_tree = [sim_path]
         sim_name = sim_path.name
         appended_sim_path = destination_path / sim_name
@@ -384,7 +392,9 @@ def append_and_merge(final_sim_path: os.PathLike, new_name=None):
         z: List[np.ndarray] = []
         z_num = 0
         last_z = 0
-        for path in tqdm(list(reversed(path_tree)), position=1, leave=False):
+        paths_r = list(reversed(path_tree))
+
+        for path in paths_r:
             curr_z_num = load_toml(path / "params.toml")["z_num"]
             for i in range(curr_z_num):
                 shutil.copy(
@@ -398,6 +408,7 @@ def append_and_merge(final_sim_path: os.PathLike, new_name=None):
         z_arr = np.concatenate(z)
         update_appended_params(sim_path / "params.toml", appended_sim_path / "params.toml", z_arr)
         np.save(appended_sim_path / "z.npy", z_arr)
+        pbars.update(0)
 
     update_appended_params(
         final_sim_path / "initial_config.toml", destination_path / "initial_config.toml", z_arr
@@ -437,7 +448,7 @@ def merge_same_simulations(path: Path, delete=True):
     check_data_integrity(sub_folders, z_num)
 
     sim_num, param_num = utils.count_variations(config)
-    pbar = utils.PBars(tqdm(total=sim_num * z_num, desc="Merging data", ncols=100))
+    pbar = utils.PBars.auto(sim_num * z_num, head_kwargs=dict(desc="Merging data"))
 
     spectra = []
     for z_id in range(z_num):

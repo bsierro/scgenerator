@@ -545,7 +545,7 @@ class MultiProcSimulations(Simulations, priority=1):
         ]
         self.p_worker = multiprocessing.Process(
             target=utils.progress_worker,
-            args=(self.param_seq.num_steps, self.progress_queue),
+            args=(self.sim_jobs_per_node, self.param_seq.num_steps, self.progress_queue),
         )
         self.p_worker.start()
 
@@ -629,28 +629,9 @@ class RaySimulations(Simulations, priority=2):
         self.jobs = []
         self.actors = {}
         self.rolling_id = 0
-        self.p_actor = ray.remote(utils.ProgressBarActor).remote(self.sim_jobs_total)
-        self.p_bars = utils.PBars(
-            [
-                tqdm(
-                    total=self.param_seq.num_steps,
-                    unit="step",
-                    desc="Simulating",
-                    smoothing=0,
-                    ncols=100,
-                )
-            ]
+        self.p_actor = ray.remote(utils.ProgressBarActor).remote(
+            self.sim_jobs_total, self.param_seq.num_steps
         )
-        for i in range(1, self.sim_jobs_total + 1):
-            self.p_bars.append(
-                tqdm(
-                    total=1,
-                    desc=f"Worker {i}",
-                    position=i,
-                    ncols=100,
-                    bar_format="{l_bar}{bar}" "|[{elapsed}<{remaining}, " "{rate_fmt}{postfix}]",
-                )
-            )
 
     def new_sim(self, variable_list: List[tuple], params: dict):
         while len(self.jobs) >= self.sim_jobs_total:
@@ -679,11 +660,11 @@ class RaySimulations(Simulations, priority=2):
     def finish(self):
         while len(self.jobs) > 0:
             self._collect_1_job()
-        self.p_bars.close()
+        ray.get(self.p_actor.close.remote())
 
     def _collect_1_job(self):
         ready, self.jobs = ray.wait(self.jobs, timeout=self.update_cluster_frequency)
-        self.update_pbars()
+        ray.get(self.p_actor.update_pbars.remote())
         if len(ready) == 0:
             return
         ray.get(ready)
@@ -698,12 +679,6 @@ class RaySimulations(Simulations, priority=2):
         tot_cpus = sum([node.get("Resources", {}).get("CPU", 0) for node in ray.nodes()])
         tot_cpus = min(tot_cpus, self.max_concurrent_jobs)
         return int(min(self.param_seq.num_sim, tot_cpus))
-
-    def update_pbars(self):
-        counters = ray.get(self.p_actor.wait_for_update.remote())
-        for counter, pbar in zip(counters, self.p_bars):
-            pbar.update(counter - pbar.n)
-        self.p_bars.print()
 
 
 def run_simulation_sequence(
