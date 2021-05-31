@@ -629,8 +629,10 @@ class RaySimulations(Simulations, priority=2):
         self.jobs = []
         self.actors = {}
         self.rolling_id = 0
-        self.p_actor = ray.remote(utils.ProgressBarActor).remote(
-            self.sim_jobs_total, self.param_seq.num_steps
+        self.p_actor = (
+            ray.remote(utils.ProgressBarActor)
+            .options(override_environment_variables=io.get_all_environ())
+            .remote(self.sim_jobs_total, self.param_seq.num_steps)
         )
 
     def new_sim(self, variable_list: List[tuple], params: dict):

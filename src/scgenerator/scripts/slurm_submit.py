@@ -31,7 +31,7 @@ def create_parser():
     parser.add_argument(
         "--environment-setup",
         required=False,
-        default=f"source {os.path.expanduser('~/anaconda3/etc/profile.d/conda.sh')} && conda activate sc",
+        default=f"source {os.path.expanduser('~/anaconda3/etc/profile.d/conda.sh')} && conda activate sc && export SCGENERATOR_HUSH_PROGRESS=\"\"",
         help="commands to run to setup the environement (default : activate the sc environment with conda)",
     )
     parser.add_argument(
