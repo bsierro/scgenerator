@@ -405,6 +405,26 @@ class Simulations:
     def is_available(cls) -> bool:
         return False
 
+    @classmethod
+    def new(
+        cls, param_seq: initialize.ParamSequence, task_id, method: Type["Simulations"] = None
+    ) -> "Simulations":
+        """Prefered method to create a new simulations object
+
+        Returns
+        -------
+        Simulations
+            obj that uses the best available parallelization method
+        """
+        if method is not None:
+            if isinstance(method, str):
+                method = Simulations.simulation_methods_dict[method]
+            return method(param_seq, task_id)
+        elif param_seq.num_sim > 1 and param_seq["simulation", "parallel"] and using_ray:
+            return Simulations.get_best_method()(param_seq, task_id)
+        else:
+            return SequencialSimulations(param_seq, task_id)
+
     def __init__(self, param_seq: initialize.ParamSequence, task_id=0):
         """
         Parameters
@@ -432,7 +452,7 @@ class Simulations:
     def finished_and_complete(self):
         try:
             io.check_data_integrity(
-                io.get_data_subfolders(self.data_folder), self.param_seq["simulation", "z_num"]
+                io.get_data_subfolders(self.id), self.param_seq["simulation", "z_num"]
             )
             return True
         except IncompleteDataFolderError:
@@ -450,10 +470,8 @@ class Simulations:
 
     def _run_available(self):
         for variable, params in self.param_seq:
-            io.save_parameters(
-                params,
-                io.generate_file_path("params.toml", self.id, utils.format_variable_list(variable)),
-            )
+            io.save_parameters(params, self.id, utils.format_variable_list(variable))
+
             self.new_sim(variable, params)
         self.finish()
 
@@ -576,29 +594,6 @@ class MultiProcSimulations(Simulations, priority=1):
             ).run()
             queue.task_done()
 
-    # @staticmethod
-    # def progress_worker(num_steps: int, progress_queue: multiprocessing.Queue):
-    #     pbars: Dict[int, tqdm] = {}
-    #     with tqdm(total=num_steps, desc="Simulating", unit="step", position=0) as tq:
-    #         while True:
-    #             raw = progress_queue.get()
-    #             if raw == 0:
-    #                 for pbar in pbars.values():
-    #                     pbar.close()
-    #                 return
-    #             i, rel_pos = raw
-    #             if i not in pbars:
-    #                 pbars[i] = tqdm(
-    #                     total=1,
-    #                     desc=f"Worker {i}",
-    #                     position=i,
-    #                     bar_format="{l_bar}{bar}"
-    #                     "|[{elapsed}<{remaining}, "
-    #                     "{rate_fmt}{postfix}]",
-    #                 )
-    #             pbars[i].update(rel_pos - pbars[i].n)
-    #             tq.update()
-
 
 class RaySimulations(Simulations, priority=2):
     """runs simulation with the help of the ray module. ray must be initialized before creating an instance of RaySimulations"""
@@ -716,9 +711,9 @@ def run_simulation_sequence(
     *config_files: os.PathLike,
     method=None,
     final_name: str = None,
-    prev_data_folder: os.PathLike = None,
+    prev_sim_dir: os.PathLike = None,
 ):
-    prev = prev_data_folder
+    prev = prev_sim_dir
     for config_file in config_files:
         sim = new_simulation(config_file, prev, method)
         sim.run()
@@ -728,46 +723,36 @@ def run_simulation_sequence(
 
 def new_simulation(
     config_file: os.PathLike,
-    prev_data_folder=None,
+    prev_sim_dir=None,
     method: Type[Simulations] = None,
 ) -> Simulations:
 
     config = io.load_toml(config_file)
+
+    if prev_sim_dir is not None:
+        config.setdefault("simulation", {})
+        config["simulation"]["prev_sim_dir"] = str(prev_sim_dir)
+
     task_id = np.random.randint(1e9, 1e12)
 
-    if prev_data_folder is None:
+    if prev_sim_dir is None:
         param_seq = initialize.ParamSequence(config)
     else:
-        param_seq = initialize.ContinuationParamSequence(prev_data_folder, config)
+        param_seq = initialize.ContinuationParamSequence(prev_sim_dir, config)
 
     print(f"{param_seq.name=}")
 
-    return _new_simulations(param_seq, task_id, method)
+    return Simulations.new(param_seq, task_id, method)
 
 
-def resume_simulations(data_folder: str, method: Type[Simulations] = None) -> Simulations:
+def resume_simulations(sim_dir: str, method: Type[Simulations] = None) -> Simulations:
 
     task_id = np.random.randint(1e9, 1e12)
-    config = io.load_toml(os.path.join(data_folder, "initial_config.toml"))
-    io.set_data_folder(task_id, data_folder)
+    config = io.load_toml(os.path.join(sim_dir, "initial_config.toml"))
+    io.set_data_folder(task_id, sim_dir)
     param_seq = initialize.RecoveryParamSequence(config, task_id)
 
-    return _new_simulations(param_seq, task_id, method)
-
-
-def _new_simulations(
-    param_seq: initialize.ParamSequence,
-    task_id,
-    method: Type[Simulations],
-) -> Simulations:
-    if method is not None:
-        if isinstance(method, str):
-            method = Simulations.simulation_methods_dict[method]
-        return method(param_seq, task_id)
-    elif param_seq.num_sim > 1 and param_seq["simulation", "parallel"] and using_ray:
-        return Simulations.get_best_method()(param_seq, task_id)
-    else:
-        return SequencialSimulations(param_seq, task_id)
+    return Simulations.new(param_seq, task_id, method)
 
 
 if __name__ == "__main__":

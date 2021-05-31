@@ -32,25 +32,16 @@ def create_parser():
         action="store_true",
         help="force not to use ray",
     )
+    parser.add_argument("--output-name", "-o", help="path to the final output folder", default=None)
 
     run_parser = subparsers.add_parser("run", help="run a simulation from a config file")
-
     run_parser.add_argument("configs", help="path(s) to the toml configuration file(s)", nargs="+")
-    run_parser.add_argument(
-        "--append-to",
-        "-a",
-        help="optional directory where a compatible simulation has already been ran",
-        default=None,
-    )
-    run_parser.add_argument(
-        "--output-name", "-o", help="path to the final output folder", default=None
-    )
     run_parser.set_defaults(func=run_sim)
 
     resume_parser = subparsers.add_parser("resume", help="resume a simulation")
     resume_parser.add_argument(
-        "data_dir",
-        help="path to the directory where the initial_config.toml and the data is stored",
+        "sim_dir",
+        help="path to the directory where the initial_config.toml and the partial data is stored",
     )
     resume_parser.add_argument(
         "configs",
@@ -63,9 +54,6 @@ def create_parser():
     merge_parser = subparsers.add_parser("merge", help="merge simulation results")
     merge_parser.add_argument(
         "path", help="path to the final simulation folder containing 'initial_config.toml'"
-    )
-    merge_parser.add_argument(
-        "--output-name", "-o", help="path to the final output folder", default=None
     )
     merge_parser.set_defaults(func=merge)
 
@@ -107,9 +95,11 @@ def prep_ray(args):
 def resume_sim(args):
 
     method = prep_ray(args)
-    sim = resume_simulations(args.data_dir, method=method)
+    sim = resume_simulations(args.sim_dir, method=method)
     sim.run()
-    run_simulation_sequence(*args.configs, method=method, prev_data_folder=sim.data_folder)
+    run_simulation_sequence(
+        *args.configs, method=method, prev_sim_dir=sim.data_folder, final_name=args.output_name
+    )
 
 
 if __name__ == "__main__":

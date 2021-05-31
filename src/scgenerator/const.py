@@ -1,4 +1,5 @@
 import numpy as np
+from numpy.lib.arraysetops import isin
 
 
 def pbar_format(worker_id: int):
@@ -98,11 +99,20 @@ def fit_parameters(param):
     return True
 
 
-def string(l):
-    def _string(s):
-        return isinstance(s, str) and s.lower() in l
+def string(l=None):
+    if l is None:
 
-    _string.__doc__ = f"must be a str matching one of {l}"
+        def _string(s):
+            return isinstance(s, str)
+
+        _string.__doc__ = f"must be a str"
+    else:
+
+        def _string(s):
+            return isinstance(s, str) and s.lower() in l
+
+        _string.__doc__ = f"must be a str matching one of {l}"
+
     return _string
 
 
@@ -123,8 +133,8 @@ def capillary_nested(n):
 
 valid_param_types = dict(
     root=dict(
-        name=lambda s: isinstance(s, str),
-        prev_data_dir=lambda s: isinstance(s, str),
+        name=string(),
+        prev_data_dir=string(),
     ),
     fiber=dict(
         input_transmission=in_range_incl(num, (0, 1)),
@@ -138,7 +148,7 @@ valid_param_types = dict(
         he_mode=he_mode,
         fit_parameters=fit_parameters,
         beta=beta,
-        dispersion_file=lambda s: isinstance(s, str),
+        dispersion_file=string(),
         model=string(["pcf", "marcatili", "marcatili_adjusted", "hasan", "custom"]),
         length=in_range_excl(num, (0, 1e9)),
         capillary_num=integer,
@@ -156,7 +166,7 @@ valid_param_types = dict(
     ),
     pulse=dict(
         field_0=field_0,
-        field_file=lambda s: isinstance(s, str),
+        field_file=string(),
         repetition_rate=num,
         peak_power=num,
         mean_power=num,
@@ -184,6 +194,7 @@ valid_param_types = dict(
         lower_wavelength_interp_limit=in_range_excl(num, (100e-9, 3000e-9)),
         upper_wavelength_interp_limit=in_range_excl(num, (100e-9, 5000e-9)),
         frep=num,
+        prev_sim_dir=string(),
     ),
 )
 

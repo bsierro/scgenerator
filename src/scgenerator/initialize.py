@@ -46,24 +46,26 @@ class ParamSequence(Mapping):
 
 
 class ContinuationParamSequence(ParamSequence):
-    def __init__(self, prev_data_folder: str, new_config: Dict[str, Any]):
+    def __init__(self, prev_sim_dir: str, new_config: Dict[str, Any]):
         """Parameter sequence that builds on a previous simulation but with a new configuration
         It is recommended that only the fiber and the number of points stored may be changed and
         changing other parameters could results in unexpected behaviors. The new config doesn't have to
-        be a full configuration (specify only the new parameters).
+        be a full configuration (i.e. you can specify only the parameters that change).
 
         Parameters
         ----------
-        prev_data_folder : str
+        prev_sim_dir : str
             path to the folder of the previous simulation containing 'initial_config.toml'
         new_config : Dict[str, Any]
             new config
         """
-        self.path = Path(prev_data_folder)
-        init_config = io.load_previous_parameters(os.path.join(self.path, "initial_config.toml"))
+        self.prev_sim_dir = Path(prev_sim_dir)
+        init_config = io.load_previous_parameters(
+            os.path.join(self.prev_sim_dir, "initial_config.toml")
+        )
 
         self.prev_variable_lists = [
-            (set(variable_list[1:]), self.path / utils.format_variable_list(variable_list))
+            (set(variable_list[1:]), self.prev_sim_dir / utils.format_variable_list(variable_list))
             for variable_list, _ in required_simulations(init_config)
         ]
 
@@ -74,11 +76,11 @@ class ContinuationParamSequence(ParamSequence):
         """iterates through all possible parameters, yielding a config as well as a flattened
         computed parameters set each time"""
         for variable_list, full_config in required_simulations(self.config):
-            prev_sim_folder = self.find_prev_data_folder(variable_list)
-            full_config["prev_data_dir"] = str(prev_sim_folder.resolve())
-            yield variable_list, compute_subsequent_paramters(prev_sim_folder, full_config)
+            prev_data_dir = self.find_prev_data_dir(variable_list)
+            full_config["prev_data_dir"] = str(prev_data_dir.resolve())
+            yield variable_list, compute_init_parameters(full_config)
 
-    def find_prev_data_folder(self, new_variable_list: List[Tuple[str, Any]]) -> Path:
+    def find_prev_data_dir(self, new_variable_list: List[Tuple[str, Any]]) -> Path:
         """finds the previous simulation data that this new config should start from
 
         Parameters
@@ -102,7 +104,7 @@ class ContinuationParamSequence(ParamSequence):
                 return path
 
         raise ValueError(
-            f"cannot find a previous data folder for {new_variable_list} in {self.path}"
+            f"cannot find a previous data folder for {new_variable_list} in {self.prev_sim_dir}"
         )
 
 
@@ -114,7 +116,7 @@ class RecoveryParamSequence(ParamSequence):
 
         z_num = config["simulation"]["z_num"]
         started = self.num_sim
-        sub_folders = io.get_data_subfolders(io.get_data_folder(self.id))
+        sub_folders = io.get_data_subfolders(self.id)
 
         pbar_store = utils.PBars(
             tqdm(
@@ -138,19 +140,62 @@ class RecoveryParamSequence(ParamSequence):
         self.num_steps += started * z_num
         self.single_sim = self.num_sim == 1
 
-    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
-        for variable_list, full_config in required_simulations(self.config):
-
-            data_dir = os.path.join(
-                io.get_data_folder(self.id), utils.format_variable_list(variable_list)
+        self.prev_sim_dir = None
+        if "prev_sim_dir" in self.config.get("simulation", {}):
+            self.prev_sim_dir = Path(self.config["simulation"]["prev_sim_dir"])
+            init_config = io.load_previous_parameters(
+                os.path.join(self.prev_sim_dir, "initial_config.toml")
             )
+            self.prev_variable_lists = [
+                (
+                    set(variable_list[1:]),
+                    self.prev_sim_dir / utils.format_variable_list(variable_list),
+                )
+                for variable_list, _ in required_simulations(init_config)
+            ]
 
-            if not io.propagation_initiated(data_dir):
-                yield variable_list, compute_init_parameters(full_config)
+    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
+        for variable_list, params in required_simulations(self.config):
+
+            data_dir = io.get_data_folder(self.id) / utils.format_variable_list(variable_list)
+
+            if not data_dir.is_dir() or io.find_last_spectrum_num(data_dir) == 0:
+                if (prev_data_dir := self.find_prev_data_dir(variable_list)) is not None:
+                    params["prev_data_dir"] = str(prev_data_dir)
+                yield variable_list, compute_init_parameters(params)
             elif io.num_left_to_propagate(data_dir, self.config["simulation"]["z_num"]) != 0:
-                yield variable_list, recover_params(full_config, data_dir)
+                yield variable_list, recover_params(params, data_dir)
             else:
                 continue
+
+    def find_prev_data_dir(self, new_variable_list: List[Tuple[str, Any]]) -> Path:
+        """finds the previous simulation data that this new config should start from
+
+        Parameters
+        ----------
+        new_variable_list : List[Tuple[str, Any]]
+            as yielded by required_simulations
+
+        Returns
+        -------
+        Path
+            path to the data folder
+
+        Raises
+        ------
+        ValueError
+            no data folder found
+        """
+        if self.prev_sim_dir is None:
+            return None
+        to_test = set(new_variable_list[1:])
+        for old_v_list, path in self.prev_variable_lists:
+            if to_test.issuperset(old_v_list):
+                return path
+
+        raise ValueError(
+            f"cannot find a previous data folder for {new_variable_list} in {self.prev_sim_dir}"
+        )
 
 
 def validate(config: dict) -> dict:
@@ -517,20 +562,19 @@ def _ensure_consistency(config):
     return config
 
 
-def recover_params(config: Dict[str, Any], data_folder: os.PathLike) -> Dict[str, Any]:
-    path = Path(data_folder)
+def recover_params(config: Dict[str, Any], data_folder: Path) -> Dict[str, Any]:
     params = compute_init_parameters(config)
     try:
-        prev_params = io.load_toml(path / "params.toml")
+        prev_params = io.load_toml(data_folder / "params.toml")
     except FileNotFoundError:
         prev_params = {}
     for k, v in prev_params.items():
         params.setdefault(k, v)
-    num, last_spectrum = io.load_last_spectrum(str(path))
+    num, last_spectrum = io.load_last_spectrum(data_folder)
     params["spec_0"] = last_spectrum
     params["field_0"] = np.fft.ifft(last_spectrum)
     params["recovery_last_stored"] = num
-    params["cons_qty"] = np.load(os.path.join(data_folder, "cons_qty.npy"))
+    params["cons_qty"] = np.load(data_folder / "cons_qty.npy")
     return params
 
 
@@ -561,26 +605,7 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
     params = _generate_sim_grid(params)
 
     # Initial field may influence the grid
-    custom_field = False
-    if "field_file" in params:
-        custom_field = True
-        field_data = np.load(params["field_file"])
-        field_interp = interp1d(
-            field_data["time"], field_data["field"], bounds_error=False, fill_value=(0, 0)
-        )
-        params["field_0"] = field_interp(params["t"])
-        params = _comform_custom_field(params)
-    elif "field_0" in params:
-        custom_field = True
-        params = _evalutate_custom_field_equation(params)
-        params = _comform_custom_field(params)
-
-    # central wavelength may be off with custom fields
-    if custom_field:
-        delta_w = params["w_c"][np.argmax(abs2(np.fft.fft(params["field_0"])))]
-        logger.debug(f"had to adjust w by {delta_w}")
-        params["wavelength"] = units.m.inv(units.m(params["wavelength"]) - delta_w)
-        _update_frequency_domain(params)
+    custom_field = setup_custom_field(params)
 
     if "step_size" in params:
         params["error_ok"] = params["step_size"]
@@ -650,28 +675,39 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
     return params
 
 
-def compute_subsequent_paramters(sim_folder: str, config: Dict[str, Any]) -> Dict[str, Any]:
-    params = compute_init_parameters(config)
-    spec = io.load_last_spectrum(sim_folder)[1]
-    params["field_0"] = np.fft.ifft(spec) * params["input_transmission"]
-    params["spec_0"] = np.fft.fft(params["field_0"])
+def setup_custom_field(params: Dict[str, Any]) -> bool:
+    logger = get_logger(__name__)
+    custom_field = True
+    if "prev_data_dir" in params:
+        spec = io.load_last_spectrum(Path(params["prev_data_dir"]))[1]
+        params["field_0"] = np.fft.ifft(spec) * params["input_transmission"]
+    elif "field_file" in params:
+        field_data = np.load(params["field_file"])
+        field_interp = interp1d(
+            field_data["time"], field_data["field"], bounds_error=False, fill_value=(0, 0)
+        )
+        params["field_0"] = field_interp(params["t"])
+    elif "field_0" in params:
+        params = _evalutate_custom_field_equation(params)
+    else:
+        custom_field = False
 
-    return params
-
-
-def _comform_custom_field(params):
-    params["field_0"] = params["field_0"] * pulse.modify_field_ratio(
-        params["t"],
-        params["field_0"],
-        params.get("peak_power"),
-        params.get("energy"),
-        params.get("intensity_noise"),
-    )
-    params["width"], params["peak_power"], params["energy"] = pulse.measure_field(
-        params["t"], params["field_0"]
-    )
-
-    return params
+    if custom_field:
+        params["field_0"] = params["field_0"] * pulse.modify_field_ratio(
+            params["t"],
+            params["field_0"],
+            params.get("peak_power"),
+            params.get("energy"),
+            params.get("intensity_noise"),
+        )
+        params["width"], params["peak_power"], params["energy"] = pulse.measure_field(
+            params["t"], params["field_0"]
+        )
+        delta_w = params["w_c"][np.argmax(abs2(np.fft.fft(params["field_0"])))]
+        logger.debug(f"had to adjust w by {delta_w}")
+        params["wavelength"] = units.m.inv(units.m(params["wavelength"]) - delta_w)
+        _update_frequency_domain(params)
+    return custom_field
 
 
 def _update_pulse_parameters(params):

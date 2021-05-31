@@ -2,6 +2,7 @@ import os
 from collections.abc import Mapping, Sequence
 from glob import glob
 from typing import Any, Dict, List, Tuple
+from pathlib import Path
 
 import numpy as np
 
@@ -30,17 +31,17 @@ class Spectrum(np.ndarray):
 
 
 class Pulse(Sequence):
-    def __init__(self, path: str, ensure_2d=True):
+    def __init__(self, path: os.PathLike, ensure_2d=True):
         self.logger = get_logger(__name__)
-        self.path = str(path)
+        self.path = Path(path)
         self.__ensure_2d = ensure_2d
 
-        if not os.path.isdir(self.path):
+        if not self.path.is_dir():
             raise FileNotFoundError(f"Folder {self.path} does not exist")
 
         self.params = None
         try:
-            self.params = io.load_previous_parameters(os.path.join(self.path, "params.toml"))
+            self.params = io.load_previous_parameters(self.path / "params.toml")
         except FileNotFoundError:
             self.logger.info(f"parameters corresponding to {self.path} not found")
 
@@ -52,7 +53,7 @@ class Pulse(Sequence):
             else:
                 raise
         self.cache: Dict[int, Spectrum] = {}
-        self.nmax = len(glob(os.path.join(self.path, "spectra_*.npy")))
+        self.nmax = len(list(self.path.glob("spectra_*.npy")))
         if self.nmax <= 0:
             raise FileNotFoundError(f"No appropriate file in specified folder {self.path}")
 
@@ -77,7 +78,7 @@ class Pulse(Sequence):
         return self.nmax
 
     def __getitem__(self, key):
-        return self.all_spectra(ind=range(self.nmax)[key])
+        return self.all_spectra(ind=range(self.nmax)[key]).squeeze()
 
     def intensity(self, unit):
         if unit.type in ["WL", "FREQ", "AFREQ"]:
@@ -187,6 +188,8 @@ class Pulse(Sequence):
         return np.fft.ifft(self.all_spectra(ind=ind), axis=-1)
 
     def _load1(self, i: int):
+        if i < 0:
+            i = self.nmax + i
         if i in self.cache:
             return self.cache[i]
         spec = io.load_single_spectrum(self.path, i)
@@ -195,19 +198,3 @@ class Pulse(Sequence):
         spec = Spectrum(spec, self.wl, self.params["frep"])
         self.cache[i] = spec
         return spec
-
-
-class SpectraCollection(Mapping, Sequence):
-    def __init__(self, path: str):
-        self.path = path
-        self.collection: List[Spectra] = []
-        if not os.path.isdir(self.path):
-            raise FileNotFoundError(f"Folder {self.path} does not exist")
-
-        self.variable_list
-
-    def __getitem__(self, key):
-        return self.collection[key]
-
-    def __len__(self):
-        pass

@@ -32,7 +32,7 @@ class DuplicateParameterError(Exception):
     pass
 
 
-class IncompleteDataFolderError(Exception):
+class IncompleteDataFolderError(FileNotFoundError):
     pass
 
 

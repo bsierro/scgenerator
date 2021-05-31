@@ -126,21 +126,24 @@ class DataBuffer:
 #     return os.path.normpath(p)
 
 
+def conform_toml_path(path: os.PathLike) -> Path:
+    path = Path(path)
+    if not path.name.lower().endswith(".toml"):
+        path = path.parent / (path.name + ".toml")
+    return path
+
+
 def load_toml(path: os.PathLike):
     """returns a dictionary parsed from the specified toml file"""
-    path = str(path)
-    if not path.lower().endswith(".toml"):
-        path += ".toml"
+    path = conform_toml_path(path)
     with open(path, mode="r") as file:
         dico = toml.load(file)
     return dico
 
 
-def save_toml(path, dico):
+def save_toml(path: os.PathLike, dico):
     """saves a dictionary into a toml file"""
-    path = str(path)
-    if not path.lower().endswith(".toml"):
-        path += ".toml"
+    path = conform_toml_path(path)
     with open(path, mode="w") as file:
         toml.dump(dico, file)
     return dico
@@ -156,7 +159,7 @@ def serializable(val):
     return out
 
 
-def _prepare_for_serialization(dico):
+def _prepare_for_serialization(dico: Dict[str, Any]):
     """prepares a dictionary for serialization. Some keys may not be preserved
     (dropped due to no conversion available)
 
@@ -183,40 +186,56 @@ def _prepare_for_serialization(dico):
     return out
 
 
-def save_parameters(param_dict, file_name="param"):
-    """Writes the flattened parameters dictionary specific to a single simulation into a toml file
-
-    Parameters
-    ----------
-        param_dict : dictionary of parameters. Only floats, int and arrays of
-                     non complex values are stored in the json
-        folder_name : folder where to save the files (relative to cwd)
-        file_name : name of the readable file.
-    """
+def save_parameters(param_dict: Dict[str, Any], task_id: int, data_dir_name: str):
     param = param_dict.copy()
-
-    folder_name, file_name = os.path.split(file_name)
-    folder_name = "tmp" if folder_name == "" else folder_name
-    file_name = os.path.splitext(file_name)[0]
-
-    if not os.path.exists(folder_name):
-        os.makedirs(folder_name)
+    file_path = generate_file_path("params.toml", task_id, data_dir_name)
 
     param = _prepare_for_serialization(param)
     param["datetime"] = datetime.now()
 
+    file_path.parent.mkdir(exist_ok=True)
+
     # save toml of the simulation
-    with open(os.path.join(folder_name, file_name + ".toml"), "w") as file:
+    with open(file_path, "w") as file:
         toml.dump(param, file, encoder=toml.TomlNumpyEncoder())
 
-    return os.path.join(folder_name, file_name)
+    return file_path
 
 
-def load_previous_parameters(path: str):
+# def save_parameters_old(param_dict, file_name="param"):
+#     """Writes the flattened parameters dictionary specific to a single simulation into a toml file
+
+#     Parameters
+#     ----------
+#         param_dict : dictionary of parameters. Only floats, int and arrays of
+#                      non complex values are stored in the json
+#         folder_name : folder where to save the files (relative to cwd)
+#         file_name : name of the readable file.
+#     """
+#     param = param_dict.copy()
+
+#     folder_name, file_name = os.path.split(file_name)
+#     folder_name = "tmp" if folder_name == "" else folder_name
+#     file_name = os.path.splitext(file_name)[0]
+
+#     if not os.path.exists(folder_name):
+#         os.makedirs(folder_name)
+
+#     param = _prepare_for_serialization(param)
+#     param["datetime"] = datetime.now()
+
+#     # save toml of the simulation
+#     with open(os.path.join(folder_name, file_name + ".toml"), "w") as file:
+#         toml.dump(param, file, encoder=toml.TomlNumpyEncoder())
+
+#     return os.path.join(folder_name, file_name)
+
+
+def load_previous_parameters(path: os.PathLike):
     """loads a parameters toml files and converts data to appropriate type
     Parameters
     ----------
-    path : str
+    path : PathLike
         path to the toml
 
     Returns
@@ -248,31 +267,17 @@ def load_material_dico(name):
         return toml.loads(Paths.gets("gas"))[name]
 
 
-# def set_environ(config: dict):
-#     """sets environment variables specified in the config
-
-#     Parameters
-#     ----------
-#     config : dict
-#         whole simulation config file
-#     """
-#     environ = config.get("environment", {})
-#     for k, v in environ.get("path_prefixes", {}).items():
-#         os.environ[(PREFIX_KEY_BASE + k).upper()] = v
-
-
 def get_all_environ() -> Dict[str, str]:
     """returns a dictionary of all environment variables set by any instance of scgenerator"""
     d = dict(filter(lambda el: el[0].startswith(ENVIRON_KEY_BASE), os.environ.items()))
-    print(d)
     return d
 
 
-def load_single_spectrum(folder, index) -> np.ndarray:
-    return np.load(os.path.join(folder, f"spectra_{index}.npy"))
+def load_single_spectrum(folder: Path, index) -> np.ndarray:
+    return np.load(folder / f"spectra_{index}.npy")
 
 
-def get_data_subfolders(path: str) -> List[str]:
+def get_data_subfolders(task_id: int) -> List[Path]:
     """returns a list of relative path/subfolders in the specified directory
 
     Parameters
@@ -285,12 +290,11 @@ def get_data_subfolders(path: str) -> List[str]:
     List[str]
         paths to sub folders
     """
-    sub_folders = glob(os.path.join(path, "*"))
-    sub_folders = list(filter(os.path.isdir, sub_folders))
-    return sub_folders
+
+    return [p.resolve() for p in get_data_folder(task_id).glob("*") if p.is_dir()]
 
 
-def check_data_integrity(sub_folders: List[str], init_z_num: int):
+def check_data_integrity(sub_folders: List[Path], init_z_num: int):
     """checks the integrity and completeness of a simulation data folder
 
     Parameters
@@ -312,18 +316,12 @@ def check_data_integrity(sub_folders: List[str], init_z_num: int):
             )
 
 
-def propagation_initiated(sub_folder) -> bool:
-    if os.path.isdir(sub_folder):
-        return find_last_spectrum_num(sub_folder) > 0
-    return False
-
-
-def num_left_to_propagate(sub_folder: str, init_z_num: int) -> int:
+def num_left_to_propagate(sub_folder: Path, init_z_num: int) -> int:
     """checks if a propagation has completed
 
     Parameters
     ----------
-    sub_folder : str
+    sub_folder : Path
         path to the sub folder containing the spectra
     init_z_num : int
         number of z position to store as specified in the master config file
@@ -338,7 +336,7 @@ def num_left_to_propagate(sub_folder: str, init_z_num: int) -> int:
     IncompleteDataFolderError
         raised if init_z_num doesn't match that specified in the individual parameter file
     """
-    params = load_toml(os.path.join(sub_folder, "params.toml"))
+    params = load_toml(sub_folder / "params.toml")
     z_num = params["z_num"]
     num_spectra = find_last_spectrum_num(sub_folder) + 1  # because of zero-indexing
 
@@ -352,8 +350,9 @@ def num_left_to_propagate(sub_folder: str, init_z_num: int) -> int:
 
 
 def find_last_spectrum_num(data_dir: Path):
-    for num in itertools.count():
-        if not (data_dir / f"spectrum_{num}.npy").is_file():
+    for num in itertools.count(1):
+        p_to_test = data_dir / f"spectrum_{num}.npy"
+        if not p_to_test.is_file() or len(p_to_test.read_bytes()) == 0:
             return num - 1
 
 
@@ -361,18 +360,6 @@ def load_last_spectrum(data_dir: Path) -> Tuple[int, np.ndarray]:
     """return the last spectrum stored in path as well as its id"""
     num = find_last_spectrum_num(data_dir)
     return num, np.load(data_dir / f"spectrum_{num}.npy")
-
-
-def last_spectrum_path(path: Path) -> Path:
-    num = find_last_spectrum_num(path)
-    return path / f"spectrum_{num}.npy"
-
-
-def merge(paths: Union[str, List[str]], delete=False):
-    if isinstance(paths, (str, Path)):
-        paths = [paths]
-    for path in paths:
-        merge_same_simulations(path, delete=delete)
 
 
 def append_and_merge(final_sim_path: os.PathLike, new_name=None):
@@ -419,7 +406,7 @@ def append_and_merge(final_sim_path: os.PathLike, new_name=None):
     merge(destination_path, delete=True)
 
 
-def update_appended_params(param_path, new_path, z):
+def update_appended_params(param_path: Path, new_path: Path, z):
     z_num = len(z)
     params = load_toml(param_path)
     if "simulation" in params:
@@ -431,23 +418,23 @@ def update_appended_params(param_path, new_path, z):
     save_toml(new_path, params)
 
 
-def merge_same_simulations(path: str, delete=True):
+def merge(paths: Union[Path, List[Path]], delete=False):
+    if isinstance(paths, Path):
+        paths = [paths]
+    for path in paths:
+        merge_same_simulations(path, delete=delete)
+
+
+def merge_same_simulations(path: Path, delete=True):
     logger = get_logger(__name__)
     num_separator = PARAM_SEPARATOR + "num" + PARAM_SEPARATOR
-    sub_folders = get_data_subfolders(path)
-    config = load_toml(os.path.join(path, "initial_config.toml"))
+    sub_folders = [p for p in path.glob("*") if p.is_dir()]
+    config = load_toml(path / "initial_config.toml")
     repeat = config["simulation"].get("repeat", 1)
     max_repeat_id = repeat - 1
     z_num = config["simulation"]["z_num"]
 
     check_data_integrity(sub_folders, z_num)
-
-    base_folders = set()
-    for sub_folder in sub_folders:
-        splitted_base_path = sub_folder.split(num_separator)[:-1]
-        base_folder = num_separator.join(splitted_base_path)
-        if len(base_folder) > 0:
-            base_folders.add(base_folder)
 
     sim_num, param_num = utils.count_variations(config)
     pbar = utils.PBars(tqdm(total=sim_num * z_num, desc="Merging data", ncols=100))
@@ -461,51 +448,49 @@ def merge_same_simulations(path: str, delete=True):
             if repeat_id == 0:
                 spectra = []
 
-            in_path = os.path.join(path, utils.format_variable_list(variable_and_ind))
-            spectra.append(np.load(os.path.join(in_path, f"spectrum_{z_id}.npy")))
+            in_path = path / utils.format_variable_list(variable_and_ind)
+            spectra.append(np.load(in_path / f"spectrum_{z_id}.npy"))
             pbar.update()
 
             # write new files only once all those from one parameter set are collected
             if repeat_id == max_repeat_id:
-                out_path = os.path.join(
-                    path,
-                    utils.format_variable_list(variable_and_ind[1:-1]) + PARAM_SEPARATOR + "merged",
+                out_path = path / (
+                    utils.format_variable_list(variable_and_ind[1:-1]) + PARAM_SEPARATOR + "merged"
                 )
+
                 out_path = ensure_folder(out_path, prevent_overwrite=False)
                 spectra = np.array(spectra).reshape(repeat, len(spectra[0]))
-                np.save(os.path.join(out_path, f"spectra_{z_id}.npy"), spectra.squeeze())
+                np.save(out_path / f"spectra_{z_id}.npy", spectra.squeeze())
 
                 # copy other files only once
                 if z_id == 0:
                     for file_name in ["z.npy", "params.toml"]:
-                        shutil.copy(
-                            os.path.join(in_path, file_name),
-                            os.path.join(out_path, ""),
-                        )
+                        shutil.copy(in_path / file_name, out_path)
     pbar.close()
 
     if delete:
-        try:
-            for sub_folder in sub_folders:
-                send2trash(sub_folder)
-        except TrashPermissionError:
-            logger.warning(f"could not send send {len(base_folders)} folder(s) to trash")
+        for sub_folder in sub_folders:
+            try:
+                send2trash(str(sub_folder))
+            except TrashPermissionError:
+                logger.warning(f"could not send send {sub_folder} to trash")
 
 
-def get_data_folder(task_id: int, name_if_new: str = "data"):
+def get_data_folder(task_id: int, name_if_new: str = "data") -> Path:
     if name_if_new == "":
         name_if_new = "data"
     idstr = str(int(task_id))
     tmp = os.getenv(TMP_FOLDER_KEY_BASE + idstr)
     if tmp is None:
-        tmp = ensure_folder("scgenerator " + name_if_new)
-        os.environ[TMP_FOLDER_KEY_BASE + idstr] = tmp
-    elif not os.path.exists(tmp):
-        os.mkdir(tmp)
+        tmp = ensure_folder(Path("scgenerator" + PARAM_SEPARATOR + name_if_new))
+        os.environ[TMP_FOLDER_KEY_BASE + idstr] = str(tmp)
+    tmp = Path(tmp).resolve()
+    if not tmp.exists():
+        tmp.mkdir()
     return tmp
 
 
-def set_data_folder(task_id: int, path: str):
+def set_data_folder(task_id: int, path: os.PathLike):
     """stores the path to an existing data folder in the environment
 
     Parameters
@@ -516,10 +501,10 @@ def set_data_folder(task_id: int, path: str):
         path to the root of the data folder
     """
     idstr = str(int(task_id))
-    os.environ[TMP_FOLDER_KEY_BASE + idstr] = path
+    os.environ[TMP_FOLDER_KEY_BASE + idstr] = str(path)
 
 
-def generate_file_path(file_name: str, task_id: int, identifier: str = "") -> str:
+def generate_file_path(file_name: str, task_id: int, identifier: str = "") -> Path:
     """generates a path for the desired file name
 
     Parameters
@@ -536,20 +521,8 @@ def generate_file_path(file_name: str, task_id: int, identifier: str = "") -> st
     str
         the full path
     """
-    # base_name, ext = os.path.splitext(file_name)
-    # folder = get_data_folder(task_id)
-    # folder = os.path.join(folder, identifier)
-    # folder = ensure_folder(folder, prevent_overwrite=False)
-    # i = 0
-    # base_name = os.path.join(folder, base_name)
-    # new_name = base_name + ext
-    # while os.path.exists(new_name):
-    #     new_name = f"{base_name}_{i}{ext}"
-    #     i += 1
-
-    path = os.path.join(get_data_folder(task_id), identifier)
-    os.makedirs(path, exist_ok=True)
-    path = os.path.join(path, file_name)
+    path = get_data_folder(task_id) / identifier / file_name
+    path.parent.mkdir(exist_ok=True)
 
     return path
 
@@ -574,33 +547,40 @@ def save_data(data: np.ndarray, file_name: str, task_id: int, identifier: str = 
     return
 
 
-def ensure_folder(name, i=0, suffix="", prevent_overwrite=True):
-    """creates a folder for simulation data named name and prevents overwrite
-    by adding a suffix if necessary and returning the name"""
-    prefix, last_dir = os.path.split(name)
-    exploded = [prefix]
-    sub_prefix = prefix
-    while not _end_of_path_tree(sub_prefix):
-        sub_prefix, _ = os.path.split(sub_prefix)
-        exploded.append(sub_prefix)
-    if any(os.path.isfile(el) for el in exploded):
-        prefix = ensure_folder(prefix)
-        name = os.path.join(prefix, last_dir)
-    folder_name = name
-    if i > 0:
-        folder_name += f"_{i}"
-    folder_name += suffix
-    if not os.path.exists(folder_name):
-        os.makedirs(folder_name)
-    else:
-        if prevent_overwrite:
-            return ensure_folder(name, i + 1)
-        else:
-            return folder_name
-    return folder_name
+def ensure_folder(path: Path, prevent_overwrite: bool = True) -> Path:
+    """ensure a folder exists and doesn't overwrite anything if required
 
+    Parameters
+    ----------
+    path : Path
+        desired path
+    prevent_overwrite : bool, optional
+        whether to create a new directory when one already exists, by default True
 
-def _end_of_path_tree(path):
-    out = path == os.path.abspath(os.sep)
-    out |= path == ""
-    return out
+    Returns
+    -------
+    Path
+        final path
+    """
+
+    path = path.resolve()
+
+    # is path root ?
+    if len(path.parts) < 2:
+        return path
+
+    # is a part of path an existing *file* ?
+    parts = path.parts
+    path = Path(path.root)
+    for part in parts:
+        if path.is_file():
+            path = ensure_folder(path, prevent_overwrite=False)
+        path /= part
+
+    folder_name = path.name
+
+    for i in itertools.count():
+        if not path.is_file() and (not prevent_overwrite or not path.is_dir()):
+            path.mkdir(exist_ok=True)
+            return path
+        path = path.parent / (folder_name + f"_{i}")
