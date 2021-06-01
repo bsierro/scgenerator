@@ -6,6 +6,7 @@ import numpy as np
 import toml
 from scgenerator import defaults, utils, math
 from scgenerator.errors import *
+from scgenerator.physics import units
 
 
 def load_conf(name):
@@ -182,6 +183,7 @@ class TestInitializeMethods(unittest.TestCase):
         result = init.setup_custom_field(conf)
         self.assertAlmostEqual(math.abs2(conf["field_0"]).max(), 20000, 4)
         self.assertTrue(result)
+        self.assertNotAlmostEqual(conf["wavelength"], 1593e-9)
 
         conf = load_conf("custom_field/mean_power")
         conf = init._generate_sim_grid(conf)
@@ -200,6 +202,25 @@ class TestInitializeMethods(unittest.TestCase):
         result = init.setup_custom_field(conf)
         self.assertAlmostEqual((math.abs2(conf["field_0"]) / 0.9 - math.abs2(field)).sum(), 0)
         self.assertTrue(result)
+
+        conf = load_conf("custom_field/wavelength_shift1")
+        result = init.compute_init_parameters(conf)
+        self.assertAlmostEqual(
+            units.m.inv(result["w"])[np.argmax(math.abs2(result["spec_0"]))], 1050e-9
+        )
+
+        conf = load_conf("custom_field/wavelength_shift1")
+        conf["pulse"]["wavelength"] = 1593e-9
+        result = init.compute_init_parameters(conf)
+
+        conf = load_conf("custom_field/wavelength_shift2")
+        for target, (variable, config) in zip(
+            [1050e-9, 1321e-9, 1593e-9], init.ParamSequence(conf)
+        ):
+            self.assertAlmostEqual(
+                units.m.inv(config["w"])[np.argmax(math.abs2(config["spec_0"]))], target
+            )
+            print(config["wavelength"], target)
 
 
 if __name__ == "__main__":

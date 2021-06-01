@@ -413,7 +413,7 @@ def append_and_merge(final_sim_path: os.PathLike, new_name=None):
     update_appended_params(
         final_sim_path / "initial_config.toml", destination_path / "initial_config.toml", z_arr
     )
-
+    pbars.close()
     merge(destination_path, delete=True)
 
 
