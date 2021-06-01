@@ -5,6 +5,7 @@ name = "test config"
 [fiber]
 gamma = 0.018
 length = 1
+model = "pcf"
 pitch = 1.5e-6
 pitch_ratio = 0.37
 

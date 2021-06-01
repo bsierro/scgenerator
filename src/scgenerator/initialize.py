@@ -675,23 +675,35 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def setup_custom_field(params: Dict[str, Any]) -> bool:
+    """sets up a custom field function if necessary and returns
+    True if it did so, False otherwise
+
+    Parameters
+    ----------
+    params : Dict[str, Any]
+        params dictionary
+
+    Returns
+    -------
+    bool
+        True if the field has been modified
+    """
     logger = get_logger(__name__)
-    custom_field = True
     if "prev_data_dir" in params:
         spec = io.load_last_spectrum(Path(params["prev_data_dir"]))[1]
-        params["field_0"] = np.fft.ifft(spec) * params["input_transmission"]
-    elif "field_file" in params:
-        field_data = np.load(params["field_file"])
-        field_interp = interp1d(
-            field_data["time"], field_data["field"], bounds_error=False, fill_value=(0, 0)
-        )
-        params["field_0"] = field_interp(params["t"])
-    elif "field_0" in params:
-        params = _evalutate_custom_field_equation(params)
+        params["field_0"] = np.fft.ifft(spec) * np.sqrt(params["input_transmission"])
     else:
-        custom_field = False
+        if "field_file" in params:
+            field_data = np.load(params["field_file"])
+            field_interp = interp1d(
+                field_data["time"], field_data["field"], bounds_error=False, fill_value=(0, 0)
+            )
+            params["field_0"] = field_interp(params["t"])
+        elif "field_0" in params:
+            params = _evalutate_custom_field_equation(params)
+        else:
+            return False
 
-    if custom_field:
         params["field_0"] = params["field_0"] * pulse.modify_field_ratio(
             params["t"],
             params["field_0"],
@@ -706,7 +718,7 @@ def setup_custom_field(params: Dict[str, Any]) -> bool:
         logger.debug(f"had to adjust w by {delta_w}")
         params["wavelength"] = units.m.inv(units.m(params["wavelength"]) - delta_w)
         _update_frequency_domain(params)
-    return custom_field
+    return True
 
 
 def _update_pulse_parameters(params):

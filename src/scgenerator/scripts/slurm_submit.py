@@ -4,10 +4,63 @@ import re
 import shutil
 import subprocess
 from datetime import datetime, timedelta
+from typing import Tuple
+import numpy as np
 
 from ..initialize import validate_config_sequence
 from ..io import Paths
 from ..utils import count_variations
+
+
+def primes(n):
+    primfac = []
+    d = 2
+    while d * d <= n:
+        while (n % d) == 0:
+            primfac.append(d)  # supposing you want multiple factors repeated
+            n //= d
+        d += 1
+    if n > 1:
+        primfac.append(n)
+    return primfac
+
+
+def balance(n, lim=(32, 32)):
+    factors = primes(n)
+    if len(factors) == 1:
+        factors = primes(n + 1)
+    a, b, x, y = 1, 1, 1, 1
+    while len(factors) > 0 and x <= lim[0] and y <= lim[1]:
+        a = x
+        b = y
+        if y >= x:
+            x *= factors.pop(0)
+        else:
+            y *= factors.pop()
+    return a, b
+
+
+def distribute(
+    num: int, nodes: int = None, cpus_per_node: int = None, lim=(16, 32)
+) -> Tuple[int, int]:
+    if nodes is None and cpus_per_node is None:
+        balanced = balance(num, lim)
+        if num > max(lim):
+            while np.product(balanced) < min(lim):
+                num += 1
+                balanced = balance(num, lim)
+        nodes = min(balanced)
+        cpus_per_node = max(balanced)
+
+    elif nodes is None:
+        nodes = num // cpus_per_node
+        while nodes > lim[0]:
+            nodes //= 2
+    elif cpus_per_node is None:
+        cpus_per_node = num // nodes
+        while cpus_per_node > lim[1]:
+            cpus_per_node //= 2
+    return nodes, cpus_per_node
 
 
 def format_time(t):
@@ -25,9 +78,9 @@ def create_parser():
         "-t", "--time", required=True, type=str, help="time required for the job in hh:mm:ss"
     )
     parser.add_argument(
-        "-c", "--cpus-per-node", required=True, type=int, help="number of cpus required per node"
+        "-c", "--cpus-per-node", default=None, type=int, help="number of cpus required per node"
     )
-    parser.add_argument("-n", "--nodes", required=True, type=int, help="number of nodes required")
+    parser.add_argument("-n", "--nodes", default=None, type=int, help="number of nodes required")
     parser.add_argument(
         "--environment-setup",
         required=False,
@@ -69,6 +122,8 @@ def main():
     final_config = validate_config_sequence(*config_paths)
 
     sim_num, _ = count_variations(final_config)
+
+    args.nodes, args.cpus_per_nodes = distribute(sim_num, args.nodes, args.cpus_per_nodes)
 
     file_name = (
         "submit " + final_config["name"] + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh"

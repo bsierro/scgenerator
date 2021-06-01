@@ -25,10 +25,6 @@ from .const import PARAM_SEPARATOR, PREFIX_KEY_BASE, valid_variable, HUSH_PROGRE
 from .logger import get_logger
 from .math import *
 
-# XXX ############################################
-# XXX ############### Pure Python ################
-# XXX ############################################
-
 
 class PBars:
     @classmethod
@@ -245,34 +241,6 @@ def format_value(value):
         return str(value)
 
 
-# def variable_list_from_path(s: str) -> List[tuple]:
-#     s = s.replace("/", "")
-#     str_list = s.split(PARAM_SEPARATOR)
-#     out = []
-#     for i in range(0, len(str_list) // 2 * 2, 2):
-#         out.append((str_list[i], get_value(str_list[i + 1])))
-#     return out
-
-
-# def get_value(s: str):
-#     if s.lower() == "true":
-#         return True
-#     if s.lower() == "false":
-#         return False
-
-#     try:
-#         return int(s)
-#     except ValueError:
-#         pass
-
-#     try:
-#         return float(s)
-#     except ValueError:
-#         pass
-
-#     return s
-
-
 def variable_iterator(config) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
     """given a config with "variable" parameters, iterates through every possible combination,
     yielding a a list of (parameter_name, value) tuples and a full config dictionary.
@@ -385,7 +353,7 @@ def parallelize(func, arg_iter, sim_jobs=4, progress_tracker_kwargs=None, const_
     return np.array(results)
 
 
-def deep_update(d: Mapping, u: Mapping):
+def deep_update(d: Mapping, u: Mapping) -> dict:
     for k, v in u.items():
         if isinstance(v, collections.abc.Mapping):
             d[k] = deep_update(d.get(k, {}), v)

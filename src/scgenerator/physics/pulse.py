@@ -11,7 +11,7 @@ n is the number of spectra at the same z position and nt is the size of the time
 
 import itertools
 import os
-from typing import Tuple
+from typing import Literal, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -115,14 +115,14 @@ def modify_field_ratio(
 
 
 def conform_pulse_params(
-    shape,
-    width=None,
-    t0=None,
-    peak_power=None,
-    energy=None,
-    soliton_num=None,
-    gamma=None,
-    beta2=None,
+    shape: Literal["gaussian", "sech"],
+    width: float = None,
+    t0: float = None,
+    peak_power: float = None,
+    energy: float = None,
+    soliton_num: float = None,
+    gamma: float = None,
+    beta2: float = None,
 ):
     """makes sure all parameters of the pulse are set and consistent
 
