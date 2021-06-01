@@ -123,7 +123,7 @@ def main():
 
     sim_num, _ = count_variations(final_config)
 
-    args.nodes, args.cpus_per_nodes = distribute(sim_num, args.nodes, args.cpus_per_nodes)
+    args.nodes, args.cpus_per_node = distribute(sim_num, args.nodes, args.cpus_per_node)
 
     file_name = (
         "submit " + final_config["name"] + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh"
