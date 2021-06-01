@@ -1,5 +1,6 @@
 import argparse
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -125,20 +126,24 @@ def main():
 
     args.nodes, args.cpus_per_node = distribute(sim_num, args.nodes, args.cpus_per_node)
 
-    file_name = (
+    submit_path = Path(
         "submit " + final_config["name"] + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh"
     )
+    tmp_path = Path("submit tmp.sh")
+
     job_name = f"supercontinuum {final_config['name']}"
     submit_sh = template.format(
         job_name=job_name, configs_list=" ".join(f'"{c}"' for c in args.configs), **vars(args)
     )
-    with open(file_name, "w") as file:
-        file.write(submit_sh)
-    subprocess.run(["sbatch", "--test-only", file_name])
+
+    tmp_path.write_text(submit_sh)
+    subprocess.run(["sbatch", "--test-only", str(tmp_path)])
     submit = input(
         f"{command_map[args.command]} {sim_num} pulses from configs {args.configs} with {args.cpus_per_node} cpus"
         + f" per node on {args.nodes} nodes for {format_time(args.time)} ? (y/[n])\n"
     )
     if submit.lower() in ["y", "yes"]:
+        submit_path.write_text(submit_sh)
         copy_starting_files()
-        subprocess.run(["sbatch", file_name])
+        subprocess.run(["sbatch", submit_path])
+    tmp_path.unlink()
