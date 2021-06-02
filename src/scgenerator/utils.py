@@ -10,18 +10,19 @@ import datetime as dt
 import itertools
 import logging
 import multiprocessing
-import socket
-import os
-from typing import Any, Dict, Iterator, List, Mapping, Tuple, Union
+from copy import deepcopy
 from io import StringIO
+from pathlib import Path
+import threading
+from typing import Any, Dict, Iterator, List, Mapping, Tuple, Union
+import time
 
 import numpy as np
 import ray
-from copy import deepcopy
-
 from tqdm import tqdm
 
-from .const import PARAM_SEPARATOR, PREFIX_KEY_BASE, valid_variable, HUSH_PROGRESS
+from . import env
+from .const import PARAM_SEPARATOR, valid_variable
 from .logger import get_logger
 from .math import *
 
@@ -29,19 +30,19 @@ from .math import *
 class PBars:
     @classmethod
     def auto(
-        cls, num_tot: int, num_sub_bars: int = 0, head_kwargs=None, worker_kwargs=None
+        cls, num_tot: int, desc: str, num_sub_bars: int = 0, head_kwargs=None, worker_kwargs=None
     ) -> "PBars":
         if head_kwargs is None:
-            head_kwargs = dict(unit="step", desc="Simulating", smoothing=0)
+            head_kwargs = dict()
         if worker_kwargs is None:
             worker_kwargs = dict(
                 total=1,
                 desc="Worker {worker_id}",
                 bar_format="{l_bar}{bar}" "|[{elapsed}<{remaining}, " "{rate_fmt}{postfix}]",
             )
-
-        if os.getenv(HUSH_PROGRESS) is not None:
+        if "print" not in env.pbar_policy():
             head_kwargs["file"] = worker_kwargs["file"] = StringIO()
+        head_kwargs["desc"] = desc
         p = cls([tqdm(total=num_tot, ncols=100, ascii=False, **head_kwargs)])
         for i in range(1, num_sub_bars + 1):
             kwargs = {k: v for k, v in worker_kwargs.items()}
@@ -51,20 +52,35 @@ class PBars:
         return p
 
     def __init__(self, pbars: Union[tqdm, List[tqdm]]) -> None:
+        self.policy = env.pbar_policy()
+        self.print_path = Path("progress " + pbars[0].desc).resolve()
         if isinstance(pbars, tqdm):
             self.pbars = [pbars]
         else:
             self.pbars = pbars
-        self.logger = get_logger(__name__)
+        self.open = True
+        if "file" in self.policy:
+            self.thread = threading.Thread(target=self.print_worker, daemon=True)
+            self.thread.start()
 
     def print(self):
+        if "file" not in self.policy:
+            return
         if len(self.pbars) > 1:
             s = [""]
         else:
             s = []
         for pbar in self.pbars:
             s.append(str(pbar))
-        self.logger.info("\n".join(s))
+        self.print_path.write_text("\n".join(s))
+
+    def print_worker(self):
+        while True:
+            for _ in range(100):
+                if not self.open:
+                    return
+                time.sleep(0.02)
+            self.print()
 
     def __iter__(self):
         yield from self.pbars
@@ -79,7 +95,6 @@ class PBars:
         else:
             self.pbars[i].update(value)
         self.pbars[0].update()
-        self.print()
 
     def append(self, pbar: tqdm):
         self.pbars.append(pbar)
@@ -89,73 +104,20 @@ class PBars:
         self.print()
 
     def close(self):
+        self.print()
+        self.open = False
+        if "file" in self.policy:
+            self.thread.join()
         for pbar in self.pbars:
             pbar.close()
 
 
-class ProgressTracker:
-    def __init__(
-        self,
-        max: Union[int, float],
-        prefix: str = "",
-        suffix: str = "",
-        logger: logging.Logger = None,
-        auto_print: bool = True,
-        percent_incr: Union[int, float] = 5,
-        default_update: Union[int, float] = 1,
-    ):
-        self.max = max
-        self.current = 0
-        self.prefix = prefix
-        self.suffix = suffix
-        self.start_time = dt.datetime.now()
-        self.auto_print = auto_print
-        self.next_percent = percent_incr
-        self.percent_incr = percent_incr
-        self.default_update = default_update
-        self.logger = logger if logger is not None else get_logger()
-
-    def _update(self):
-        if self.auto_print and self.current / self.max >= self.next_percent / 100:
-            self.next_percent += self.percent_incr
-            self.logger.info(self.prefix + self.ETA + self.suffix)
-
-    def update(self, num=None):
-        if num is None:
-            num = self.default_update
-        self.current += num
-        self._update()
-
-    def set(self, value):
-        self.current = value
-        self._update()
-
-    @property
-    def ETA(self):
-        if self.current <= 0:
-            return "\033[31mETA : unknown\033[0m"
-        eta = (
-            (dt.datetime.now() - self.start_time).seconds / self.current * (self.max - self.current)
-        )
-        H = eta // 3600
-        M = (eta - H * 3600) // 60
-        S = eta % 60
-        percent = int(100 * self.current / self.max)
-        return "\033[34mremaining : {:.0f}h {:.0f}min {:.0f}s ({:.0f}% in total). \033[31mETA : {:%Y-%m-%d %H:%M:%S}\033[0m".format(
-            H, M, S, percent, dt.datetime.now() + dt.timedelta(seconds=eta)
-        )
-
-    def get_eta(self):
-        return self.ETA
-
-    def __str__(self):
-        return "{}/{}".format(self.current, self.max)
-
-
 class ProgressBarActor:
-    def __init__(self, num_workers: int, num_steps: int) -> None:
+    def __init__(self, name: str, num_workers: int, num_steps: int) -> None:
         self.counters = [0 for _ in range(num_workers + 1)]
-        self.p_bars = PBars.auto(num_steps, num_workers)
+        self.p_bars = PBars.auto(
+            num_steps, "Simulating " + name, num_workers, head_kwargs=dict(unit="step")
+        )
 
     def update(self, worker_id: int, rel_pos: float = None) -> None:
         """update a counter
@@ -182,7 +144,9 @@ class ProgressBarActor:
         self.p_bars.close()
 
 
-def progress_worker(num_workers: int, num_steps: int, progress_queue: multiprocessing.Queue):
+def progress_worker(
+    name: str, num_workers: int, num_steps: int, progress_queue: multiprocessing.Queue
+):
     """keeps track of progress on a separate thread
 
     Parameters
@@ -194,7 +158,7 @@ def progress_worker(num_workers: int, num_steps: int, progress_queue: multiproce
             Literal[0] : stop the worker and close the progress bars
             Tuple[int, float] : worker id and relative progress between 0 and 1
     """
-    pbars = PBars.auto(num_steps, num_workers)
+    pbars = PBars.auto(num_steps, "Simulating " + name, num_workers, head_kwargs=dict(unit="step"))
     while True:
         raw = progress_queue.get()
         if raw == 0:
@@ -228,6 +192,10 @@ def format_variable_list(l: List[tuple]):
         vs = format_value(p_value).replace("/", "").replace(joints[0], "").replace(joints[1], "")
         str_list.append(ps + joints[1] + vs)
     return joints[0].join(str_list)
+
+
+def branch_id(branch: Tuple[Path, ...]) -> str:
+    return "".join("".join(b.name.split()[2:-2]) for b in branch)
 
 
 def format_value(value):
@@ -304,55 +272,6 @@ def required_simulations(config) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]
             yield variable_ind, full_config
 
 
-def parallelize(func, arg_iter, sim_jobs=4, progress_tracker_kwargs=None, const_kwarg={}):
-    """given a function and an iterable of arguments, runs the function in parallel
-    Parameters
-    ----------
-        func : a function
-        arg_iter : an iterable that yields a tuple to be unpacked to the function as argument(s)
-        sim_jobs : number of parallel runs
-        progress_tracker_kwargs : key word arguments to be passed to the ProgressTracker
-        const_kwarg : keyword arguments to be passed to the function on every run
-
-    Returns
-    ----------
-        a list of the result ordered like arg_iter
-    """
-    pt = None
-    if progress_tracker_kwargs is not None:
-        progress_tracker_kwargs["auto_print"] = True
-        pt = ray.remote(ProgressTracker).remote(**progress_tracker_kwargs)
-
-    # Initial setup
-    func = ray.remote(func)
-    jobs = []
-    results = []
-    dico = {}  # to keep track of the order, as tasks may no finish in order
-    for k, args in enumerate(arg_iter):
-        if not isinstance(args, tuple):
-            print("iterator must return a tuple")
-            quit()
-        # as we got through the iterator, wait for first one to finish before
-        # adding a new job
-        if len(jobs) >= sim_jobs:
-            res, jobs = ray.wait(jobs)
-            results[dico[res[0].task_id()]] = ray.get(res[0])
-            if pt is not None:
-                ray.get(pt.update.remote())
-        newJob = func.remote(*args, **const_kwarg)
-        jobs.append(newJob)
-        dico[newJob.task_id()] = k
-        results.append(None)
-
-    # still have to wait for the last few jobs when there is no more new jobs
-    for j in jobs:
-        results[dico[j.task_id()]] = ray.get(j)
-        if pt is not None:
-            ray.get(pt.update.remote())
-
-    return np.array(results)
-
-
 def deep_update(d: Mapping, u: Mapping) -> dict:
     for k, v in u.items():
         if isinstance(v, collections.abc.Mapping):
@@ -391,8 +310,3 @@ def override_config(new: Dict[str, Any], old: Dict[str, Any] = None) -> Dict[str
         else:
             out[section_name] = section
     return out
-
-
-def formatted_hostname():
-    s = socket.gethostname().replace(".", "_")
-    return (PREFIX_KEY_BASE + s).upper()

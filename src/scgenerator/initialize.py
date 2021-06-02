@@ -76,8 +76,8 @@ class ContinuationParamSequence(ParamSequence):
         """iterates through all possible parameters, yielding a config as well as a flattened
         computed parameters set each time"""
         for variable_list, full_config in required_simulations(self.config):
-            prev_data_dir = self.find_prev_data_dir(variable_list)
-            full_config["prev_data_dir"] = str(prev_data_dir.resolve())
+            prev_data_dir = self.find_prev_data_dir(variable_list).resolve()
+            full_config["prev_data_dir"] = str(prev_data_dir)
             yield variable_list, compute_init_parameters(full_config)
 
     def find_prev_data_dir(self, new_variable_list: List[Tuple[str, Any]]) -> Path:
@@ -116,7 +116,7 @@ class RecoveryParamSequence(ParamSequence):
 
         z_num = config["simulation"]["z_num"]
         started = self.num_sim
-        sub_folders = io.get_data_subfolders(self.id)
+        sub_folders = io.get_data_dirs(io.get_sim_dir(self.id))
 
         pbar_store = utils.PBars(
             tqdm(
@@ -157,7 +157,7 @@ class RecoveryParamSequence(ParamSequence):
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
         for variable_list, params in required_simulations(self.config):
 
-            data_dir = io.get_data_folder(self.id) / utils.format_variable_list(variable_list)
+            data_dir = io.get_sim_dir(self.id) / utils.format_variable_list(variable_list)
 
             if not data_dir.is_dir() or io.find_last_spectrum_num(data_dir) == 0:
                 if (prev_data_dir := self.find_prev_data_dir(variable_list)) is not None:
@@ -565,7 +565,8 @@ def _ensure_consistency(config):
 def recover_params(config: Dict[str, Any], data_folder: Path) -> Dict[str, Any]:
     params = compute_init_parameters(config)
     try:
-        prev_params = io.load_toml(data_folder / "params.toml")
+        prev_params = io.load_previous_parameters(data_folder / "params.toml")
+        prev_params = build_sim_grid(prev_params)
     except FileNotFoundError:
         prev_params = {}
     for k, v in prev_params.items():
@@ -602,7 +603,7 @@ def compute_init_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
         for key, value in config.get(section, {}).items():
             params[key] = value
 
-    params = _generate_sim_grid(params)
+    params = build_sim_grid(params)
 
     # Initial field may influence the grid
     if "mean_power" in params:
@@ -789,7 +790,7 @@ def _interp_range(w, upper, lower):
     return interp_range
 
 
-def _generate_sim_grid(params):
+def build_sim_grid(params):
     """computes a bunch of values that relate to the simulation grid
 
     Parameters

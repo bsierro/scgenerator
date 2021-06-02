@@ -1,13 +1,16 @@
 import argparse
 import os
+from pathlib import Path
 import random
-import sys
 
 import ray
 
-from scgenerator import initialize
-from ..physics.simulate import run_simulation_sequence, resume_simulations, SequencialSimulations
-from .. import io
+from scgenerator.physics.simulate import (
+    run_simulation_sequence,
+    resume_simulations,
+    SequencialSimulations,
+)
+from scgenerator import io
 
 
 def create_parser():
@@ -73,7 +76,11 @@ def run_sim(args):
 
 
 def merge(args):
-    io.append_and_merge(args.path, args.output_name)
+    path_trees = io.build_path_trees(Path(args.path))
+
+    if args.output_name is None:
+        args.output_name = path_trees[-1][0][0].parent.name + " merged"
+    io.merge(args.output_name, path_trees)
 
 
 def prep_ray(args):
@@ -98,7 +105,7 @@ def resume_sim(args):
     sim = resume_simulations(args.sim_dir, method=method)
     sim.run()
     run_simulation_sequence(
-        *args.configs, method=method, prev_sim_dir=sim.data_folder, final_name=args.output_name
+        *args.configs, method=method, prev_sim_dir=sim.sim_dir, final_name=args.output_name
     )
 
 

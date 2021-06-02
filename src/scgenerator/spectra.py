@@ -6,6 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
+from scgenerator.const import SPECN_FN
+
 from . import io, initialize, math
 from .plotting import units
 from .logger import get_logger
@@ -44,6 +46,8 @@ class Pulse(Sequence):
             self.params = io.load_previous_parameters(self.path / "params.toml")
         except FileNotFoundError:
             self.logger.info(f"parameters corresponding to {self.path} not found")
+
+        self.params = initialize.build_sim_grid(self.params)
 
         try:
             self.z = np.load(os.path.join(path, "z.npy"))
@@ -192,7 +196,7 @@ class Pulse(Sequence):
             i = self.nmax + i
         if i in self.cache:
             return self.cache[i]
-        spec = io.load_single_spectrum(self.path, i)
+        spec = np.load(self.path / SPECN_FN.format(i))
         if self.__ensure_2d:
             spec = np.atleast_2d(spec)
         spec = Spectrum(spec, self.wl, self.params["frep"])

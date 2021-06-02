@@ -173,32 +173,32 @@ class TestInitializeMethods(unittest.TestCase):
         t = d["time"]
         field = d["field"]
         conf = load_conf("custom_field/no_change")
-        conf = init._generate_sim_grid(conf)
+        conf = init.build_sim_grid(conf)
         result = init.setup_custom_field(conf)
         self.assertAlmostEqual(conf["field_0"].real.max(), field.real.max(), 4)
         self.assertTrue(result)
 
         conf = load_conf("custom_field/peak_power")
-        conf = init._generate_sim_grid(conf)
+        conf = init.build_sim_grid(conf)
         result = init.setup_custom_field(conf)
         self.assertAlmostEqual(math.abs2(conf["field_0"]).max(), 20000, 4)
         self.assertTrue(result)
         self.assertNotAlmostEqual(conf["wavelength"], 1593e-9)
 
         conf = load_conf("custom_field/mean_power")
-        conf = init._generate_sim_grid(conf)
+        conf = init.build_sim_grid(conf)
         result = init.setup_custom_field(conf)
         self.assertAlmostEqual(np.trapz(math.abs2(conf["field_0"]), conf["t"]), 0.22 / 40e6, 4)
         self.assertTrue(result)
 
         conf = load_conf("custom_field/recover1")
-        conf = init._generate_sim_grid(conf)
+        conf = init.build_sim_grid(conf)
         result = init.setup_custom_field(conf)
         self.assertAlmostEqual(math.abs2(conf["field_0"] - field).sum(), 0)
         self.assertTrue(result)
 
         conf = load_conf("custom_field/recover2")
-        conf = init._generate_sim_grid(conf)
+        conf = init.build_sim_grid(conf)
         result = init.setup_custom_field(conf)
         self.assertAlmostEqual((math.abs2(conf["field_0"]) / 0.9 - math.abs2(field)).sum(), 0)
         self.assertTrue(result)

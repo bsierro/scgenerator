@@ -13,6 +13,10 @@ spectra, params = load_sim_data("varyTechNoise100kW_sim_data")
     to plot
         plot_results_2D(spectra[0], (600, 1450, nm), params)
 
+# Environment variables
+
+SCGENERATOR_PBAR_POLICY : "none", "file", "print", "both", optional
+    whether progress should be printed to a file ("file"), to the standard output ("print") or both, default : print
 
 # Configuration
 

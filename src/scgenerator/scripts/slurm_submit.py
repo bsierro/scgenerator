@@ -1,11 +1,12 @@
 import argparse
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Tuple
+
 import numpy as np
 
 from ..initialize import validate_config_sequence
@@ -85,7 +86,7 @@ def create_parser():
     parser.add_argument(
         "--environment-setup",
         required=False,
-        default=f"source {os.path.expanduser('~/anaconda3/etc/profile.d/conda.sh')} && conda activate sc && export SCGENERATOR_HUSH_PROGRESS=\"\"",
+        default=f"source {os.path.expanduser('~/anaconda3/etc/profile.d/conda.sh')} && conda activate sc && export SCGENERATOR_PBAR_POLICY=file",
         help="commands to run to setup the environement (default : activate the sc environment with conda)",
     )
     parser.add_argument(

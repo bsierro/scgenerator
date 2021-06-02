@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Tuple, Type
 import numpy as np
 from tqdm import tqdm
 
-from .. import initialize, io, utils, const
+from .. import initialize, io, utils, const, env
 from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
 from . import pulse
@@ -70,11 +70,13 @@ class RK4IP:
             print/log progress update every n_percent, by default 10
         """
 
-        self.set_new_params(sim_params, save_data, job_identifier, task_id, n_percent)
-
-    def set_new_params(self, sim_params, save_data, job_identifier, task_id, n_percent):
         self.job_identifier = job_identifier
         self.id = task_id
+
+        self.sim_dir = io.get_sim_dir(self.id)
+        self.sim_dir.mkdir(exist_ok=True)
+        self.data_dir = self.sim_dir/self.job_identifier
+
         self.n_percent = n_percent
         self.logger = get_logger(self.job_identifier)
         self.resuming = False
@@ -177,7 +179,7 @@ class RK4IP:
         name : str
             file name
         """
-        io.save_data(data, name, self.id, self.job_identifier)
+        io.save_data(data, self.data_dir, name)
 
     def run(self):
 
@@ -307,14 +309,13 @@ class SequentialRK4IP(RK4IP):
     def __init__(
         self,
         sim_params,
-        overall_pbar: tqdm,
+        pbars: utils.PBars,
         save_data=False,
         job_identifier="",
         task_id=0,
         n_percent=10,
     ):
-        self.overall_pbar = overall_pbar
-        self.pbar = tqdm(**const.pbar_format(1))
+        self.pbars = pbars
         super().__init__(
             sim_params,
             save_data=save_data,
@@ -324,8 +325,8 @@ class SequentialRK4IP(RK4IP):
         )
 
     def step_saved(self):
-        self.overall_pbar.update()
-        self.pbar.update(self.z / self.z_final - self.pbar.n)
+        self.pbars.update(0)
+        self.pbars.update(1, self.z / self.z_final - self.pbars[1].n)
 
 
 class MutliProcRK4IP(RK4IP):
@@ -441,8 +442,8 @@ class Simulations:
         self.update(param_seq)
 
         self.name = self.param_seq.name
-        self.data_folder = io.get_data_folder(self.id, name_if_new=self.name)
-        io.save_toml(os.path.join(self.data_folder, "initial_config.toml"), self.param_seq.config)
+        self.sim_dir = io.get_sim_dir(self.id, name_if_new=self.name)
+        io.save_toml(os.path.join(self.sim_dir, "initial_config.toml"), self.param_seq.config)
 
         self.sim_jobs_per_node = 1
         self.max_concurrent_jobs = np.inf
@@ -451,7 +452,7 @@ class Simulations:
     def finished_and_complete(self):
         try:
             io.check_data_integrity(
-                io.get_data_subfolders(self.id), self.param_seq["simulation", "z_num"]
+                io.get_data_dirs(self.sim_dir), self.param_seq["simulation", "z_num"]
             )
             return True
         except IncompleteDataFolderError:
@@ -469,21 +470,21 @@ class Simulations:
 
     def _run_available(self):
         for variable, params in self.param_seq:
-            io.save_parameters(params, self.id, utils.format_variable_list(variable))
+            v_list_str = utils.format_variable_list(variable)
+            io.save_parameters(params, self.sim_dir / v_list_str)
 
-            self.new_sim(variable, params)
+            self.new_sim(v_list_str, params)
         self.finish()
 
-    def new_sim(self, variable_list: List[tuple], params: dict):
+    def new_sim(self, v_list_str: str, params: dict):
         """responsible to launch a new simulation
 
         Parameters
         ----------
-        variable_list : list[tuple]
-            list of tuples (name, value) where name is the name of a
-            variable parameter and value is its current value
+        v_list_str : str
+            string that uniquely identifies the simulation as returned by utils.format_variable_list
         params : dict
-            a flattened parameter dictionary, as returned by scgenerator.initialize.compute_init_parameters
+            a flattened parameter dictionary, as returned by initialize.compute_init_parameters
         """
         raise NotImplementedError()
 
@@ -508,15 +509,14 @@ class SequencialSimulations(Simulations, priority=0):
 
     def __init__(self, param_seq: initialize.ParamSequence, task_id):
         super().__init__(param_seq, task_id=task_id)
-        self.overall_pbar = tqdm(
-            total=self.param_seq.num_steps, desc="Simulating", unit="step", **const.pbar_format(0)
+        self.pbars = utils.PBars.auto(
+            self.param_seq.num_steps, "Simulating " + self.param_seq.name, 1
         )
 
-    def new_sim(self, variable_list: List[tuple], params: Dict[str, Any]):
-        v_list_str = utils.format_variable_list(variable_list)
+    def new_sim(self, v_list_str: str, params: Dict[str, Any]):
         self.logger.info(f"{self.param_seq.name} : launching simulation with {v_list_str}")
         SequentialRK4IP(
-            params, self.overall_pbar, save_data=True, job_identifier=v_list_str, task_id=self.id
+            params, self.pbars, save_data=True, job_identifier=v_list_str, task_id=self.id
         ).run()
 
     def stop(self):
@@ -545,7 +545,12 @@ class MultiProcSimulations(Simulations, priority=1):
         ]
         self.p_worker = multiprocessing.Process(
             target=utils.progress_worker,
-            args=(self.sim_jobs_per_node, self.param_seq.num_steps, self.progress_queue),
+            args=(
+                self.param_seq.name,
+                self.sim_jobs_per_node,
+                self.param_seq.num_steps,
+                self.progress_queue,
+            ),
         )
         self.p_worker.start()
 
@@ -554,8 +559,8 @@ class MultiProcSimulations(Simulations, priority=1):
             worker.start()
         super().run()
 
-    def new_sim(self, variable_list: List[tuple], params: dict):
-        self.queue.put((variable_list, params), block=True, timeout=None)
+    def new_sim(self, v_list_str: str, params: dict):
+        self.queue.put((v_list_str, params), block=True, timeout=None)
 
     def finish(self):
         """0 means finished"""
@@ -581,8 +586,7 @@ class MultiProcSimulations(Simulations, priority=1):
             if raw_data == 0:
                 queue.task_done()
                 return
-            variable_list, params = raw_data
-            v_list_str = utils.format_variable_list(variable_list)
+            v_list_str, params = raw_data
             MutliProcRK4IP(
                 params,
                 p_queue,
@@ -620,7 +624,7 @@ class RaySimulations(Simulations, priority=2):
         )
 
         self.propagator = ray.remote(RayRK4IP).options(
-            override_environment_variables=io.get_all_environ()
+            override_environment_variables=env.all_environ()
         )
         self.sim_jobs_per_node = min(
             self.param_seq.num_sim, self.param_seq["simulation", "parallel"]
@@ -631,16 +635,15 @@ class RaySimulations(Simulations, priority=2):
         self.rolling_id = 0
         self.p_actor = (
             ray.remote(utils.ProgressBarActor)
-            .options(override_environment_variables=io.get_all_environ())
-            .remote(self.sim_jobs_total, self.param_seq.num_steps)
+            .options(override_environment_variables=env.all_environ())
+            .remote(self.param_seq.name, self.sim_jobs_total, self.param_seq.num_steps)
         )
 
-    def new_sim(self, variable_list: List[tuple], params: dict):
+    def new_sim(self, v_list_str: str, params: dict):
         while len(self.jobs) >= self.sim_jobs_total:
             self._collect_1_job()
 
         self.rolling_id = (self.rolling_id + 1) % self.sim_jobs_total
-        v_list_str = utils.format_variable_list(variable_list)
 
         new_actor = self.propagator.remote(
             params,
@@ -693,8 +696,9 @@ def run_simulation_sequence(
     for config_file in config_files:
         sim = new_simulation(config_file, prev, method)
         sim.run()
-        prev = sim.data_folder
-    io.append_and_merge(prev, final_name)
+        prev = sim.sim_dir
+    path_trees = io.build_path_trees(sim.sim_dir)
+    io.merge(final_name, path_trees)
 
 
 def new_simulation(
