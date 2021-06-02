@@ -140,9 +140,24 @@ def prepare_for_serialization(dico: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def save_parameters(param_dict: Dict[str, Any], data_dir: Path) -> Path:
+def save_parameters(param_dict: Dict[str, Any], destination_dir: Path) -> Path:
+    """saves a parameter dictionary. Note that is does remove some entries, particularly
+    those that take a lot of space ("t", "w", ...)
+
+    Parameters
+    ----------
+    param_dict : Dict[str, Any]
+        dictionary to save
+    data_dir : Path
+        destination directory
+
+    Returns
+    -------
+    Path
+        path to newly created the paramter file
+    """
     param = param_dict.copy()
-    file_path = data_dir / "params.toml"
+    file_path = destination_dir / "params.toml"
 
     param = prepare_for_serialization(param)
     param["datetime"] = datetime.now()
@@ -158,6 +173,8 @@ def save_parameters(param_dict: Dict[str, Any], data_dir: Path) -> Path:
 
 def load_previous_parameters(path: os.PathLike):
     """loads a parameters toml files and converts data to appropriate type
+    It is advised to run initialize.build_sim_grid to recover some parameters that are not saved.
+
     Parameters
     ----------
     path : PathLike
