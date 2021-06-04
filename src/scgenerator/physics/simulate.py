@@ -75,7 +75,7 @@ class RK4IP:
 
         self.sim_dir = io.get_sim_dir(self.id)
         self.sim_dir.mkdir(exist_ok=True)
-        self.data_dir = self.sim_dir/self.job_identifier
+        self.data_dir = self.sim_dir / self.job_identifier
 
         self.n_percent = n_percent
         self.logger = get_logger(self.job_identifier)
@@ -698,6 +698,10 @@ def run_simulation_sequence(
         sim.run()
         prev = sim.sim_dir
     path_trees = io.build_path_trees(sim.sim_dir)
+
+    if final_name is None:
+        final_name = path_trees[0][-1][0].parent.name + " merged"
+
     io.merge(final_name, path_trees)
 
 

@@ -27,6 +27,7 @@ default_parameters = dict(
     lower_wavelength_interp_limit=300e-9,
     upper_wavelength_interp_limit=1900e-9,
     ideal_gas=False,
+    readjust_wavelength=False,
 )
 
 default_plotting = dict(

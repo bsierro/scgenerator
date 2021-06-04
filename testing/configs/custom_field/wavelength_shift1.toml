@@ -15,6 +15,7 @@ wavelength = 1050e-9
 behaviors = ["spm", "raman", "ss"]
 lower_wavelength_interp_limit = 300e-9
 raman_type = "agrawal"
+readjust_wavelength = true
 t_num = 16384
 time_window = 37e-12
 tolerated_error = 1e-11

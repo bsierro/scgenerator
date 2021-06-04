@@ -195,6 +195,7 @@ valid_param_types = dict(
         upper_wavelength_interp_limit=in_range_excl(num, (100e-9, 5000e-9)),
         frep=num,
         prev_sim_dir=string(),
+        readjust_wavelength=boolean,
     ),
 )
 
@@ -242,7 +243,14 @@ valid_variable = dict(
         "width",
         "soliton_num",
     ],
-    simulation=["behaviors", "raman_type", "tolerated_error", "step_size", "ideal_gas"],
+    simulation=[
+        "behaviors",
+        "raman_type",
+        "tolerated_error",
+        "step_size",
+        "ideal_gas",
+        "readjust_wavelength",
+    ],
 )
 
 ENVIRON_KEY_BASE = "SCGENERATOR_"

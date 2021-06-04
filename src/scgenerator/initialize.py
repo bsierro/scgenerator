@@ -511,6 +511,7 @@ def _ensure_consistency_simulation(simulation):
         "lower_wavelength_interp_limit",
         "upper_wavelength_interp_limit",
         "ideal_gas",
+        "readjust_wavelength",
     ]:
         simulation = defaults.get(simulation, param)
 
@@ -715,10 +716,11 @@ def setup_custom_field(params: Dict[str, Any]) -> bool:
         params["width"], params["peak_power"], params["energy"] = pulse.measure_field(
             params["t"], params["field_0"]
         )
-    delta_w = params["w_c"][np.argmax(abs2(np.fft.fft(params["field_0"])))]
-    logger.debug(f"adjusted w by {delta_w}")
-    params["wavelength"] = units.m.inv(units.m(params["wavelength"]) - delta_w)
-    _update_frequency_domain(params)
+    if params.get("readjust_wavelength", False):
+        delta_w = params["w_c"][np.argmax(abs2(np.fft.fft(params["field_0"])))]
+        logger.debug(f"adjusted w by {delta_w}")
+        params["wavelength"] = units.m.inv(units.m(params["wavelength"]) - delta_w)
+        _update_frequency_domain(params)
     return True
 
 

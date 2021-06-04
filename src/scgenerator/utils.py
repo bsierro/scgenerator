@@ -66,10 +66,7 @@ class PBars:
     def print(self):
         if "file" not in self.policy:
             return
-        if len(self.pbars) > 1:
-            s = [""]
-        else:
-            s = []
+        s = []
         for pbar in self.pbars:
             s.append(str(pbar))
         self.print_path.write_text("\n".join(s))

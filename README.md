@@ -251,3 +251,8 @@ upper_wavelength_interp_limit: float
     sets the lowest end of this range. If the set value is higher than the higher end of the
     wavelength window, it is lowered down to that point. default : 1900e-9
 
+readjust_wavelength : bool
+    if a custom input field is set, it is likely that the maximum of its corresponding spectrum doesn't lies exactly at the
+    set wavelength. If this setting is True, the program will override the wavelength parameter so that the maximum of the spectrum
+    lies on the desired wavelength.
+

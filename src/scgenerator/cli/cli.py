@@ -79,7 +79,7 @@ def merge(args):
     path_trees = io.build_path_trees(Path(args.path))
 
     if args.output_name is None:
-        args.output_name = path_trees[-1][0][0].parent.name + " merged"
+        args.output_name = path_trees[0][-1][0].parent.name + " merged"
     io.merge(args.output_name, path_trees)
 
 
