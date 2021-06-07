@@ -62,7 +62,7 @@ class PBars:
                 kwargs["desc"] = kwargs["desc"].format(worker_id=i)
             self.append(tqdm(position=i, ncols=100, ascii=False, **kwargs))
         self.print_path = Path("progress " + self.pbars[0].desc).resolve()
-        self.open = True
+        self.close_ev = threading.Event()
         if "file" in self.policy:
             self.thread = threading.Thread(target=self.print_worker, daemon=True)
             self.thread.start()
@@ -77,10 +77,8 @@ class PBars:
 
     def print_worker(self):
         while True:
-            for _ in range(100):
-                if not self.open:
-                    return
-                time.sleep(0.02)
+            if self.close_ev.wait(2.0):
+                return
             self.print()
 
     def __iter__(self):
@@ -115,7 +113,7 @@ class PBars:
 
     def close(self):
         self.print()
-        self.open = False
+        self.close_ev.set()
         if "file" in self.policy:
             self.thread.join()
         for pbar in self.pbars:
@@ -146,9 +144,8 @@ class ProgressBarActor:
             self.counters[worker_id] = rel_pos
 
     def update_pbars(self):
-        for counter, pbar in zip(self.counters, self.p_bars):
+        for counter, pbar in zip(self.counters, self.p_bars.pbars):
             pbar.update(counter - pbar.n)
-        self.p_bars.print()
 
     def close(self):
         self.p_bars.close()
