@@ -238,7 +238,8 @@ def check_data_integrity(sub_folders: List[Path], init_z_num: int):
     IncompleteDataFolderError
         raised if not all spectra are present in any folder
     """
-    for sub_folder in sub_folders:
+
+    for sub_folder in utils.PBars(sub_folders, "Checking integrity"):
         if num_left_to_propagate(sub_folder, init_z_num) != 0:
             raise IncompleteDataFolderError(
                 f"not enough spectra of the specified {init_z_num} found in {sub_folder}"
@@ -306,12 +307,11 @@ def build_path_trees(sim_dir: Path) -> List[PathTree]:
     sim_dir = sim_dir.resolve()
     path_branches: List[Tuple[Path, ...]] = []
     to_check = list(sim_dir.glob("id*num*"))
-    pbar = utils.PBars.auto(len(to_check), desc="Building path trees")
-    for branch in map(build_path_branch, to_check):
-        if branch is not None:
-            path_branches.append(branch)
-            pbar.update()
-    pbar.close()
+    with utils.PBars(len(to_check), desc="Building path trees") as pbar:
+        for branch in map(build_path_branch, to_check):
+            if branch is not None:
+                path_branches.append(branch)
+                pbar.update()
     path_trees = group_path_branches(path_branches)
     return path_trees
 
@@ -428,13 +428,9 @@ def merge(destination: os.PathLike, path_trees: List[PathTree] = None):
             destination / f"initial_config_{i}.toml",
         )
 
-    pbar = utils.PBars.auto(len(path_trees), desc="Merging")
-    for path_tree in path_trees:
+    for path_tree in utils.PBars(path_trees, desc="Merging"):
         iden = PARAM_SEPARATOR.join(path_tree[-1][0].name.split()[2:-2])
         merge_path_tree(path_tree, destination / iden)
-        pbar.update()
-
-    pbar.close()
 
 
 def sim_dirs(path_trees: List[PathTree]) -> Generator[Path, None, None]:

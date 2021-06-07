@@ -118,24 +118,14 @@ class RecoveryParamSequence(ParamSequence):
         started = self.num_sim
         sub_folders = io.get_data_dirs(io.get_sim_dir(self.id))
 
-        pbar_store = utils.PBars(
-            tqdm(
-                total=len(sub_folders),
-                desc="Initial recovery process",
-                unit="sim",
-                ncols=100,
-            )
-        )
-
-        for sub_folder in sub_folders:
+        for sub_folder in utils.PBars(
+            sub_folders, "Initial recovery", head_kwargs=dict(unit="sim")
+        ):
             num_left = io.num_left_to_propagate(sub_folder, z_num)
             if num_left == 0:
                 self.num_sim -= 1
             self.num_steps += num_left
             started -= 1
-            pbar_store.update()
-
-        pbar_store.close()
 
         self.num_steps += started * z_num
         self.single_sim = self.num_sim == 1

@@ -325,7 +325,6 @@ class SequentialRK4IP(RK4IP):
         )
 
     def step_saved(self):
-        self.pbars.update(0)
         self.pbars.update(1, self.z / self.z_final - self.pbars[1].n)
 
 
@@ -509,9 +508,7 @@ class SequencialSimulations(Simulations, priority=0):
 
     def __init__(self, param_seq: initialize.ParamSequence, task_id):
         super().__init__(param_seq, task_id=task_id)
-        self.pbars = utils.PBars.auto(
-            self.param_seq.num_steps, "Simulating " + self.param_seq.name, 1
-        )
+        self.pbars = utils.PBars(self.param_seq.num_steps, "Simulating " + self.param_seq.name, 1)
 
     def new_sim(self, v_list_str: str, params: Dict[str, Any]):
         self.logger.info(f"{self.param_seq.name} : launching simulation with {v_list_str}")
