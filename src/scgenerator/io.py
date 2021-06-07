@@ -1,24 +1,24 @@
+import itertools
 import os
-from datetime import datetime
-from typing import Any, Dict, Generator, List, Sequence, Tuple
 import shutil
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Generator, List, Sequence, Tuple
 
 import numpy as np
 import pkg_resources as pkg
 import toml
-from pathlib import Path
-import itertools
 
-from . import utils, env
+from . import __version__, env, utils
 from .const import (
     ENVIRON_KEY_BASE,
+    PARAM_FN,
     PARAM_SEPARATOR,
     PBAR_POLICY,
-    TMP_FOLDER_KEY_BASE,
     SPEC1_FN,
     SPECN_FN,
+    TMP_FOLDER_KEY_BASE,
     Z_FN,
-    PARAM_FN,
 )
 from .errors import IncompleteDataFolderError
 from .logger import get_logger
@@ -64,11 +64,6 @@ class Paths:
         """returned the specified file as a string"""
         with open(cls.get(key)) as file:
             return file.read()
-
-    @staticmethod
-    def tmp(task_id=0):
-        suffix = "" if task_id == 0 else str(task_id)
-        return ".scgenerator_tmp" + suffix
 
     @classmethod
     def plot(cls, name):
@@ -161,6 +156,7 @@ def save_parameters(param_dict: Dict[str, Any], destination_dir: Path) -> Path:
 
     param = prepare_for_serialization(param)
     param["datetime"] = datetime.now()
+    param["version"] = __version__
 
     file_path.parent.mkdir(exist_ok=True)
 
