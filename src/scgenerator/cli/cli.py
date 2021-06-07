@@ -1,19 +1,19 @@
 import argparse
 import os
-from pathlib import Path
 import random
+from pathlib import Path
+
+from scgenerator import io
+from scgenerator.physics.simulate import (
+    SequencialSimulations,
+    resume_simulations,
+    run_simulation_sequence,
+)
 
 try:
     import ray
 except ImportError:
     ray = None
-
-from scgenerator.physics.simulate import (
-    run_simulation_sequence,
-    resume_simulations,
-    SequencialSimulations,
-)
-from scgenerator import io
 
 
 def create_parser():
@@ -30,7 +30,7 @@ def create_parser():
     parser.add_argument(
         "--start-ray",
         action="store_true",
-        help="assume no ray instance has been started beforehand",
+        help="initialize ray (ray must be installed)",
     )
 
     parser.add_argument(
@@ -94,12 +94,11 @@ def prep_ray(args):
             try:
                 init_str = ray.init(
                     address="auto",
-                    # _node_ip_address=os.environ.get("ip_head", "127.0.0.1").split(":")[0],
                     _redis_password=os.environ.get("redis_password", "caco1234"),
                 )
                 print(init_str)
-            except ConnectionError:
-                pass
+            except ConnectionError as e:
+                print(e)
     return SequencialSimulations if args.no_ray else None
 
 

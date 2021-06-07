@@ -173,7 +173,6 @@ def progress_worker(
             if raw == 0:
                 return
             i, rel_pos = raw
-            print(i)
             pbars[i].update(rel_pos - pbars[i].n)
             pbars[0].update()
 
