@@ -3,7 +3,10 @@ import os
 from pathlib import Path
 import random
 
-import ray
+try:
+    import ray
+except ImportError:
+    ray = None
 
 from scgenerator.physics.simulate import (
     run_simulation_sequence,
@@ -84,18 +87,19 @@ def merge(args):
 
 
 def prep_ray(args):
-    if args.start_ray:
-        init_str = ray.init()
-    elif not args.no_ray:
-        try:
-            init_str = ray.init(
-                address="auto",
-                # _node_ip_address=os.environ.get("ip_head", "127.0.0.1").split(":")[0],
-                _redis_password=os.environ.get("redis_password", "caco1234"),
-            )
-            print(init_str)
-        except ConnectionError:
-            pass
+    if ray:
+        if args.start_ray:
+            init_str = ray.init()
+        elif not args.no_ray:
+            try:
+                init_str = ray.init(
+                    address="auto",
+                    # _node_ip_address=os.environ.get("ip_head", "127.0.0.1").split(":")[0],
+                    _redis_password=os.environ.get("redis_password", "caco1234"),
+                )
+                print(init_str)
+            except ConnectionError:
+                pass
     return SequencialSimulations if args.no_ray else None
 
 

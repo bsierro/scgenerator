@@ -35,8 +35,8 @@ def _set_debug():
 
 def get_logger(name=None):
     """returns a logging.Logger instance. This function is there because if scgenerator
-    is used with ray, workers are not aware of any configuration done with the logging
-    and so it must be reconfigured.
+    is used with some multiprocessing library, workers are not aware of any configuration done
+    with the logging and so it must be reconfigured.
 
     Parameters
     ----------
