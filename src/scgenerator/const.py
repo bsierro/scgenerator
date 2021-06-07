@@ -1,5 +1,7 @@
 import numpy as np
-from numpy.lib.arraysetops import isin
+
+
+__version__ = "0.1.0"
 
 
 def pbar_format(worker_id: int):

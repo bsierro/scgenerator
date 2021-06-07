@@ -9,8 +9,9 @@ import numpy as np
 import pkg_resources as pkg
 import toml
 
-from . import __version__, env, utils
+from . import env, utils
 from .const import (
+    __version__,
     ENVIRON_KEY_BASE,
     PARAM_FN,
     PARAM_SEPARATOR,
