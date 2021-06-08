@@ -1,5 +1,5 @@
 import numpy as np
-
+from collections import namedtuple
 
 __version__ = "0.1.0"
 
@@ -232,6 +232,7 @@ valid_variable = dict(
         "he_mode",
         "fit_parameters",
         "input_transmission",
+        "n2",
     ],
     gas=["pressure", "temperature", "gas_name", "plasma_density"],
     pulse=[
