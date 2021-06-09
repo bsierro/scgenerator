@@ -1,18 +1,19 @@
 import logging
 from typing import Optional
+from .env import log_policy
 
 
-class DebugOnlyFileHandler(logging.FileHandler):
-    def __init__(
-        self, filename, mode: str, encoding: Optional[str] = None, delay: bool = False
-    ) -> None:
-        super().__init__(filename, mode=mode, encoding=encoding, delay=delay)
-        self.setLevel(logging.DEBUG)
+# class DebugOnlyFileHandler(logging.FileHandler):
+#     def __init__(
+#         self, filename, mode: str, encoding: Optional[str] = None, delay: bool = False
+#     ) -> None:
+#         super().__init__(filename, mode=mode, encoding=encoding, delay=delay)
+#         self.setLevel(logging.DEBUG)
 
-    def emit(self, record: logging.LogRecord) -> None:
-        if not record.levelno == logging.DEBUG:
-            return
-        return super().emit(record)
+#     def emit(self, record: logging.LogRecord) -> None:
+#         if not record.levelno == logging.DEBUG:
+#             return
+#         return super().emit(record)
 
 
 DEFAULT_LEVEL = logging.INFO
@@ -80,19 +81,17 @@ def configure_logger(logger):
         updated logger
     """
     if not hasattr(logger, "already_configured"):
-        formatter = logging.Formatter("{levelname}: {name}: {message}", style="{")
-        file_handler1 = DebugOnlyFileHandler("sc-DEBUG.log", "a+")
-        file_handler1.setFormatter(formatter)
-        logger.addHandler(file_handler1)
 
-        file_handler2 = logging.FileHandler("sc-INFO.log", "a+")
-        file_handler2.setFormatter(formatter)
-        file_handler2.setLevel(logging.INFO)
-        logger.addHandler(file_handler2)
-
-        stream_handler = logging.StreamHandler()
-        stream_handler.setLevel(logging.WARNING)
-        logger.addHandler(stream_handler)
+        if "file" in log_policy():
+            formatter = logging.Formatter("{levelname}: {name}: {message}", style="{")
+            file_handler1 = logging.FileHandler("scgenerator.log", "a+")
+            file_handler1.setFormatter(formatter)
+            file_handler1.setLevel(logging.DEBUG)
+            logger.addHandler(file_handler1)
+        if "print" in log_policy():
+            stream_handler = logging.StreamHandler()
+            stream_handler.setLevel(logging.INFO)
+            logger.addHandler(stream_handler)
         logger.setLevel(logging.DEBUG)
 
         logger.already_configured = True

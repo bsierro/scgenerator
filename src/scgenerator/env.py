@@ -1,8 +1,8 @@
 import os
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Dict, Literal, Optional, Set
 
-from .const import ENVIRON_KEY_BASE, PBAR_POLICY, TMP_FOLDER_KEY_BASE
+from .const import ENVIRON_KEY_BASE, PBAR_POLICY, LOG_POLICY, TMP_FOLDER_KEY_BASE
 
 
 def data_folder(task_id: int) -> Optional[Path]:
@@ -17,13 +17,25 @@ def all_environ() -> Dict[str, str]:
     return d
 
 
-def pbar_policy() -> List[Literal["print", "file"]]:
+def pbar_policy() -> Set[Literal["print", "file"]]:
     policy = os.getenv(PBAR_POLICY)
     if policy == "print" or policy is None:
-        return ["print"]
+        return {"print"}
     elif policy == "file":
-        return ["file"]
+        return {"file"}
     elif policy == "both":
-        return ["file", "print"]
+        return {"file", "print"}
     else:
-        return []
+        return set()
+
+
+def log_policy() -> Set[Literal["print", "file"]]:
+    policy = os.getenv(LOG_POLICY)
+    if policy == "print" or policy is None:
+        return {"print"}
+    elif policy == "file":
+        return {"file"}
+    elif policy == "both":
+        return {"file", "print"}
+    else:
+        return set()
