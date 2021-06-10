@@ -1,55 +1,47 @@
 import os
+from pathlib import Path
+from typing import Any, Callable, Dict, Literal, Optional, Tuple, Union
 
 import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import ListedColormap
-from scgenerator.utils import variable_iterator
 from scipy.interpolate import UnivariateSpline
 
 from . import io, math
-from .math import abs2, length, make_uniform_1D, span
-from .physics import pulse, units
 from .defaults import default_plotting as defaults
+from .math import abs2, make_uniform_1D, span
+from .physics import pulse, units
+from .utils.parameter import BareParams
+
+RangeType = Tuple[float, float, Union[str, Callable]]
 
 
 def plot_setup(
-    folder_name=None,
-    file_name=None,
-    file_type="png",
-    figsize=defaults["figsize"],
-    params=None,
-    mode="default",
-):
+    out_path: Path,
+    file_type: str = "png",
+    figsize: Tuple[float, float] = defaults["figsize"],
+    mode: Literal["default", "coherence", "coherence_T"] = "default",
+) -> Tuple[Path, plt.Figure, Union[plt.Axes, Tuple[plt.Axes]]]:
     """It should return :
     - a folder_name
     - a file name
     - a fig
     - an axis
     """
-    file_name = defaults["name"] if file_name is None else file_name
+    out_path = defaults["name"] if out_path is None else out_path
+    plot_name = out_path.stem
+    out_dir = out_path.resolve().parent
 
-    if params is not None:
-        folder_name = params.get("plot.folder_name", folder_name)
-        file_name = params.get("plot.file_name", file_name)
-        file_type = params.get("plot.file_type", file_type)
-        figsize = params.get("plot.figsize", figsize)
+    file_name = plot_name + "." + file_type
+    out_path = out_dir / file_name
 
-    # ensure output folder_name exists
-    folder_name, file_name = (
-        os.path.split(file_name)
-        if folder_name is None
-        else (folder_name, os.path.split(file_name)[1])
-    )
-    folder_name = os.path.join(io.Paths.get("plots"), folder_name)
-    if not os.path.exists(os.path.abspath(folder_name)):
-        os.makedirs(os.path.abspath(folder_name))
+    os.makedirs(out_dir, exist_ok=True)
 
     # ensure no overwrite
     ind = 0
-    while os.path.exists(os.path.join(folder_name, file_name + "_" + str(ind) + "." + file_type)):
+    while (full_path := (out_dir / (plot_name + f"_{ind}." + file_type))).exists():
         ind += 1
-    file_name = file_name + "_" + str(ind) + "." + file_type
 
     if mode == "default":
         fig, ax = plt.subplots(figsize=figsize)
@@ -78,7 +70,7 @@ def plot_setup(
     else:
         raise ValueError(f"mode {mode} not understood")
 
-    return folder_name, file_name, fig, ax
+    return full_path, fig, ax
 
 
 def draw_across(ax1, xy1, ax2, xy2, clip_on=False, **kwargs):
@@ -297,9 +289,7 @@ def _finish_plot_2D(
 
     folder_name = ""
     if is_new_plot:
-        folder_name, file_name, fig, ax = plot_setup(
-            file_name=file_name, file_type=file_type, params=params
-        )
+        out_path, fig, ax = plot_setup(out_path=Path(folder_name) / file_name, file_type=file_type)
     else:
         fig = ax.get_figure()
 
@@ -345,8 +335,8 @@ def _finish_plot_2D(
         cbar.ax.set_ylabel(cbar_label)
 
     if is_new_plot:
-        fig.savefig(os.path.join(folder_name, file_name), bbox_inches="tight", dpi=200)
-        print(f"plot saved in {os.path.join(folder_name, file_name)}")
+        fig.savefig(out_path, bbox_inches="tight", dpi=200)
+        print(f"plot saved in {out_path}")
     if cbar_label is not None:
         return fig, ax, cbar.ax
     else:
@@ -354,20 +344,20 @@ def _finish_plot_2D(
 
 
 def plot_spectrogram(
-    values,
-    x_range,
-    y_range,
-    params,
-    t_res=None,
-    gate_width=None,
-    log=True,
-    vmin=None,
-    vmax=None,
-    cbar_label="normalized intensity (dB)",
-    file_type="png",
-    file_name=None,
-    cmap=None,
-    ax=None,
+    values: np.ndarray,
+    x_range: RangeType,
+    y_range: RangeType,
+    params: BareParams,
+    t_res: int = None,
+    gate_width: float = None,
+    log: bool = True,
+    vmin: float = None,
+    vmax: float = None,
+    cbar_label: str = "normalized intensity (dB)",
+    file_type: str = "png",
+    file_name: str = None,
+    cmap: str = None,
+    ax: plt.Axes = None,
 ):
     """Plots a spectrogram given a complex field in the time domain
     Parameters
@@ -382,7 +372,7 @@ def plot_spectrogram(
             units : function to convert from the desired units to rad/s or to time.
                     common functions are already defined in scgenerator.physics.units
                     look there for more details
-        params : dict
+        params : BareParams
             parameters of the simulations
         log : bool, optional
             whether to compute the logarithm of the spectrogram
@@ -424,16 +414,16 @@ def plot_spectrogram(
     t_win = 2 * np.max(t_range[2](np.abs(t_range[:2])))
     spec_kwargs = dict(t_res=t_res, t_win=t_win, gate_width=gate_width, shift=False)
     spec, new_t = pulse.spectrogram(
-        params["t"].copy(), values, **{k: v for k, v in spec_kwargs.items() if v is not None}
+        params.t.copy(), values, **{k: v for k, v in spec_kwargs.items() if v is not None}
     )
 
     # Crop and reoder axis
     new_t, ind_t, _ = units.sort_axis(new_t, t_range)
-    new_f, ind_f, _ = units.sort_axis(params["w"], f_range)
+    new_f, ind_f, _ = units.sort_axis(params.w, f_range)
     values = spec[ind_t][:, ind_f]
     if f_range[2].type == "WL":
         values = np.apply_along_axis(
-            units.to_WL, 1, values, params["frep"], units.m(f_range[2].inv(new_f))
+            units.to_WL, 1, values, params.frep, units.m(f_range[2].inv(new_f))
         )
         values = np.apply_along_axis(make_uniform_1D, 1, values, new_f)
 
@@ -463,19 +453,19 @@ def plot_spectrogram(
 
 
 def plot_results_2D(
-    values,
-    plt_range,
-    params,
-    log="1D",
-    skip=16,
-    vmin=None,
-    vmax=None,
-    transpose=False,
-    cbar_label="normalized intensity (dB)",
-    file_type="png",
-    file_name=None,
-    cmap=None,
-    ax=None,
+    values: np.ndarray,
+    plt_range: RangeType,
+    params: BareParams,
+    log: Union[int, float, bool, str] = "1D",
+    skip: int = 16,
+    vmin: float = None,
+    vmax: float = None,
+    transpose: bool = False,
+    cbar_label: Optional[str] = "normalized intensity (dB)",
+    file_type: str = "png",
+    file_name: str = None,
+    cmap: str = None,
+    ax: plt.Axes = None,
 ):
     """
     plots 2D arrays and automatically saves the plots, as well as returns it
@@ -540,27 +530,32 @@ def plot_results_2D(
     # make uniform if converting to wavelength
     if plt_range[2].type == "WL":
         if is_spectrum:
-            values = np.apply_along_axis(units.to_WL, 1, values, params.get("frep", 1), x_axis)
+            values = np.apply_along_axis(units.to_WL, 1, values, params.frep, x_axis)
         values = np.array(
             [make_uniform_1D(v, x_axis, n=len(x_axis), method="linear") for v in values]
         )
 
-    z = params["z_targets"]
-    lim_diff = 1e-5 * np.max(z)
-    dz_s = np.diff(z)
+    lim_diff = 1e-5 * np.max(params.z_targets)
+    dz_s = np.diff(params.z_targets)
     if not np.all(np.diff(dz_s) < lim_diff):
         new_z = np.linspace(
-            *span(z), int(np.floor((np.max(z) - np.min(z)) / np.min(dz_s[dz_s > lim_diff])))
+            *span(params.z_targets),
+            int(
+                np.floor(
+                    (np.max(params.z_targets) - np.min(params.z_targets))
+                    / np.min(dz_s[dz_s > lim_diff])
+                )
+            ),
         )
         values = np.array(
-            [make_uniform_1D(v, z, n=len(new_z), method="linear") for v in values.T]
+            [make_uniform_1D(v, params.z_targets, n=len(new_z), method="linear") for v in values.T]
         ).T
-        z = new_z
+        params.z_targets = new_z
     return _finish_plot_2D(
         values,
         x_axis,
         plt_range[2].label,
-        z,
+        params.z_targets,
         "propagation distance (m)",
         log,
         vmin,
@@ -576,20 +571,20 @@ def plot_results_2D(
 
 
 def plot_results_1D(
-    values,
-    plt_range,
-    params,
-    log=False,
-    spacing=1,
-    vmin=None,
-    vmax=None,
-    ylabel=None,
-    yscaling=1,
-    file_type="pdf",
-    file_name=None,
-    ax=None,
-    line_label=None,
-    transpose=False,
+    values: np.ndarray,
+    plt_range: RangeType,
+    params: BareParams,
+    log: Union[str, int, float, bool] = False,
+    spacing: Union[int, float] = 1,
+    vmin: float = None,
+    vmax: float = None,
+    ylabel: str = None,
+    yscaling: float = 1,
+    file_type: str = "pdf",
+    file_name: str = None,
+    ax: plt.Axes = None,
+    line_label: str = None,
+    transpose: bool = False,
     **line_kwargs,
 ):
     """
@@ -656,7 +651,7 @@ def plot_results_1D(
     # make uniform if converting to wavelength
     if plt_range[2].type == "WL":
         if is_spectrum:
-            values = units.to_WL(values, params["frep"], units.m.inv(params["w"][ind]))
+            values = units.to_WL(values, params.frep, units.m.inv(params.w[ind]))
 
     # change the resolution
     if isinstance(spacing, float):
@@ -683,9 +678,7 @@ def plot_results_1D(
 
     folder_name = ""
     if is_new_plot:
-        folder_name, file_name, fig, ax = plot_setup(
-            file_name=file_name, file_type=file_type, params=params
-        )
+        out_path, fig, ax = plot_setup(out_path=Path(folder_name) / file_name, file_type=file_type)
     else:
         fig = ax.get_figure()
     if transpose:
@@ -702,40 +695,40 @@ def plot_results_1D(
         ax.set_xlabel(plt_range[2].label)
 
     if is_new_plot:
-        fig.savefig(os.path.join(folder_name, file_name), bbox_inches="tight", dpi=200)
-        print(f"plot saved in {os.path.join(folder_name, file_name)}")
+        fig.savefig(out_path, bbox_inches="tight", dpi=200)
+        print(f"plot saved in {out_path}")
     return fig, ax, x_axis, values
 
 
-def _prep_plot(values, plt_range, params):
+def _prep_plot(values: np.ndarray, plt_range: RangeType, params: BareParams):
     is_spectrum = values.dtype == "complex"
     plt_range = (*plt_range[:2], units.get_unit(plt_range[2]))
     if plt_range[2].type in ["WL", "FREQ", "AFREQ"]:
-        x_axis = params["w"].copy()
+        x_axis = params.w.copy()
     else:
-        x_axis = params["t"].copy()
+        x_axis = params.t.copy()
     return is_spectrum, x_axis, plt_range
 
 
 def plot_avg(
-    values,
-    plt_range,
-    params,
-    log=False,
-    spacing=1,
-    vmin=None,
-    vmax=None,
-    ylabel=None,
-    yscaling=1,
-    renormalize=True,
-    add_coherence=False,
-    file_type="png",
-    file_name=None,
-    ax=None,
-    line_labels=None,
-    legend=True,
-    legend_kwargs={},
-    transpose=False,
+    values: np.ndarray,
+    plt_range: RangeType,
+    params: BareParams,
+    log: Union[float, int, str, bool] = False,
+    spacing: Union[float, int] = 1,
+    vmin: float = None,
+    vmax: float = None,
+    ylabel: str = None,
+    yscaling: float = 1,
+    renormalize: bool = True,
+    add_coherence: bool = False,
+    file_type: str = "png",
+    file_name: str = None,
+    ax: plt.Axes = None,
+    line_labels: Tuple[str, str] = None,
+    legend: bool = True,
+    legend_kwargs: Dict[str, Any] = {},
+    transpose: bool = False,
 ):
     """
     plots 1D arrays and there mean and automatically saves the plots, as well as returns it
@@ -817,8 +810,8 @@ def plot_avg(
     values *= yscaling
     mean_values = np.mean(values, axis=0)
     if plt_range[2].type == "WL" and renormalize:
-        values = np.apply_along_axis(units.to_WL, 1, values, params["frep"], x_axis)
-        mean_values = units.to_WL(mean_values, params["frep"], x_axis)
+        values = np.apply_along_axis(units.to_WL, 1, values, params.frep, x_axis)
+        mean_values = units.to_WL(mean_values, params.frep, x_axis)
 
     # change the resolution
     if isinstance(spacing, float):
@@ -852,12 +845,12 @@ def plot_avg(
     if is_new_plot:
         if add_coherence:
             mode = "coherence_T" if transpose else "coherence"
-            folder_name, file_name, fig, (top, bot) = plot_setup(
-                file_name=file_name, file_type=file_type, params=params, mode=mode
+            out_path, fig, (top, bot) = plot_setup(
+                out_path=Path(folder_name) / file_name, file_type=file_type, mode=mode
             )
         else:
-            folder_name, file_name, fig, top = plot_setup(
-                file_name=file_name, file_type=file_type, params=params
+            out_path, fig, top = plot_setup(
+                out_path=Path(folder_name) / file_name, file_type=file_type
             )
             bot = top
     else:
@@ -923,8 +916,8 @@ def plot_avg(
         top.legend(custom_lines, line_labels, **legend_kwargs)
 
     if is_new_plot:
-        fig.savefig(os.path.join(folder_name, file_name), bbox_inches="tight", dpi=200)
-        print(f"plot saved in {os.path.join(folder_name, file_name)}")
+        fig.savefig(out_path, bbox_inches="tight", dpi=200)
+        print(f"plot saved in {out_path}")
 
     if top is bot:
         return fig, top
@@ -982,46 +975,6 @@ def prepare_plot_1D(values, plt_range, x_axis, yscaling=1, spacing=1, frep=80e6)
         x_axis = x_axis[::spacing]
 
     return x_axis, np.squeeze(values)
-
-
-def plot_dispersion_parameter(params, plt_range):
-    """
-    Plots the dispersion parameter D as well as the beta2 parameter over the given range
-    """
-    # TODO allow several curves, with legends, to be plotted
-
-    x_axis = np.linspace(*plt_range[:2], 1000)
-    w_axis = plt_range[2](x_axis)
-
-    if "disp_obj" in params:
-        D = params["disp_obj"].D_w(w_axis)
-        beta2 = params["disp_obj"].beta2_w(w_axis)
-    else:
-        print("no dispersion information given")
-        return
-
-    fig, (ax_D, ax_beta2) = plt.subplots(1, 2)
-
-    ax_D.plot(x_axis, 1e6 * D)
-    ax_D.plot(
-        x_axis,
-        0 * x_axis,
-        ":",
-        c="k",
-    )
-    ax_D.set_xlabel(plt_range[2].label)
-    ax_D.set_ylabel(r"Dispersion parameter $D$ ($\frac{\mathrm{ps}}{\mathrm{nm\ km}}$)")
-
-    ax_beta2.plot(x_axis, 1e27 * beta2)
-    ax_beta2.plot(
-        x_axis,
-        0 * x_axis,
-        ":",
-        c="k",
-    )
-    ax_beta2.set_xlabel(plt_range[2].label)
-    ax_beta2.set_ylabel(r"$\beta_2$ parameter ($\frac{\mathrm{ps}^2}{\mathrm{km}}$)")
-    plt.show()
 
 
 def white_bottom_cmap(name, start=0, end=1, new_name="white_background", c_back=(1, 1, 1, 1)):

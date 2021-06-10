@@ -1,7 +1,6 @@
 import logging
-from typing import Optional
-from .env import log_policy
 
+from .env import log_policy
 
 # class DebugOnlyFileHandler(logging.FileHandler):
 #     def __init__(

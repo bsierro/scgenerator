@@ -1,7 +1,6 @@
 import numpy as np
 
 from ..logger import get_logger
-
 from . import units
 from .units import NA, c, kB
 

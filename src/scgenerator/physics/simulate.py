@@ -1,7 +1,8 @@
 import multiprocessing
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Tuple, Type
+from pathlib import Path
+from typing import Dict, List, Tuple, Type
 
 import numpy as np
 
@@ -18,7 +19,14 @@ except ModuleNotFoundError:
 
 
 class RK4IP:
-    def __init__(self, sim_params, save_data=False, job_identifier="", task_id=0, n_percent=10):
+    def __init__(
+        self,
+        params: initialize.Params,
+        save_data=False,
+        job_identifier="",
+        task_id=0,
+        n_percent=10,
+    ):
         """A 1D solver using 4th order Runge-Kutta in the interaction picture
 
         Parameters
@@ -76,31 +84,29 @@ class RK4IP:
         self.logger = get_logger(self.job_identifier)
         self.resuming = False
         self.save_data = save_data
-        self._extract_params(sim_params)
-        self._setup_functions()
-        self.starting_num = sim_params.get("recovery_last_stored", 0)
-        self._setup_sim_parameters()
 
-    def _extract_params(self, params):
-        self.w_c = params.pop("w_c")
-        self.w0 = params.pop("w0")
-        self.w_power_fact = params.pop("w_power_fact")
-        self.spec_0 = params.pop("spec_0")
-        self.z_targets = params.pop("z_targets")
-        self.z_final = params.pop("length")
-        self.beta = params.pop("beta_func", params.pop("beta"))
-        self.gamma = params.pop("gamma_func", params.pop("gamma"))
-        self.behaviors = params.pop("behaviors")
-        self.raman_type = params.pop("raman_type", "stolen")
-        self.f_r = params.pop("f_r", 0)
-        self.hr_w = params.pop("hr_w", None)
-        self.adapt_step_size = params.pop("adapt_step_size", True)
-        self.error_ok = params.pop("error_ok")
-        self.dynamic_dispersion = params.pop("dynamic_dispersion", False)
+        self.w_c = params.w_c
+        self.w0 = params.w0
+        self.w_power_fact = params.w_power_fact
+        self.spec_0 = params.spec_0
+        self.z_targets = params.z_targets
+        self.z_final = params.length
+        self.beta = params.beta_func if params.beta_func is not None else params.beta
+        self.gamma = params.gamma_func if params.gamma_func is not None else params.gamma
+        self.behaviors = params.behaviors
+        self.raman_type = params.raman_type
+        self.hr_w = params.hr_w
+        self.adapt_step_size = params.adapt_step_size
+        self.error_ok = params.error_ok
+        self.dynamic_dispersion = params.dynamic_dispersion
+        self.starting_num = params.recovery_last_stored
+
+        self._setup_functions()
+        self._setup_sim_parameters()
 
     def _setup_functions(self):
         self.N_func = create_non_linear_op(
-            self.behaviors, self.w_c, self.w0, self.gamma, self.raman_type, self.f_r, self.hr_w
+            self.behaviors, self.w_c, self.w0, self.gamma, self.raman_type, hr_w=self.hr_w
         )
 
         if self.dynamic_dispersion:
@@ -303,7 +309,7 @@ class RK4IP:
 class SequentialRK4IP(RK4IP):
     def __init__(
         self,
-        sim_params,
+        params: initialize.Params,
         pbars: utils.PBars,
         save_data=False,
         job_identifier="",
@@ -312,7 +318,7 @@ class SequentialRK4IP(RK4IP):
     ):
         self.pbars = pbars
         super().__init__(
-            sim_params,
+            params,
             save_data=save_data,
             job_identifier=job_identifier,
             task_id=task_id,
@@ -326,7 +332,7 @@ class SequentialRK4IP(RK4IP):
 class MutliProcRK4IP(RK4IP):
     def __init__(
         self,
-        sim_params,
+        params: initialize.Params,
         p_queue: multiprocessing.Queue,
         worker_id: int,
         save_data=False,
@@ -337,7 +343,7 @@ class MutliProcRK4IP(RK4IP):
         self.worker_id = worker_id
         self.p_queue = p_queue
         super().__init__(
-            sim_params,
+            params,
             save_data=save_data,
             job_identifier=job_identifier,
             task_id=task_id,
@@ -351,7 +357,7 @@ class MutliProcRK4IP(RK4IP):
 class RayRK4IP(RK4IP):
     def __init__(
         self,
-        sim_params,
+        params: initialize.Params,
         p_actor,
         worker_id: int,
         save_data=False,
@@ -362,7 +368,7 @@ class RayRK4IP(RK4IP):
         self.worker_id = worker_id
         self.p_actor = p_actor
         super().__init__(
-            sim_params,
+            params,
             save_data=save_data,
             job_identifier=job_identifier,
             task_id=task_id,
@@ -414,7 +420,7 @@ class Simulations:
             if isinstance(method, str):
                 method = Simulations.simulation_methods_dict[method]
             return method(param_seq, task_id)
-        elif param_seq.num_sim > 1 and param_seq["simulation", "parallel"]:
+        elif param_seq.num_sim > 1 and param_seq.config.parallel:
             return Simulations.get_best_method()(param_seq, task_id)
         else:
             return SequencialSimulations(param_seq, task_id)
@@ -439,7 +445,7 @@ class Simulations:
 
         self.name = self.param_seq.name
         self.sim_dir = io.get_sim_dir(self.id, name_if_new=self.name)
-        io.save_toml(os.path.join(self.sim_dir, "initial_config.toml"), self.param_seq.config)
+        io.save_parameters(self.param_seq.config, self.sim_dir, file_name="initial_config.toml")
 
         self.sim_jobs_per_node = 1
         self.max_concurrent_jobs = np.inf
@@ -447,9 +453,7 @@ class Simulations:
     @property
     def finished_and_complete(self):
         try:
-            io.check_data_integrity(
-                io.get_data_dirs(self.sim_dir), self.param_seq["simulation", "z_num"]
-            )
+            io.check_data_integrity(io.get_data_dirs(self.sim_dir), self.param_seq.config.z_num)
             return True
         except IncompleteDataFolderError:
             return False
@@ -472,15 +476,15 @@ class Simulations:
             self.new_sim(v_list_str, params)
         self.finish()
 
-    def new_sim(self, v_list_str: str, params: dict):
+    def new_sim(self, v_list_str: str, params: initialize.Params):
         """responsible to launch a new simulation
 
         Parameters
         ----------
         v_list_str : str
             string that uniquely identifies the simulation as returned by utils.format_variable_list
-        params : dict
-            a flattened parameter dictionary, as returned by initialize.compute_init_parameters
+        params : initialize.Params
+            computed parameters
         """
         raise NotImplementedError()
 
@@ -507,7 +511,7 @@ class SequencialSimulations(Simulations, priority=0):
         super().__init__(param_seq, task_id=task_id)
         self.pbars = utils.PBars(self.param_seq.num_steps, "Simulating " + self.param_seq.name, 1)
 
-    def new_sim(self, v_list_str: str, params: Dict[str, Any]):
+    def new_sim(self, v_list_str: str, params: initialize.Params):
         self.logger.info(f"{self.param_seq.name} : launching simulation with {v_list_str}")
         SequentialRK4IP(
             params, self.pbars, save_data=True, job_identifier=v_list_str, task_id=self.id
@@ -517,7 +521,7 @@ class SequencialSimulations(Simulations, priority=0):
         pass
 
     def finish(self):
-        pass
+        self.pbars.close()
 
 
 class MultiProcSimulations(Simulations, priority=1):
@@ -553,7 +557,7 @@ class MultiProcSimulations(Simulations, priority=1):
             worker.start()
         super().run()
 
-    def new_sim(self, v_list_str: str, params: dict):
+    def new_sim(self, v_list_str: str, params: initialize.Params):
         self.queue.put((v_list_str, params), block=True, timeout=None)
 
     def finish(self):
@@ -576,7 +580,7 @@ class MultiProcSimulations(Simulations, priority=1):
         p_queue: multiprocessing.Queue,
     ):
         while True:
-            raw_data: Tuple[List[tuple], Dict[str, Any]] = queue.get()
+            raw_data: Tuple[List[tuple], initialize.Params] = queue.get()
             if raw_data == 0:
                 queue.task_done()
                 return
@@ -635,7 +639,7 @@ class RaySimulations(Simulations, priority=2):
             .remote(self.param_seq.name, self.sim_jobs_total, self.param_seq.num_steps)
         )
 
-    def new_sim(self, v_list_str: str, params: dict):
+    def new_sim(self, v_list_str: str, params: initialize.Params):
         while len(self.jobs) >= self.sim_jobs_total:
             self._collect_1_job()
 
@@ -707,28 +711,27 @@ def new_simulation(
     method: Type[Simulations] = None,
 ) -> Simulations:
 
-    config = io.load_toml(config_file)
+    config_dict = io.load_toml(config_file)
 
     if prev_sim_dir is not None:
-        config.setdefault("simulation", {})
-        config["simulation"]["prev_sim_dir"] = str(prev_sim_dir)
+        config_dict["prev_sim_dir"] = str(prev_sim_dir)
 
     task_id = np.random.randint(1e9, 1e12)
 
     if prev_sim_dir is None:
-        param_seq = initialize.ParamSequence(config)
+        param_seq = initialize.ParamSequence(config_dict)
     else:
-        param_seq = initialize.ContinuationParamSequence(prev_sim_dir, config)
+        param_seq = initialize.ContinuationParamSequence(prev_sim_dir, config_dict)
 
     print(f"{param_seq.name=}")
 
     return Simulations.new(param_seq, task_id, method)
 
 
-def resume_simulations(sim_dir: str, method: Type[Simulations] = None) -> Simulations:
+def resume_simulations(sim_dir: Path, method: Type[Simulations] = None) -> Simulations:
 
     task_id = np.random.randint(1e9, 1e12)
-    config = io.load_toml(os.path.join(sim_dir, "initial_config.toml"))
+    config = io.load_toml(sim_dir / "initial_config.toml")
     io.set_data_folder(task_id, sim_dir)
     param_seq = initialize.RecoveryParamSequence(config, task_id)
 

@@ -1,8 +1,8 @@
-from typing import Type, Union
+from typing import Union
+
 import numpy as np
+from scipy.interpolate import griddata, interp1d
 from scipy.special import jn_zeros
-from scipy.interpolate import interp1d, griddata
-from numba import jit
 
 
 def span(*vec):
@@ -54,7 +54,6 @@ def power_fact(x, n):
         raise TypeError(f"type {type(x)} of x not supported.")
 
 
-@jit(nopython=True)
 def _power_fact_single(x, n):
     result = 1.0
     for k in range(n):
@@ -62,7 +61,6 @@ def _power_fact_single(x, n):
     return result
 
 
-@jit(nopython=True)
 def _power_fact_array(x, n):
     result = np.ones(len(x), dtype=np.float64)
     for k in range(n):
@@ -70,7 +68,6 @@ def _power_fact_array(x, n):
     return result
 
 
-@jit(nopython=True)
 def abs2(z: np.ndarray) -> np.ndarray:
     return z.real ** 2 + z.imag ** 2
 

@@ -128,11 +128,11 @@ def main():
     args.nodes, args.cpus_per_node = distribute(sim_num, args.nodes, args.cpus_per_node)
 
     submit_path = Path(
-        "submit " + final_config["name"] + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh"
+        "submit " + final_config.name + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh"
     )
     tmp_path = Path("submit tmp.sh")
 
-    job_name = f"supercontinuum {final_config['name']}"
+    job_name = f"supercontinuum {final_config.name}"
     submit_sh = template.format(
         job_name=job_name, configs_list=" ".join(f'"{c}"' for c in args.configs), **vars(args)
     )

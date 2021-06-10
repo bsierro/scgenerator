@@ -34,18 +34,3 @@ class DuplicateParameterError(Exception):
 
 class IncompleteDataFolderError(FileNotFoundError):
     pass
-
-
-# class MissingFiberParameterError(MissingParameterError):
-#     def __init__(self, param, model):
-#         self.param = param
-#         self.model = model
-#         super().__init__(
-#             f"'{self.param}' is a required parameter for fiber model '{self.model}' and no default value is set"
-#         )
-
-
-# class MissingPulseParameterError(MissingParameterError):
-#     def __init__(self, param):
-#         self.param = param
-#         super().__init__(f"'{self.param}' is a required pulse parameter and no default value is set")

@@ -4,24 +4,23 @@ scgenerator module but some function may be used in any python program
 
 """
 
-
-import collections
 import itertools
 import multiprocessing
 import threading
-import time
 from collections import abc
 from copy import deepcopy
+from dataclasses import asdict, replace
 from io import StringIO
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, Tuple, TypeVar, Union
+from typing import Any, Dict, Iterable, Iterator, List, Tuple, TypeVar, Union
 
 import numpy as np
 from tqdm import tqdm
 
-from . import env
-from .const import PARAM_SEPARATOR, valid_variable
-from .math import *
+from .. import env
+from ..const import PARAM_SEPARATOR
+from ..math import *
+from .parameter import BareConfig, BareParams
 
 T_ = TypeVar("T_")
 
@@ -177,18 +176,11 @@ def progress_worker(
             pbars[0].update()
 
 
-def count_variations(config: dict) -> Tuple[int, int]:
+def count_variations(config: BareConfig) -> Tuple[int, int]:
     """returns (sim_num, variable_params_num) where sim_num is the total number of simulations required and
     variable_params_num is the number of distinct parameters that will vary."""
-    sim_num = 1
-    variable_params_num = 0
-
-    for section_name in valid_variable:
-        for array in config.get(section_name, {}).get("variable", {}).values():
-            sim_num *= len(array)
-            variable_params_num += 1
-
-    sim_num *= config["simulation"].get("repeat", 1)
+    variable_params_num = len(config.variable)
+    sim_num = np.prod([len(l) for l in config.variable.values()]) * config.repeat
     return sim_num, variable_params_num
 
 
@@ -217,49 +209,45 @@ def format_value(value):
         return str(value)
 
 
-def variable_iterator(config) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
+def variable_iterator(config: BareConfig) -> Iterator[Tuple[List[Tuple[str, Any]], BareParams]]:
     """given a config with "variable" parameters, iterates through every possible combination,
     yielding a a list of (parameter_name, value) tuples and a full config dictionary.
 
     Parameters
     ----------
-    config : dict
-        initial config dictionary
+    config : BareConfig
+        initial config obj
 
     Yields
     -------
-    Iterator[Tuple[List[Tuple[str, Any]], dict]]
+    Iterator[Tuple[List[Tuple[str, Any]], BareParams]]
         variable_list : a list of (name, value) tuple of parameter name and value that are variable.
 
-        dict : a config dictionary for one simulation
+        params : a BareParams obj for one simulation
     """
-    indiv_config = deepcopy(config)
-    variable_dict = {
-        section_name: indiv_config.get(section_name, {}).pop("variable", {})
-        for section_name in valid_variable
-    }
-
     possible_keys = []
     possible_ranges = []
 
-    for section_name, section in variable_dict.items():
-        for key in section:
-            arr = variable_dict[section_name][key]
-            possible_keys.append((section_name, key))
-            possible_ranges.append(range(len(arr)))
+    for key, values in config.variable.items():
+        possible_keys.append(key)
+        possible_ranges.append(range(len(values)))
 
     combinations = itertools.product(*possible_ranges)
 
     for combination in combinations:
+        indiv_config = {}
         variable_list = []
         for i, key in enumerate(possible_keys):
-            parameter_value = variable_dict[key[0]][key[1]][combination[i]]
-            indiv_config[key[0]][key[1]] = parameter_value
-            variable_list.append((key[1], parameter_value))
-        yield variable_list, indiv_config
+            parameter_value = config.variable[key][combination[i]]
+            indiv_config[key] = parameter_value
+            variable_list.append((key, parameter_value))
+        param_dict = asdict(config)
+        param_dict.pop("variable")
+        param_dict.update(indiv_config)
+        yield variable_list, BareParams(**param_dict)
 
 
-def required_simulations(config) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]:
+def required_simulations(config: BareConfig) -> Iterator[Tuple[List[Tuple[str, Any]], BareParams]]:
     """takes the output of `scgenerator.utils.variable_iterator` which is a new dict per different
     parameter set and iterates through every single necessary simulation
 
@@ -273,48 +261,19 @@ def required_simulations(config) -> Iterator[Tuple[List[Tuple[str, Any]], dict]]
         dict : a config dictionary for one simulation
     """
     i = 0  # unique sim id
-    for variable_only, full_config in variable_iterator(config):
-        for j in range(config["simulation"]["repeat"]):
+    for variable_only, bare_params in variable_iterator(config):
+        for j in range(config.repeat):
             variable_ind = [("id", i)] + variable_only + [("num", j)]
             i += 1
-            yield variable_ind, full_config
+            yield variable_ind, bare_params
 
 
-def deep_update(d: Mapping, u: Mapping) -> dict:
-    for k, v in u.items():
-        if isinstance(v, collections.abc.Mapping):
-            d[k] = deep_update(d.get(k, {}), v)
-        else:
-            d[k] = v
-    return d
-
-
-def override_config(new: Dict[str, Any], old: Dict[str, Any] = None) -> Dict[str, Any]:
+def override_config(new: Dict[str, Any], old: BareConfig = None) -> BareConfig:
     """makes sure all the parameters set in new are there, leaves untouched parameters in old"""
     if old is None:
-        return new
-    out = deepcopy(old)
-    for section_name, section in new.items():
-        if isinstance(section, Mapping):
-            for param_name, value in section.items():
-                if param_name == "variable" and isinstance(value, Mapping):
-                    out[section_name].setdefault("variable", {})
-                    for p, v in value.items():
-                        # override previously unvariable param
-                        if p in old[section_name]:
-                            del out[section_name][p]
-                        out[section_name]["variable"][p] = v
-                else:
-                    # override previously variable param
-                    if (
-                        "variable" in old[section_name]
-                        and isinstance(old[section_name]["variable"], Mapping)
-                        and param_name in old[section_name]["variable"]
-                    ):
-                        del out[section_name]["variable"][param_name]
-                        if len(out[section_name]["variable"]) == 0:
-                            del out[section_name["variable"]]
-                    out[section_name][param_name] = value
-        else:
-            out[section_name] = section
-    return out
+        return BareConfig(**new)
+    variable = deepcopy(old.variable)
+    variable.update(new.pop("variable", {}))  # add new variable
+    for k in new:
+        variable.pop(k)  # remove old ones
+    return replace(old, variable=variable, **{k: None for k in variable}, **new)

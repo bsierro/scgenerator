@@ -2,9 +2,10 @@
 # For example, nm(X) means "I give the number X in nm, figure out the ang. freq."
 # to be used especially when giving plotting ranges : (400, 1400, nm), (-4, 8, ps), ...
 
-from numba.core.types.misc import Phantom
+from typing import Callable, Union
+
 import numpy as np
-from numpy import isin, pi
+from numpy import pi
 
 c = 299792458.0
 hbar = 1.05457148e-34
@@ -217,7 +218,7 @@ units_map = dict(
 )
 
 
-def get_unit(unit):
+def get_unit(unit: Union[str, Callable]) -> Callable[[float], float]:
     if isinstance(unit, str):
         return units_map[unit]
     return unit

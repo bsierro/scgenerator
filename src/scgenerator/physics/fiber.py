@@ -1,15 +1,14 @@
+from typing import Any, Dict, List, Tuple
+
 import numpy as np
-from numpy.lib import disp
-from numpy.lib.arraysetops import isin
 import toml
-from numba import jit
 from numpy.fft import fft, ifft
 from numpy.polynomial.chebyshev import Chebyshev, cheb2poly
 from scipy.interpolate import interp1d
 
 from .. import io
-from ..const import hc_model_specific_parameters
 from ..math import abs2, argclosest, power_fact, u_nm
+from ..utils.parameter import BareParams, hc_model_specific_parameters
 from . import materials as mat
 from . import units
 from .units import c, pi
@@ -25,7 +24,7 @@ def lambda_for_dispersion():
     return np.linspace(190e-9, 3000e-9, 4000)
 
 
-def is_dynamic_dispersion(params):
+def is_dynamic_dispersion(pressure=None):
     """tests if the parameter dictionary implies that the dispersion profile of the fiber changes with z
 
     Parameters
@@ -38,8 +37,8 @@ def is_dynamic_dispersion(params):
     bool : True if dispersion is supposed to change with z
     """
     out = False
-    if "pressure" in params:
-        out |= isinstance(params["pressure"], (tuple, list)) and len(params["pressure"]) == 2
+    if pressure is not None:
+        out |= isinstance(pressure, (tuple, list)) and len(pressure) == 2
 
     return out
 
@@ -483,7 +482,19 @@ def HCPCF_dispersion(
     return beta2(w, n_eff)
 
 
-def dynamic_HCPCF_dispersion(lambda_, params, material_dico, deg):
+def dynamic_HCPCF_dispersion(
+    lambda_: np.ndarray,
+    pressure_values: List[float],
+    core_radius: float,
+    fiber_model: str,
+    model_params: Dict[str, Any],
+    temperature: float,
+    ideal_gas: bool,
+    w0: float,
+    interp_range: Tuple[float, float],
+    material_dico: Dict[str, Any],
+    deg,
+):
     """returns functions for beta2 coefficients and gamma instead of static values
 
     Parameters
@@ -504,25 +515,22 @@ def dynamic_HCPCF_dispersion(lambda_, params, material_dico, deg):
         in the fiber
     """
 
-    # store values because storing functions acts weird with dict
-    pressure_values = params["pressure"]
-    a = params["core_radius"]
-    fiber_model = params["fiber_model"]
-    model_params = {k: params[k] for k in hc_model_specific_parameters[fiber_model]}
-    temp = params["temperature"]
-    ideal_gas = params["ideal_gas"]
-    w0 = params["w0"]
-    interp_range = params["interp_range"]
-
-    A_eff = 1.5 * a ** 2
+    A_eff = 1.5 * core_radius ** 2
 
     # defining function instead of storing every possilble value
     pressure = lambda r: mat.pressure_from_gradient(r, *pressure_values)
     beta2 = lambda r: HCPCF_dispersion(
-        lambda_, a, material_dico, fiber_model, model_params, pressure(r), temp, ideal_gas
+        lambda_,
+        core_radius,
+        material_dico,
+        fiber_model,
+        model_params,
+        pressure(r),
+        temperature,
+        ideal_gas,
     )
 
-    n2 = lambda r: mat.non_linear_refractive_index(material_dico, pressure(r), temp)
+    n2 = lambda r: mat.non_linear_refractive_index(material_dico, pressure(r), temperature)
     ratio_range = np.linspace(0, 1, 256)
 
     gamma_grid = np.array([gamma_parameter(n2(r), w0, A_eff) for r in ratio_range])
@@ -640,7 +648,7 @@ def PCF_dispersion(lambda_, pitch, ratio_d, w0=None, n2=None, A_eff=None):
         return beta2, gamma
 
 
-def dispersion_central(fiber_model, params, deg=8):
+def compute_dispersion(params: BareParams, deg=8):
     """dispatch function depending on what type of fiber is used
 
     Parameters
@@ -660,8 +668,8 @@ def dispersion_central(fiber_model, params, deg=8):
         nonlinear parameter
     """
 
-    if "dispersion_file" in params:
-        disp_file = np.load(params["dispersion_file"])
+    if params.dispersion_file is not None:
+        disp_file = np.load(params.dispersion_file)
         lambda_ = disp_file["wavelength"]
         D = disp_file["dispersion"]
         beta2 = D_to_beta2(D, lambda_)
@@ -669,21 +677,20 @@ def dispersion_central(fiber_model, params, deg=8):
     else:
         lambda_ = lambda_for_dispersion()
         beta2 = np.zeros_like(lambda_)
-        fiber_model = fiber_model.lower()
 
-        if fiber_model == "pcf":
+        if params.model == "pcf":
             beta2, gamma = PCF_dispersion(
                 lambda_,
-                params["pitch"],
-                params["pitch_ratio"],
-                w0=params["w0"],
-                n2=params.get("n2"),
-                A_eff=params.get("A_eff"),
+                params.pitch,
+                params.pitch_ratio,
+                w0=params.w0,
+                n2=params.n2,
+                A_eff=params.A_eff,
             )
 
         else:
             # Load material info
-            gas_name = params["gas_name"]
+            gas_name = params.gas_name
 
             if gas_name == "vacuum":
                 material_dico = None
@@ -691,8 +698,20 @@ def dispersion_central(fiber_model, params, deg=8):
                 material_dico = toml.loads(io.Paths.gets("gas"))[gas_name]
 
             # compute dispersion
-            if params.get("dynamic_dispersion", False):
-                return dynamic_HCPCF_dispersion(lambda_, params, material_dico, deg)
+            if params.dynamic_dispersion:
+                return dynamic_HCPCF_dispersion(
+                    lambda_,
+                    params.pressure,
+                    params.core_radius,
+                    params.model,
+                    {k: getattr(params, k) for k in hc_model_specific_parameters[params.model]},
+                    params.temperature,
+                    params.ideal_gas,
+                    params.w0,
+                    params.interp_range,
+                    material_dico,
+                    deg,
+                )
             else:
 
                 # actually compute the dispersion
@@ -700,31 +719,31 @@ def dispersion_central(fiber_model, params, deg=8):
                 beta2 = HCPCF_dispersion(
                     lambda_,
                     material_dico,
-                    fiber_model,
-                    {k: params[k] for k in hc_model_specific_parameters[fiber_model]},
-                    params["pressure"],
-                    params["temperature"],
-                    params["ideal_gas"],
+                    params.model,
+                    {k: getattr(params, k) for k in hc_model_specific_parameters[params.model]},
+                    params.pressure,
+                    params.temperature,
+                    params.ideal_gas,
                 )
 
                 if material_dico is not None:
-                    A_eff = 1.5 * params["core_radius"] ** 2
+                    A_eff = 1.5 * params.core_radius ** 2
                     n2 = mat.non_linear_refractive_index(
-                        material_dico, params["pressure"], params["temperature"]
+                        material_dico, params.pressure, params.temperature
                     )
-                    gamma = gamma_parameter(n2, params["w0"], A_eff)
+                    gamma = gamma_parameter(n2, params.w0, A_eff)
                 else:
                     gamma = None
 
             # add plasma if wanted
-            if params["plasma_density"] > 0:
-                beta2 += plasma_dispersion(lambda_, params["plasma_density"])
+            if params.plasma_density > 0:
+                beta2 += plasma_dispersion(lambda_, params.plasma_density)
 
-    beta2_coef = dispersion_coefficients(lambda_, beta2, params["w0"], params["interp_range"], deg)
+    beta2_coef = dispersion_coefficients(lambda_, beta2, params.w0, params.interp_range, deg)
 
     if gamma is None:
-        if "A_eff" in params:
-            gamma = gamma_parameter(params.get("n2", 2.6e-20), params["w0"], params["A_eff"])
+        if params.A_eff is not None:
+            gamma = gamma_parameter(params.n2, params.w0, params.A_eff)
         else:
             gamma = 0
 
@@ -855,15 +874,13 @@ def create_non_linear_op(behaviors, w_c, w0, gamma, raman_type="stolen", f_r=Non
     """
 
     # Compute raman response function if necessary
+    f_r = 0.18
     if "raman" in behaviors:
-        if "hr_w" == None:
-            raise TypeError("freq-dependent Raman response must be give")
-        else:
-            if f_r is None:
-                if raman_type in ["stolen", "measured"]:
-                    f_r = 0.18
-                elif raman_type == "agrawal":
-                    f_r = 0.245
+        if hr_w is None:
+            raise ValueError("freq-dependent Raman response must be give")
+        if f_r is None:
+            if raman_type == "agrawal":
+                f_r = 0.245
 
     if "spm" in behaviors:
         spm_part = lambda fi: (1 - f_r) * abs2(fi)
@@ -875,7 +892,6 @@ def create_non_linear_op(behaviors, w_c, w0, gamma, raman_type="stolen", f_r=Non
     else:
         raman_part = lambda fi: 0
 
-    spm_part = jit(spm_part, nopython=True)
     ss_part = w_c / w0 if "ss" in behaviors else 0
 
     if isinstance(gamma, (float, int)):
@@ -924,7 +940,6 @@ def fast_dispersion_op(w_c, beta_arr, power_fact_arr, where=slice(None)):
     return -1j * out
 
 
-@jit(nopython=True)
 def _fast_disp_loop(dispersion: np.ndarray, beta_arr, power_fact_arr):
     for k in range(len(beta_arr) - 1, -1, -1):
         dispersion = dispersion + beta_arr[k] * power_fact_arr[k]

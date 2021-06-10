@@ -11,6 +11,7 @@ n is the number of spectra at the same z position and nt is the size of the time
 
 import itertools
 import os
+from pathlib import Path
 from typing import Literal, Tuple
 
 import matplotlib.pyplot as plt
@@ -18,13 +19,13 @@ import numpy as np
 from numpy import pi
 from numpy.fft import fft, fftshift, ifft
 from scipy.interpolate import UnivariateSpline
-from numba import jit
 
+from .. import io
 from ..defaults import default_plotting
-
 from ..logger import get_logger
-from ..plotting import plot_setup
 from ..math import *
+from ..plotting import plot_setup
+from ..utils.parameter import BareParams
 
 c = 299792458.0
 hbar = 1.05457148e-34
@@ -205,6 +206,48 @@ def conform_pulse_params(
         return width, t0, peak_power, energy, soliton_num
 
 
+def setup_custom_field(params: BareParams) -> bool:
+    """sets up a custom field function if necessary and returns
+    True if it did so, False otherwise
+
+    Parameters
+    ----------
+    params : Dict[str, Any]
+        params dictionary
+
+    Returns
+    -------
+    bool
+        True if the field has been modified
+    """
+    field_0 = width = peak_power = energy = None
+
+    did_set = True
+
+    if params.prev_data_dir is not None:
+        spec = io.load_last_spectrum(Path(params.prev_data_dir))[1]
+        field_0 = np.fft.ifft(spec) * np.sqrt(params.input_transmission)
+    elif params.field_file is not None:
+        field_data = np.load(params.field_file)
+        field_interp = interp1d(
+            field_data["time"], field_data["field"], bounds_error=False, fill_value=(0, 0)
+        )
+        field_0 = field_interp(params.t)
+
+        field_0 = field_0 * modify_field_ratio(
+            params.t,
+            field_0,
+            params.peak_power,
+            params.energy,
+            params.intensity_noise,
+        )
+        width, peak_power, energy = measure_field(params.t, field_0)
+    else:
+        did_set = False
+
+    return did_set, width, peak_power, energy, field_0
+
+
 def E0_to_P0(E0, t0, shape="gaussian"):
     """convert an initial total pulse energy to a pulse peak peak_power"""
     return E0 / (t0 * P0T0_to_E0_fac[shape])
@@ -223,12 +266,10 @@ def gauss_pulse(t, t0, P0, offset=0):
     return np.sqrt(P0) * np.exp(-(((t - offset) / t0) ** 2))
 
 
-@jit(nopython=True)
 def photon_number(spectrum, w, dw, gamma):
     return np.sum(1 / gamma * abs2(spectrum) / w * dw)
 
 
-@jit(nopython=True)
 def pulse_energy(spectrum, w, dw, _):
     return np.sum(abs2(spectrum) * dw)
 

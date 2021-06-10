@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
-
-from .errors import MissingParameterError
+from pathlib import Path
 
 default_parameters = dict(
     input_transmission=1.0,
@@ -28,6 +27,7 @@ default_parameters = dict(
     upper_wavelength_interp_limit=1900e-9,
     ideal_gas=False,
     readjust_wavelength=False,
+    recovery_last_stored=0,
 )
 
 default_plotting = dict(
@@ -36,7 +36,7 @@ default_plotting = dict(
     vmin=-40,
     vmax=0,
     vmax_with_headroom=2,
-    name="plot",
+    out_path=Path("plot"),
     avg_main_to_coherence_ratio=4,
     avg_line_labels=["individual values", "mean"],
     muted_style=dict(linewidth=0.5, c=(0.8, 0.8, 0.8, 0.4)),
@@ -57,76 +57,3 @@ default_plotting = dict(
     text_topright_style=dict(verticalalignment="top", horizontalalignment="right"),
     text_topleft_style=dict(verticalalignment="top", horizontalalignment="left"),
 )
-
-
-def get(section_dict, param, **kwargs):
-    """checks if param is in the parameter section dict and attempts to fill in a default value
-
-    Parameters
-    ----------
-    section_dict : dict
-        the parameters section {fiber, pulse, simulation, root} sub-dictionary
-    param : str
-        the name of the parameter (dict key)
-    kwargs : any
-        key word arguments passed to the MissingParameterError constructor
-
-    Returns
-    -------
-    dict
-        the updated section_dict dictionary
-
-    Raises
-    ------
-    MissingFiberParameterError
-        raised when a parameter is missing and no default exists
-    """
-
-    # whether the parameter is in the right place and valid is checked elsewhere,
-    # here, we just make sure it is present.
-    if param not in section_dict and param not in section_dict.get("variable", {}):
-        try:
-            section_dict[param] = default_parameters[param]
-            # LOG
-        except KeyError:
-            raise MissingParameterError(param, **kwargs)
-    return section_dict
-
-
-def get_fiber(section_dict, param, **kwargs):
-    """wrapper for fiber parameters that depend on fiber model"""
-    return get(section_dict, param, fiber_model=section_dict["model"], **kwargs)
-
-
-def get_multiple(section_dict, params, num, **kwargs):
-    """similar to th get method but works with several parameters
-
-    Parameters
-    ----------
-    section_dict : dict
-        the parameters section {fiber, pulse, simulation, root}, sub-dictionary
-    params : list of str
-        names of the required parameters
-    num : int
-        how many of the parameters in params are required
-
-    Returns
-    -------
-    dict
-        the updated section_dict
-
-    Raises
-    ------
-    MissingParameterError
-        raised when not enough parameters are provided and no defaults exist
-    """
-    gotten = 0
-    for param in params:
-        try:
-            section_dict = get(section_dict, param, **kwargs)
-            gotten += 1
-        except MissingParameterError:
-            pass
-        if gotten >= num:
-            return section_dict
-    raise MissingParameterError(params, num_required=num, **kwargs)

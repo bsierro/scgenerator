@@ -1,11 +1,10 @@
 import os
-from pathlib import Path
 from typing import Dict, Literal, Optional, Set
 
-from .const import ENVIRON_KEY_BASE, PBAR_POLICY, LOG_POLICY, TMP_FOLDER_KEY_BASE
+from .const import ENVIRON_KEY_BASE, LOG_POLICY, PBAR_POLICY, TMP_FOLDER_KEY_BASE
 
 
-def data_folder(task_id: int) -> Optional[Path]:
+def data_folder(task_id: int) -> Optional[str]:
     idstr = str(int(task_id))
     tmp = os.getenv(TMP_FOLDER_KEY_BASE + idstr)
     return tmp

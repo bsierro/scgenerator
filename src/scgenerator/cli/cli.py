@@ -105,7 +105,7 @@ def prep_ray(args):
 def resume_sim(args):
 
     method = prep_ray(args)
-    sim = resume_simulations(args.sim_dir, method=method)
+    sim = resume_simulations(Path(args.sim_dir), method=method)
     sim.run()
     run_simulation_sequence(
         *args.configs, method=method, prev_sim_dir=sim.sim_dir, final_name=args.output_name

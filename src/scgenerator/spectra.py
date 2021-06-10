@@ -1,16 +1,14 @@
 import os
-from collections.abc import Mapping, Sequence
-from glob import glob
-from typing import Any, Dict, List, Tuple
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Dict
 
 import numpy as np
 
-from scgenerator.const import SPECN_FN
-
-from . import io, initialize, math
-from .plotting import units
+from . import initialize, io, math
+from .const import SPECN_FN
 from .logger import get_logger
+from .plotting import units
 
 
 class Spectrum(np.ndarray):
@@ -43,7 +41,7 @@ class Pulse(Sequence):
 
         self.params = None
         try:
-            self.params = io.load_previous_parameters(self.path / "params.toml")
+            self.params = io.load_params(self.path / "params.toml")
         except FileNotFoundError:
             self.logger.info(f"parameters corresponding to {self.path} not found")
 

@@ -1,3 +1,4 @@
+from dataclasses import asdict
 import itertools
 import os
 import shutil
@@ -11,18 +12,17 @@ import toml
 
 from . import env, utils
 from .const import (
-    __version__,
-    ENVIRON_KEY_BASE,
     PARAM_FN,
     PARAM_SEPARATOR,
-    PBAR_POLICY,
     SPEC1_FN,
     SPECN_FN,
     TMP_FOLDER_KEY_BASE,
     Z_FN,
+    __version__,
 )
 from .errors import IncompleteDataFolderError
 from .logger import get_logger
+from .utils.parameter import BareConfig, BareParams
 
 PathTree = List[Tuple[Path, ...]]
 
@@ -88,6 +88,10 @@ def load_toml(path: os.PathLike):
     path = conform_toml_path(path)
     with open(path, mode="r") as file:
         dico = toml.load(file)
+
+    for section in ["simulation", "fiber", "pulse", "gas"]:
+        dico.update(dico.pop(section, {}))
+
     return dico
 
 
@@ -99,52 +103,15 @@ def save_toml(path: os.PathLike, dico):
     return dico
 
 
-def serializable(val):
-    """returns True if val is serializable into a Json file"""
-    types = (np.ndarray, float, int, str, list, tuple)
-
-    out = isinstance(val, types)
-    if isinstance(val, np.ndarray):
-        out &= val.dtype != "complex"
-    return out
-
-
-def prepare_for_serialization(dico: Dict[str, Any]) -> Dict[str, Any]:
-    """prepares a dictionary for serialization. Some keys may not be preserved
-    (dropped due to no conversion available)
-
-    Parameters
-    ----------
-    dico : dict
-        dictionary
-    """
-    forbiden_keys = ["w_c", "w_power_fact", "field_0", "spec_0", "w", "t", "z_targets"]
-    types = (np.ndarray, float, int, str, list, tuple, dict)
-    out = {}
-    for key, value in dico.items():
-        if key in forbiden_keys:
-            continue
-        if not isinstance(value, types):
-            continue
-        if isinstance(value, dict):
-            out[key] = prepare_for_serialization(value)
-        elif isinstance(value, np.ndarray) and value.dtype == complex:
-            continue
-        else:
-            out[key] = value
-
-    return out
-
-
-def save_parameters(param_dict: Dict[str, Any], destination_dir: Path) -> Path:
+def save_parameters(params: BareParams, destination_dir: Path, file_name="params.toml") -> Path:
     """saves a parameter dictionary. Note that is does remove some entries, particularly
     those that take a lot of space ("t", "w", ...)
 
     Parameters
     ----------
-    param_dict : Dict[str, Any]
+    params : Dict[str, Any]
         dictionary to save
-    data_dir : Path
+    destination_dir : Path
         destination directory
 
     Returns
@@ -152,12 +119,8 @@ def save_parameters(param_dict: Dict[str, Any], destination_dir: Path) -> Path:
     Path
         path to newly created the paramter file
     """
-    param = param_dict.copy()
-    file_path = destination_dir / "params.toml"
-
-    param = prepare_for_serialization(param)
-    param["datetime"] = datetime.now()
-    param["version"] = __version__
+    param = params.prepare_for_dump()
+    file_path = destination_dir / file_name
 
     file_path.parent.mkdir(exist_ok=True)
 
@@ -168,7 +131,7 @@ def save_parameters(param_dict: Dict[str, Any], destination_dir: Path) -> Path:
     return file_path
 
 
-def load_previous_parameters(path: os.PathLike):
+def load_params(path: os.PathLike) -> BareParams:
     """loads a parameters toml files and converts data to appropriate type
     It is advised to run initialize.build_sim_grid to recover some parameters that are not saved.
 
@@ -179,15 +142,29 @@ def load_previous_parameters(path: os.PathLike):
 
     Returns
     ----------
-    dict
-        flattened parameters dictionary
+    BareParams
+        params obj
     """
     params = load_toml(path)
+    return BareParams(**params)
 
-    for k, v in params.items():
-        if isinstance(v, list) and isinstance(v[0], (float, int)):
-            params[k] = np.array(v)
-    return params
+
+def load_config(path: os.PathLike) -> BareConfig:
+    """loads a parameters toml files and converts data to appropriate type
+    It is advised to run initialize.build_sim_grid to recover some parameters that are not saved.
+
+    Parameters
+    ----------
+    path : PathLike
+        path to the toml
+
+    Returns
+    ----------
+    BareParams
+        config obj
+    """
+    config = load_toml(path)
+    return BareConfig(**config)
 
 
 def load_material_dico(name):
