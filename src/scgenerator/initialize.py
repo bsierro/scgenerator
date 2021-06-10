@@ -69,10 +69,10 @@ class Params(BareParams):
             self.adapt_step_size = True
 
         # FIBER
-        self.interp_range = [
+        self.interp_range = (
             max(self.lower_wavelength_interp_limit, units.m.inv(np.max(self.w[self.w > 0]))),
             min(self.upper_wavelength_interp_limit, units.m.inv(np.min(self.w[self.w > 0]))),
-        ]
+        )
 
         temp_gamma = None
         if self.effective_mode_diameter is not None:

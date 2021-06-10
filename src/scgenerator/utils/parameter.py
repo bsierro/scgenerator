@@ -89,6 +89,14 @@ def int_pair(name, t):
             raise ValueError(f"{name!r} must be a list or a tuple of 2 int")
 
 
+@type_checker(tuple, list)
+def float_pair(name, t):
+    invalid = len(t) != 2
+    for m in t:
+        if invalid or not isinstance(m, (int, float)):
+            raise ValueError(f"{name!r} must be a list or a tuple of 2 numbers")
+
+
 def literal(*l):
     l = set(l)
 
@@ -103,7 +111,7 @@ def literal(*l):
 def validator_list(validator):
     """returns a new validator that applies validator to each el of an iterable"""
 
-    @type_checker(list, tuple)
+    @type_checker(list, tuple, np.ndarray)
     def _list_validator(name, l):
         for i, el in enumerate(l):
             validator(name + f"[{i}]", el)
@@ -358,6 +366,8 @@ class BareParams:
     spec_0: np.ndarray = Parameter(type_checker(np.ndarray))
     w: np.ndarray = Parameter(type_checker(np.ndarray))
     w_c: np.ndarray = Parameter(type_checker(np.ndarray))
+    w0: float = Parameter(positive(float))
+    w_power_fact: np.ndarray = Parameter(validator_list(type_checker(np.ndarray)))
     t: np.ndarray = Parameter(type_checker(np.ndarray))
     L_D: float = Parameter(non_negative(float, int))
     L_NL: float = Parameter(non_negative(float, int))
@@ -370,6 +380,7 @@ class BareParams:
     const_qty: np.ndarray = Parameter(type_checker(np.ndarray))
     beta_func: Callable[[float], List[float]] = Parameter(func_validator)
     gamma_func: Callable[[float], float] = Parameter(func_validator)
+    interp_range: Tuple[float, float] = Parameter(float_pair)
 
     def prepare_for_dump(self) -> Dict[str, Any]:
         param = asdict(self)
