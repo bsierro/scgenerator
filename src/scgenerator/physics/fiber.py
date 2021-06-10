@@ -845,7 +845,7 @@ def delayed_raman_w(t, dt, raman_type="stolen"):
     return fft(delayed_raman_t(t, raman_type)) * dt
 
 
-def create_non_linear_op(behaviors, w_c, w0, gamma, raman_type="stolen", f_r=None, hr_w=None):
+def create_non_linear_op(behaviors, w_c, w0, gamma, raman_type="stolen", f_r=0, hr_w=None):
     """
     Creates a non-linear operator with the desired features
 
@@ -861,10 +861,10 @@ def create_non_linear_op(behaviors, w_c, w0, gamma, raman_type="stolen", f_r=Non
         nonlinear parameter
     raman_type : str, optional
         name of the raman response function model. default : "stolen"
+    f_r : float, optional
+        fractional contribution of the delayed raman effect. default : 0
     hr_w : 1d array, optional unless "raman" in behaviors
         pre-calculated frequency-dependent delayed raman response function
-    f_r : float, optional
-        overwrite fractional contribution of the delayed raman effect. default : None
 
     returns
     -------
@@ -874,11 +874,11 @@ def create_non_linear_op(behaviors, w_c, w0, gamma, raman_type="stolen", f_r=Non
     """
 
     # Compute raman response function if necessary
-    f_r = 0.18
     if "raman" in behaviors:
         if hr_w is None:
             raise ValueError("freq-dependent Raman response must be give")
-        if f_r is None:
+        if f_r == 0:
+            f_r = 0.18
             if raman_type == "agrawal":
                 f_r = 0.245
 
