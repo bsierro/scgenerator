@@ -1,4 +1,4 @@
-import datetime
+import datetime as datetime_module
 from copy import copy
 from dataclasses import asdict, dataclass
 from functools import lru_cache
@@ -205,6 +205,7 @@ class Parameter:
 class VariableParameter:
     def __init__(self, parameterBase):
         self.pbase = parameterBase
+        self.list_checker = type_checker(list, tuple, np.ndarray)
 
     def __set_name__(self, owner, name):
         self.name = name
@@ -222,8 +223,9 @@ class VariableParameter:
             value = {}
         else:
             for k, v in value.items():
+                self.list_checker("variable " + k, v)
                 if k not in valid_variable:
-                    raise TypeError(f"{k!r} is not a valide variable parameter")
+                    raise TypeError(f"{k!r} is not a valid variable parameter")
                 if len(v) == 0:
                     raise ValueError(f"variable parameter {k!r} must not be empty")
 
@@ -381,11 +383,13 @@ class BareParams:
     beta_func: Callable[[float], List[float]] = Parameter(func_validator)
     gamma_func: Callable[[float], float] = Parameter(func_validator)
     interp_range: Tuple[float, float] = Parameter(float_pair)
+    datetime: datetime_module.datetime = Parameter(type_checker(datetime_module.datetime))
+    version: str = Parameter(string)
 
     def prepare_for_dump(self) -> Dict[str, Any]:
         param = asdict(self)
         param = BareParams.strip_params_dict(param)
-        param["datetime"] = datetime.datetime.now()
+        param["datetime"] = datetime_module.datetime.now()
         param["version"] = __version__
         return param
 

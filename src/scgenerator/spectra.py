@@ -45,13 +45,13 @@ class Pulse(Sequence):
         except FileNotFoundError:
             self.logger.info(f"parameters corresponding to {self.path} not found")
 
-        self.params = initialize.build_sim_grid(self.params)
+        initialize.build_sim_grid_in_place(self.params)
 
         try:
             self.z = np.load(os.path.join(path, "z.npy"))
         except FileNotFoundError:
             if self.params is not None:
-                self.z = self.params["z_targets"]
+                self.z = self.params.z_targets
             else:
                 raise
         self.cache: Dict[int, Spectrum] = {}
@@ -59,13 +59,13 @@ class Pulse(Sequence):
         if self.nmax <= 0:
             raise FileNotFoundError(f"No appropriate file in specified folder {self.path}")
 
-        self.t = self.params["t"]
-        w = initialize.wspace(self.t) + units.m(self.params["wavelength"])
+        self.t = self.params.t
+        w = initialize.wspace(self.t) + units.m(self.params.wavelength)
         self.w_order = np.argsort(w)
         self.w = w
         self.wl = units.m.inv(self.w)
-        self.params["w"] = self.w
-        self.params["z_targets"] = self.z
+        self.params.w = self.w
+        self.params.z_targets = self.z
 
     def __iter__(self):
         """
@@ -197,6 +197,6 @@ class Pulse(Sequence):
         spec = np.load(self.path / SPECN_FN.format(i))
         if self.__ensure_2d:
             spec = np.atleast_2d(spec)
-        spec = Spectrum(spec, self.wl, self.params["frep"])
+        spec = Spectrum(spec, self.wl, self.params.frep)
         self.cache[i] = spec
         return spec

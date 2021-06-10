@@ -2,7 +2,7 @@
 
 name = "test config"
 
-[fiber]
+# fiber
 capillary_num = 6
 capillary_outer_d = 2e-6
 capillary_spacing = 4e-6
@@ -11,23 +11,16 @@ core_radius = 50e-6
 length = 1
 model = "hasan"
 
-[gas]
+# gas
 gas_name = "helium"
 
-[gas.variable]
-temperature = [300, 350, 400]
-
-[pulse]
+# pulse
 peak_power = 100e3
 quantum_noise = true
 shape = "gaussian"
 wavelength = 1050e-9
 
-[pulse.variable]
-intensity_noise = [0.05e-2, 0.1e-2]
-width = [50e-15, 100e-15, 200e-15]
-
-[simulation]
+# simulation
 behaviors = ["spm", "raman", "ss"]
 parallel = true
 raman_type = "agrawal"
@@ -36,3 +29,10 @@ t_num = 16384
 time_window = 37e-12
 tolerated_error = 1e-11
 z_num = 128
+
+[variable]
+# gas.variable
+temperature = [300, 350, 400]
+# pulse.variable
+intensity_noise = [0.05e-2, 0.1e-2]
+width = [50e-15, 100e-15, 200e-15]

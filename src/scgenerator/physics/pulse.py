@@ -26,6 +26,7 @@ from ..logger import get_logger
 from ..math import *
 from ..plotting import plot_setup
 from ..utils.parameter import BareParams
+from . import units
 
 c = 299792458.0
 hbar = 1.05457148e-34
@@ -246,6 +247,15 @@ def setup_custom_field(params: BareParams) -> bool:
         did_set = False
 
     return did_set, width, peak_power, energy, field_0
+
+
+def correct_wavelength(init_wavelength: float, w_c: np.ndarray, field_0: np.ndarray) -> float:
+    """
+    finds a new wavelength parameter such that the maximum of the spectrum corresponding
+    to field_0 is located at init_wavelength
+    """
+    delta_w = w_c[np.argmax(abs2(np.fft.fft(field_0)))]
+    return units.m.inv(units.m(init_wavelength) - delta_w)
 
 
 def E0_to_P0(E0, t0, shape="gaussian"):

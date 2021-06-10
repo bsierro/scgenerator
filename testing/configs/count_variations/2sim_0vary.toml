@@ -1,17 +1,17 @@
-[fiber]
+# fiber
 core_radius = 50e-6
 length = 50e-2
 model = "marcatili"
 
-[gas]
+# gas
 gas_name = "air"
 
-[pulse]
+# pulse
 peak_power = 100e3
 wavelength = 800e-9
 width = 250e-15
 
-[simulation]
+# simulation
 behaviors = ["spm", "raman", "ss"]
 parallel = true
 repeat = 2

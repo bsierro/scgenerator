@@ -2,14 +2,14 @@
 
 name = "test config"
 
-[fiber]
+# fiber
 gamma = 0.018
 length = 1
 model = "pcf"
 pitch = 1.5e-6
 pitch_ratio = 0.37
 
-[pulse]
+# pulse
 intensity_noise = 0.1e-2
 peak_power = 100e3
 quantum_noise = true
@@ -17,7 +17,7 @@ shape = "gaussian"
 wavelength = 1050e-9
 width = 50e-15
 
-[simulation]
+# simulation
 behaviors = ["spm", "raman", "ss"]
 parallel = true
 repeat = 4

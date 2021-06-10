@@ -1,17 +1,17 @@
 name = "test config"
 
-[fiber]
+# fiber
 length = 1
 model = "pcf"
 pitch = 1.5e-6
 pitch_ratio = 0.37
 
-[pulse]
+# pulse
 field_file = "testing/configs/custom_field/init_field.npz"
 quantum_noise = false
 wavelength = 1050e-9
 
-[simulation]
+# simulation
 behaviors = ["spm", "raman", "ss"]
 lower_wavelength_interp_limit = 300e-9
 raman_type = "agrawal"

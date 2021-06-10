@@ -29,19 +29,7 @@ class Params(BareParams):
     def compute(self):
         logger = get_logger(__name__)
 
-        (
-            self.z_targets,
-            self.t,
-            self.time_window,
-            self.t_num,
-            self.dt,
-            self.w_c,
-            self.w0,
-            self.w,
-            self.w_power_fact,
-        ) = build_sim_grid(
-            self.length, self.z_num, self.wavelength, self.time_window, self.t_num, self.dt
-        )
+        build_sim_grid_in_place(self)
 
         # Initial field may influence the grid
         if self.mean_power is not None:
@@ -54,9 +42,9 @@ class Params(BareParams):
             self.field_0,
         ) = pulse.setup_custom_field(self)
         if self.readjust_wavelength:
-            delta_w = self.w_c[np.argmax(abs2(np.fft.fft(self.field_0)))]
-            logger.debug(f"adjusted w by {delta_w}")
-            self.wavelength = units.m.inv(units.m(self.wavelength) - delta_w)
+            old_wl = self.wavelength
+            self.wavelength = pulse.correct_wavelength(self.wavelength, self.w_c, self.field_0)
+            logger.info(f"moved wavelength from {1e9*old_wl:.2f} to {1e9*self.wavelength:.2f}")
             self.w_c, self.w0, self.w, self.w_power_fact = update_frequency_domain(
                 self.t, self.wavelength
             )
@@ -138,21 +126,6 @@ class Params(BareParams):
 
         self.spec_0 = np.fft.fft(self.field_0)
 
-    def build_sim_grid(self):
-        (
-            self.z_targets,
-            self.t,
-            self.time_window,
-            self.t_num,
-            self.dt,
-            self.w_c,
-            self.w0,
-            self.w,
-            self.w_power_fact,
-        ) = build_sim_grid(
-            self.length, self.z_num, self.wavelength, self.time_window, self.t_num, self.dt
-        )
-
 
 @dataclass
 class Config(BareConfig):
@@ -174,24 +147,24 @@ class Config(BareConfig):
     def fiber_consistency(self):
         if self.contains("beta"):
             if not (self.contains("A_eff") or self.contains("effective_mode_diameter")):
-                self.gamma = self.get("gamma", specified_parameters=["beta"])
+                self.get("gamma", specified_parameters=["beta"])
             self.setdefault("model", "custom")
 
         elif self.contains("dispersion_file"):
             if not (self.contains("A_eff") or self.contains("effective_mode_diameter")):
-                fiber = self.get("gamma", specified_parameters=["dispersion_file"])
+                self.get("gamma", specified_parameters=["dispersion_file"])
             self.setdefault("model", "custom")
 
         else:
-            fiber = self.get("model")
+            self.get("model")
 
             if self.model == "pcf":
-                fiber = self.get_fiber("pitch")
-                fiber = self.get_fiber("pitch_ratio")
+                self.get_fiber("pitch")
+                self.get_fiber("pitch_ratio")
 
             elif self.model == "hasan":
-                fiber = self.get_multiple(
-                    fiber, ["capillary_spacing", "capillary_outer_d"], 1, fiber_model="hasan"
+                self.get_multiple(
+                    ["capillary_spacing", "capillary_outer_d"], 1, fiber_model="hasan"
                 )
                 for param in [
                     "core_radius",
@@ -200,12 +173,12 @@ class Config(BareConfig):
                     "capillary_resonance_strengths",
                     "capillary_nested",
                 ]:
-                    fiber = self.get_fiber(param)
+                    self.get_fiber(param)
             else:
                 for param in hc_model_specific_parameters[self.model]:
-                    fiber = self.get_fiber(param)
+                    self.get_fiber(param)
         for param in ["length", "input_transmission"]:
-            fiber = self.get(param)
+            self.get(param)
 
     def gas_consistency(self):
         for param in ["gas_name", "temperature", "pressure", "plasma_density"]:
@@ -578,19 +551,7 @@ def recover_params(params: BareParams, data_folder: Path) -> Params:
     params = Params.from_bare(params)
     try:
         prev = io.load_params(data_folder / "params.toml")
-        (
-            prev.z_targets,
-            prev.t,
-            prev.time_window,
-            prev.t_num,
-            prev.dt,
-            prev.w_c,
-            prev.w0,
-            prev.w,
-            prev.w_power_fact,
-        ) = build_sim_grid(
-            prev.length, prev.z_num, prev.wavelength, prev.time_window, prev.t_num, prev.dt
-        )
+        build_sim_grid_in_place(prev)
     except FileNotFoundError:
         prev = BareParams()
     for k, v in filter(lambda el: el[1] is not None, vars(prev).items()):
@@ -634,7 +595,40 @@ def build_sim_grid(
     return z_targets, t, time_window, t_num, dt, w_c, w0, w, w_power_fact
 
 
-def update_frequency_domain(t, wavelength):
+def build_sim_grid_in_place(params: BareParams):
+    """similar to calling build_sim_grid, but sets the attributes in place"""
+    (
+        params.z_targets,
+        params.t,
+        params.time_window,
+        params.t_num,
+        params.dt,
+        params.w_c,
+        params.w0,
+        params.w,
+        params.w_power_fact,
+    ) = build_sim_grid(
+        params.length, params.z_num, params.wavelength, params.time_window, params.t_num, params.dt
+    )
+
+
+def update_frequency_domain(
+    t: np.ndarray, wavelength: float
+) -> Tuple[np.ndarray, float, np.ndarray, np.ndarray]:
+    """updates the frequency grid
+
+    Parameters
+    ----------
+    t : np.ndarray
+        time array
+    wavelength : float
+        wavelength
+
+    Returns
+    -------
+    Tuple[np.ndarray, float, np.ndarray, np.ndarray]
+        w_c, w0, w, w_power_fact
+    """
     w_c = wspace(t)
     w0 = units.m(wavelength)
     w = w_c + w0

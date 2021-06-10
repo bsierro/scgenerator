@@ -1,6 +1,6 @@
 name = "full anomalous"
 
-[fiber]
+# fiber
 beta = [
   -1.183e-26,
   8.1038e-41,
@@ -15,14 +15,11 @@ beta = [
 gamma = 0.11
 length = 0.02
 
-[pulse]
+# pulse
 peak_power = 10000
 t0 = 2.84e-14
 
-[pulse.variable]
-wavelength = [835e-9, 830e-9]
-
-[simulation]
+# simulation
 dt = 1e-15
 parallel = true
 raman_type = "measured"
@@ -30,3 +27,7 @@ repeat = 4
 t_num = 16384
 tolerated_error = 1e-10
 z_num = 64
+
+[variable]
+# pulse.variable
+wavelength = [835e-9, 830e-9]

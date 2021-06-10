@@ -275,5 +275,5 @@ def override_config(new: Dict[str, Any], old: BareConfig = None) -> BareConfig:
     variable = deepcopy(old.variable)
     variable.update(new.pop("variable", {}))  # add new variable
     for k in new:
-        variable.pop(k)  # remove old ones
+        variable.pop(k, None)  # remove old ones
     return replace(old, variable=variable, **{k: None for k in variable}, **new)

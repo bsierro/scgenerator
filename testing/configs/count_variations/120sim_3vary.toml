@@ -1,19 +1,13 @@
-[fiber]
+# fiber
 core_radius = 50e-6
 length = 50e-2
 model = "marcatili"
 
-[gas.variable]
-gas_name = ["air", "helium"]
-
-[pulse]
+# pulse
 peak_power = 100e3
 wavelength = 800e-9
 
-[pulse.variable]
-width = [250e-15, 240e-15, 230e-15, 220e-15, 210e-15]
-
-[simulation]
+# simulation
 parallel = true
 repeat = 4
 t_num = 16384
@@ -21,5 +15,10 @@ time_window = 37e-12
 tolerated_error = 1e-11
 z_num = 128
 
-[simulation.variable]
+[variable]
+# gas.variable
+gas_name = ["air", "helium"]
+# pulse.variable
+width = [250e-15, 240e-15, 230e-15, 220e-15, 210e-15]
+# simulation.variable
 behaviors = [["spm", "raman", "ss"], ["spm", "raman"], ["spm"]]

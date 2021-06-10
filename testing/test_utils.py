@@ -14,9 +14,9 @@ def load_conf(name):
 def conf_maker(folder, val=True):
     def conf(name):
         if val:
-            return initialize.validate(load_conf(folder + "/" + name))
+            return initialize.Config(**load_conf(folder + "/" + name))
         else:
-            return load_conf(folder + "/" + name)
+            return initialize.BareConfig(**load_conf(folder + "/" + name))
 
     return conf
 
@@ -58,9 +58,9 @@ class TestUtilsMethods(unittest.TestCase):
         old = conf("initial_config")
         new = conf("fiber2")
 
-        over = utils.override_config(new, old)
-        self.assertIn("input_transmission", over["fiber"]["variable"])
-        self.assertNotIn("input_transmission", over["fiber"])
+        over = utils.override_config(vars(new), old)
+        self.assertNotIn("input_transmission", over.variable)
+        self.assertIsNone(over.input_transmission)
 
 
 if __name__ == "__main__":
