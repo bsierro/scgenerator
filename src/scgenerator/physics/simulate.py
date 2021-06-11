@@ -626,9 +626,7 @@ class RaySimulations(Simulations, priority=2):
         self.propagator = ray.remote(RayRK4IP).options(
             override_environment_variables=env.all_environ()
         )
-        self.sim_jobs_per_node = min(
-            self.param_seq.num_sim, self.param_seq["simulation", "parallel"]
-        )
+
         self.update_cluster_frequency = 3
         self.jobs = []
         self.actors = {}
