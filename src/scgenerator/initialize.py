@@ -216,6 +216,7 @@ class Config(BareConfig):
             "repeat",
             "lower_wavelength_interp_limit",
             "upper_wavelength_interp_limit",
+            "interp_degree",
             "ideal_gas",
             "readjust_wavelength",
             "recovery_last_stored",

@@ -25,19 +25,17 @@ The configuration file can have a ```name``` parameter at the root and must othe
 Examples : 
 
 ```
-[fiber]
 n2 = 2.2e-20
 ```
 a single simulation is ran with this value
 ```
-[fiber.variable]
+[variable]
 n2 = [2.1e-20, 2.4e-20, 2.6e-20]
 ```
 3 simulations are ran, one for each value
 ```
-[fiber]
 n2 = 2.2e-20
-[fiber.variable]
+[variable]
 n2 = [2.1e-20, 2.4e-20, 2.6e-20]
 ```
 NOT ALLOWED
@@ -250,6 +248,9 @@ upper_wavelength_interp_limit: float
     dispersion coefficients are computed over a certain wavelength range. This parameter
     sets the lowest end of this range. If the set value is higher than the higher end of the
     wavelength window, it is lowered down to that point. default : 1900e-9
+
+interp_degree: int
+    max degree of the Taylor polynomial fitting the dispersion data
 
 readjust_wavelength : bool
     if a custom input field is set, it is likely that the maximum of its corresponding spectrum doesn't lies exactly at the

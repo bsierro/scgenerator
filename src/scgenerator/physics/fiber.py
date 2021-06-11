@@ -493,7 +493,7 @@ def dynamic_HCPCF_dispersion(
     w0: float,
     interp_range: Tuple[float, float],
     material_dico: Dict[str, Any],
-    deg,
+    deg: int,
 ):
     """returns functions for beta2 coefficients and gamma instead of static values
 
@@ -648,7 +648,7 @@ def PCF_dispersion(lambda_, pitch, ratio_d, w0=None, n2=None, A_eff=None):
         return beta2, gamma
 
 
-def compute_dispersion(params: BareParams, deg=8):
+def compute_dispersion(params: BareParams):
     """dispatch function depending on what type of fiber is used
 
     Parameters
@@ -710,7 +710,7 @@ def compute_dispersion(params: BareParams, deg=8):
                     params.w0,
                     params.interp_range,
                     material_dico,
-                    deg,
+                    params.interp_degree,
                 )
             else:
 
@@ -739,7 +739,9 @@ def compute_dispersion(params: BareParams, deg=8):
             if params.plasma_density > 0:
                 beta2 += plasma_dispersion(lambda_, params.plasma_density)
 
-    beta2_coef = dispersion_coefficients(lambda_, beta2, params.w0, params.interp_range, deg)
+    beta2_coef = dispersion_coefficients(
+        lambda_, beta2, params.w0, params.interp_range, params.interp_degree
+    )
 
     if gamma is None:
         if params.A_eff is not None:

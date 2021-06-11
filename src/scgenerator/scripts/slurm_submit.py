@@ -15,16 +15,16 @@ from ..utils import count_variations
 
 
 def primes(n):
-    primfac = []
+    prime_factors = []
     d = 2
     while d * d <= n:
         while (n % d) == 0:
-            primfac.append(d)  # supposing you want multiple factors repeated
+            prime_factors.append(d)
             n //= d
         d += 1
     if n > 1:
-        primfac.append(n)
-    return primfac
+        prime_factors.append(n)
+    return prime_factors
 
 
 def balance(n, lim=(32, 32)):

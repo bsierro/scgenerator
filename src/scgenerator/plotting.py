@@ -314,7 +314,7 @@ def _finish_plot_2D(
     ax.set_xlim(*ext_x)
     ax.set_ylim(*ext_y)
 
-    interpolation = params.get("plot.interpolation", defaults["interpolation_2D"])
+    interpolation = defaults["interpolation_2D"]
     im = ax.imshow(
         values,
         extent=[ext_x[0] - dx / 2, ext_x[1] + dx / 2, ext_y[0] - dy / 2, ext_y[1] + dy / 2],

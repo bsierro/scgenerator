@@ -237,6 +237,8 @@ class VariableParameter:
 
 
 valid_variable = {
+    "dispersion_file",
+    "field_file",
     "beta",
     "gamma",
     "pitch",
@@ -255,7 +257,8 @@ valid_variable = {
     "pressure",
     "temperature",
     "gas_name",
-    "plasma_density" "peak_power",
+    "plasma_density",
+    "peak_power",
     "mean_power",
     "peak_power",
     "energy",
@@ -358,6 +361,7 @@ class BareParams:
     step_size: float = Parameter(positive(float, int))
     lower_wavelength_interp_limit: float = Parameter(in_range_incl(100e-9, 3000e-9))
     upper_wavelength_interp_limit: float = Parameter(in_range_incl(200e-9, 5000e-9))
+    interp_degree: int = Parameter(positive(int))
     frep: float = Parameter(positive(float, int))
     prev_sim_dir: str = Parameter(string)
     readjust_wavelength: bool = Parameter(boolean)

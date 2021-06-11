@@ -14,7 +14,6 @@
 # Load modules or your own conda environment here
 {environment_setup}
 
-################# DO NOT CHANGE THINGS HERE UNLESS YOU KNOW WHAT YOU ARE DOING ###############
 # This script is a modification to the implementation suggest by gregSchwartz18 here:
 # https://github.com/ray-project/ray/issues/826#issuecomment-522116599
 redis_password=$(uuidgen)
@@ -47,7 +46,6 @@ do
   srun --nodes=1 --ntasks=1 -w $node_i start_worker.sh $ip_head $redis_password &
   sleep 5
 done
-##############################################################################################
 
 #### call your code below
 scgenerator {command} {configs_list}
