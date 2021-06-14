@@ -221,7 +221,10 @@ def setup_custom_field(params: BareParams) -> bool:
     bool
         True if the field has been modified
     """
-    field_0 = width = peak_power = energy = None
+    field_0 = params.field_0
+    width = params.width
+    peak_power = params.peak_power
+    energy = params.energy
 
     did_set = True
 

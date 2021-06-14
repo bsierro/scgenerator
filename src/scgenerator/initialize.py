@@ -3,6 +3,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Tuple, Union
+from collections import defaultdict
 
 import numpy as np
 from numpy import pi
@@ -102,9 +103,9 @@ class Params(BareParams):
                 self.energy,
                 self.soliton_num,
                 self.gamma,
-                self.beta,
+                self.beta[0],
             )
-            logger.info(f"computed initial N = {self['soliton_num']:.3g}")
+            logger.info(f"computed initial N = {self.soliton_num:.3g}")
 
             self.L_D = self.t0 ** 2 / abs(self.beta[0])
             self.L_NL = 1 / (self.gamma * self.peak_power) if self.gamma else np.inf
@@ -309,9 +310,7 @@ class ParamSequence:
         self.name = self.config.name
         self.logger = get_logger(__name__)
 
-        self.num_sim, self.num_variable = count_variations(self.config)
-        self.num_steps = self.num_sim * self.config.z_num
-        self.single_sim = self.num_sim == 1
+        self.update_num_sim(count_variations(self.config))
 
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Params]]:
         """iterates through all possible parameters, yielding a config as well as a flattened
@@ -324,6 +323,11 @@ class ParamSequence:
 
     def __repr__(self) -> str:
         return f"dispatcher generated from config {self.name}"
+
+    def update_num_sim(self, num_sim):
+        self.num_sim = num_sim
+        self.num_steps = self.num_sim * self.config.z_num
+        self.single_sim = self.num_sim == 1
 
 
 class ContinuationParamSequence(ParamSequence):
@@ -348,18 +352,30 @@ class ContinuationParamSequence(ParamSequence):
             for variable_list, _ in required_simulations(init_config)
         ]
 
+        new_variable_keys = set(new_config_dict.get("variable", {}).keys())
         new_config = utils.override_config(new_config_dict, init_config)
         super().__init__(new_config)
+        additional_sims_factor = int(
+            np.prod(
+                [
+                    len(init_config.variable[k])
+                    for k in (new_variable_keys & init_config.variable.keys())
+                ]
+            )
+        )
+        self.update_num_sim(self.num_sim * additional_sims_factor)
 
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Params]]:
         """iterates through all possible parameters, yielding a config as well as a flattened
         computed parameters set each time"""
         for variable_list, bare_params in required_simulations(self.config):
-            prev_data_dir = self.find_prev_data_dir(variable_list).resolve()
-            bare_params.prev_data_dir = str(prev_data_dir)
-            yield variable_list, Params.from_bare(bare_params)
+            variable_list.insert(1, ("prev_data_dir", None))
+            for prev_data_dir in self.find_prev_data_dirs(variable_list):
+                variable_list[1] = ("prev_data_dir", str(prev_data_dir.name))
+                bare_params.prev_data_dir = str(prev_data_dir.resolve())
+                yield variable_list, Params.from_bare(bare_params)
 
-    def find_prev_data_dir(self, new_variable_list: List[Tuple[str, Any]]) -> Path:
+    def find_prev_data_dirs(self, new_variable_list: List[Tuple[str, Any]]) -> List[Path]:
         """finds the previous simulation data that this new config should start from
 
         Parameters
@@ -377,14 +393,16 @@ class ContinuationParamSequence(ParamSequence):
         ValueError
             no data folder found
         """
-        to_test = set(new_variable_list[1:])
-        for old_v_list, path in self.prev_variable_lists:
-            if to_test.issuperset(old_v_list):
-                return path
+        new_set = set(new_variable_list[1:])
+        path_dic = defaultdict(list)
+        max_in_common = 0
+        for stored_set, path in self.prev_variable_lists:
+            in_common = stored_set & new_set
+            num_in_common = len(in_common)
+            max_in_common = max(num_in_common, max_in_common)
+            path_dic[num_in_common].append(path)
 
-        raise ValueError(
-            f"cannot find a previous data folder for {new_variable_list} in {self.prev_sim_dir}"
-        )
+        return path_dic[max_in_common]
 
 
 class RecoveryParamSequence(ParamSequence):

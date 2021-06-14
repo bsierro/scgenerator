@@ -179,12 +179,11 @@ def progress_worker(
 def count_variations(config: BareConfig) -> Tuple[int, int]:
     """returns (sim_num, variable_params_num) where sim_num is the total number of simulations required and
     variable_params_num is the number of distinct parameters that will vary."""
-    variable_params_num = len(config.variable)
     sim_num = np.prod([len(l) for l in config.variable.values()]) * config.repeat
-    return sim_num, variable_params_num
+    return sim_num
 
 
-def format_variable_list(l: List[tuple]):
+def format_variable_list(l: List[Tuple[str, Any]]):
     joints = 2 * PARAM_SEPARATOR
     str_list = []
     for p_name, p_value in l:
