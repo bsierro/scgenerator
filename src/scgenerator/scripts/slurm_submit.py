@@ -91,7 +91,7 @@ def create_parser():
         help="commands to run to setup the environement (default : activate the sc environment with conda)",
     )
     parser.add_argument(
-        "--command", default="run", choices=["run", "resume"], help="command to run"
+        "--command", default="run", choices=["run", "resume", "merge"], help="command to run"
     )
     return parser
 
@@ -123,7 +123,7 @@ def main():
 
     if args.command == "merge":
         final_config = args.configs[0]
-        sim_num = 0
+        sim_num = "many"
         args.nodes = 1
         args.cpus_per_node = 1
     else:
