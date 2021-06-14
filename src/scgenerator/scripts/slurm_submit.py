@@ -122,9 +122,7 @@ def main():
         )
 
     config_paths = args.configs
-    final_config = validate_config_sequence(*config_paths)
-
-    sim_num = count_variations(final_config)
+    final_config, sim_num = validate_config_sequence(*config_paths)
 
     args.nodes, args.cpus_per_node = distribute(sim_num, args.nodes, args.cpus_per_node)
 
