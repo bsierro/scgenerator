@@ -176,7 +176,7 @@ def progress_worker(
             pbars[0].update()
 
 
-def count_variations(config: BareConfig) -> Tuple[int, int]:
+def count_variations(config: BareConfig) -> int:
     """returns (sim_num, variable_params_num) where sim_num is the total number of simulations required and
     variable_params_num is the number of distinct parameters that will vary."""
     sim_num = np.prod([len(l) for l in config.variable.values()]) * config.repeat
