@@ -8,9 +8,12 @@ from pathlib import Path
 from typing import Tuple
 
 import numpy as np
+from toml import load
+
+from scgenerator.utils.parameter import BareConfig
 
 from ..initialize import validate_config_sequence
-from ..io import Paths
+from ..io import Paths, load_config
 from ..utils import count_variations
 
 
@@ -122,7 +125,7 @@ def main():
         )
 
     if args.command == "merge":
-        final_config = args.configs[0]
+        final_config = load_config(Path(args.configs[0]) / "initial_config.toml")
         sim_num = "many"
         args.nodes = 1
         args.cpus_per_node = 1
