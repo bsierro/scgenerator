@@ -107,7 +107,7 @@ def copy_starting_files():
 
 def main():
 
-    command_map = dict(run="Propagate", resume="Resuming")
+    command_map = dict(run="Propagate", resume="Resuming", merge="Merging")
 
     parser = create_parser()
     template = Paths.gets("submit_job_template")
@@ -121,10 +121,16 @@ def main():
             "time format must be an integer number of minute or must match the pattern hh:mm:ss"
         )
 
-    config_paths = args.configs
-    final_config, sim_num = validate_config_sequence(*config_paths)
+    if args.command == "merge":
+        final_config = args.configs[0]
+        sim_num = 0
+        args.nodes = 1
+        args.cpus_per_node = 1
+    else:
+        config_paths = args.configs
+        final_config, sim_num = validate_config_sequence(*config_paths)
 
-    args.nodes, args.cpus_per_node = distribute(sim_num, args.nodes, args.cpus_per_node)
+        args.nodes, args.cpus_per_node = distribute(sim_num, args.nodes, args.cpus_per_node)
 
     submit_path = Path(
         "submit " + final_config.name + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh"

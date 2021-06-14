@@ -254,7 +254,7 @@ def num_left_to_propagate(sub_folder: Path, init_z_num: int) -> int:
 def find_last_spectrum_num(data_dir: Path):
     for num in itertools.count(1):
         p_to_test = data_dir / SPEC1_FN.format(num)
-        if not p_to_test.is_file() or len(p_to_test.read_bytes()) == 0:
+        if not p_to_test.is_file() or os.path.getsize(p_to_test) == 0:
             return num - 1
 
 
