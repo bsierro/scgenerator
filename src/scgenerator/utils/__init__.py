@@ -4,23 +4,30 @@ scgenerator module but some function may be used in any python program
 
 """
 
+import functools
 import itertools
 import multiprocessing
 import threading
+from functools import update_wrapper
 from collections import abc
 from copy import deepcopy
 from dataclasses import asdict, replace
 from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Tuple, TypeVar, Union
+from copy import copy
 
 import numpy as np
+from numpy.lib.index_tricks import nd_grid
 from tqdm import tqdm
+
+from ..logger import get_logger
 
 from .. import env
 from ..const import PARAM_SEPARATOR
 from ..math import *
 from .parameter import BareConfig, BareParams
+from scgenerator import logger
 
 T_ = TypeVar("T_")
 
@@ -276,3 +283,61 @@ def override_config(new: Dict[str, Any], old: BareConfig = None) -> BareConfig:
     for k in new:
         variable.pop(k, None)  # remove old ones
     return replace(old, variable=variable, **{k: None for k in variable}, **new)
+
+
+# def np_cache(function):
+#     """applies functools.cache to function that take numpy arrays as input"""
+
+#     @cache
+#     def cached_wrapper(*hashable_args, **hashable_kwargs):
+#         args = tuple(np.array(arg) if isinstance(arg, tuple) else arg for arg in hashable_args)
+#         kwargs = {
+#             k: np.array(kwarg) if isinstance(kwarg, tuple) else kwarg
+#             for k, kwarg in hashable_kwargs.items()
+#         }
+#         return function(*args, **kwargs)
+
+#     @wraps(function)
+#     def wrapper(*args, **kwargs):
+#         hashable_args = tuple(tuple(arg) if isinstance(arg, np.ndarray) else arg for arg in args)
+#         hashable_kwargs = {
+#             k: tuple(kwarg) if isinstance(kwarg, np.ndarray) else kwarg
+#             for k, kwarg in kwargs.items()
+#         }
+#         return cached_wrapper(*hashable_args, **hashable_kwargs)
+
+#     # copy lru_cache attributes over too
+#     wrapper.cache_info = cached_wrapper.cache_info
+#     wrapper.cache_clear = cached_wrapper.cache_clear
+
+#     return wrapper
+
+
+class np_cache:
+    def __init__(self, function):
+        self.logger = get_logger(__name__)
+        self.func = function
+        self.cache = {}
+        self.hits = 0
+        self.misses = 0
+        update_wrapper(self, function)
+
+    def __call__(self, *args, **kwargs):
+        hashable_args = tuple(
+            tuple(arg) if isinstance(arg, (np.ndarray, list)) else arg for arg in args
+        )
+        hashable_kwargs = tuple(
+            {
+                k: tuple(kwarg) if isinstance(kwarg, (np.ndarray, list)) else kwarg
+                for k, kwarg in kwargs.items()
+            }.items()
+        )
+        key = hash((hashable_args, hashable_kwargs))
+        if key not in self.cache:
+            self.logger.debug("cache miss")
+            self.misses += 1
+            self.cache[key] = self.func(*args, **kwargs)
+        else:
+            self.hits += 1
+            self.logger.debug("cache hit")
+        return copy(self.cache[key])

@@ -9,6 +9,7 @@ from scipy.interpolate import interp1d
 from .. import io
 from ..math import abs2, argclosest, power_fact, u_nm
 from ..utils.parameter import BareParams, hc_model_specific_parameters
+from ..utils import np_cache
 from . import materials as mat
 from . import units
 from .units import c, pi
@@ -43,7 +44,7 @@ def is_dynamic_dispersion(pressure=None):
     return out
 
 
-def HCARF_gap(core_radius, capillary_num, capillary_outer_d):
+def HCARF_gap(core_radius: float, capillary_num: int, capillary_outer_d: float):
     """computes the gap length between capillaries of a hollow core anti-resonance fiber
 
     Parameters
@@ -64,7 +65,7 @@ def HCARF_gap(core_radius, capillary_num, capillary_outer_d):
     ) - capillary_outer_d
 
 
-def dispersion_parameter(n_eff, lambda_):
+def dispersion_parameter(n_eff: np.ndarray, lambda_: np.ndarray):
     """computes the dispersion parameter D from an effective index of refraction n_eff
     Since computing gradients/derivatives of discrete arrays is not well defined on the boundary, it is
     advised to chop off the two values on either end of the returned array
@@ -179,17 +180,18 @@ def n_eff_marcatili_adjusted(lambda_, n_gas_2, core_radius, he_mode=(1, 1), fit_
     return np.sqrt(n_gas_2 - (lambda_ * u / (2 * pi * corrected_radius)) ** 2)
 
 
+@np_cache
 def n_eff_hasan(
-    lambda_,
-    n_gas_2,
-    core_radius,
-    capillary_num,
-    capillary_thickness,
-    capillary_outer_d=None,
-    capillary_spacing=None,
-    capillary_resonance_strengths=[],
-    capillary_nested=0,
-):
+    lambda_: np.ndarray,
+    n_gas_2: np.ndarray,
+    core_radius: float,
+    capillary_num: int,
+    capillary_thickness: float,
+    capillary_outer_d: float = None,
+    capillary_spacing: float = None,
+    capillary_resonance_strengths: list[float] = [],
+    capillary_nested: int = 0,
+) -> np.ndarray:
     """computes the effective refractive index of the fundamental mode according to the Hasan model for a anti-resonance fiber
 
     Parameters
@@ -410,7 +412,7 @@ def HCPF_ZDW(
     return l[zdw_ind]
 
 
-def beta2(w, n_eff):
+def beta2(w: np.ndarray, n_eff: np.ndarray) -> np.ndarray:
     """computes the dispersion parameter beta2 according to the effective refractive index of the fiber and the frequency range
 
     Parameters
@@ -556,6 +558,7 @@ def gamma_parameter(n2, w0, A_eff):
     return n2 * w0 / (A_eff * c)
 
 
+@np_cache
 def PCF_dispersion(lambda_, pitch, ratio_d, w0=None, n2=None, A_eff=None):
     """
     semi-analytical computation of the dispersion profile of a triangular Index-guiding PCF
@@ -752,7 +755,10 @@ def compute_dispersion(params: BareParams):
     return beta2_coef, gamma
 
 
-def dispersion_coefficients(lambda_, beta2, w0, interp_range=None, deg=8):
+@np_cache
+def dispersion_coefficients(
+    lambda_: np.ndarray, beta2: np.ndarray, w0: float, interp_range=None, deg=8
+):
     """Computes the taylor expansion of beta2 to be used in dispersion_op
 
     Parameters

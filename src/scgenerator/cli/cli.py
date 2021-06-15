@@ -9,6 +9,8 @@ from scgenerator.physics.simulate import (
     resume_simulations,
     run_simulation_sequence,
 )
+from scgenerator.physics.fiber import dispersion_coefficients
+
 
 try:
     import ray
@@ -70,6 +72,8 @@ def main():
     parser = create_parser()
     args = parser.parse_args()
     args.func(args)
+
+    print(f"coef hits : {dispersion_coefficients.hits}, misses : {dispersion_coefficients.misses}")
 
 
 def run_sim(args):
