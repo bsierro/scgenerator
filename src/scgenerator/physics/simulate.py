@@ -389,7 +389,6 @@ class Simulations:
     simulation_methods_dict: Dict[str, Type["Simulations"]] = dict()
 
     def __init_subclass__(cls, priority=0, **kwargs):
-        cls._available = cls.is_available()
         Simulations.simulation_methods.append((cls, priority))
         Simulations.simulation_methods_dict[cls.__name__] = cls
         Simulations.simulation_methods.sort(key=lambda el: el[1], reverse=True)
