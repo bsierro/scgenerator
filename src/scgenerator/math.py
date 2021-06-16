@@ -3,6 +3,7 @@ from typing import Union
 import numpy as np
 from scipy.interpolate import griddata, interp1d
 from scipy.special import jn_zeros
+from .utils.cache import np_cache
 
 
 def span(*vec):
@@ -87,6 +88,85 @@ def u_nm(n, m):
         float
     """
     return jn_zeros(n - 1, m)[-1]
+
+
+@np_cache
+def nfft_matrix(t: np.ndarray, f: np.ndarray) -> np.ndarray:
+    """creates the nfft matrix
+
+    Parameters
+    ----------
+    t : np.ndarray, shape = (n,)
+        time array
+    f : np.ndarray, shape = (m,)
+        frequency array
+
+    Returns
+    -------
+    np.ndarray, shape = (m, n)
+        multiply x(t) by this matrix to get ~X(f)
+    """
+    P, F = np.meshgrid(t, f)
+    return np.exp(-2j * np.pi * P * F)
+
+
+@np_cache
+def infft_matrix(t: np.ndarray, f: np.ndarray) -> np.ndarray:
+    """creates the nfft matrix
+
+    Parameters
+    ----------
+    t : np.ndarray, shape = (n,)
+        time array
+    f : np.ndarray, shape = (m,)
+        frequency array
+
+    Returns
+    -------
+    np.ndarray, shape = (m, n)
+        multiply ~X(f) by this matrix to get x(t)
+    """
+    return np.linalg.pinv(nfft_matrix(t, f))
+
+
+def nfft(t: np.ndarray, s: np.ndarray, f: np.ndarray) -> np.ndarray:
+    """computes the Fourier transform of an uneven signal
+
+    Parameters
+    ----------
+    t : np.ndarray, shape = (n,)
+        time array
+    s : np.ndarray, shape = (n, )
+        amplitute at each point of t
+    f : np.ndarray, shape = (m, )
+        desired frequencies
+
+    Returns
+    -------
+    np.ndarray, shape = (m, )
+        amplitude at each frequency
+    """
+    return nfft_matrix(t, f) @ s
+
+
+def infft(f: np.ndarray, a: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """computes the inverse Fourier transform of an uneven spectrum
+
+    Parameters
+    ----------
+    f : np.ndarray, shape = (n,)
+        frequency array
+    a : np.ndarray, shape = (n, )
+        amplitude at each point of f
+    t : np.ndarray, shape = (m, )
+        time array
+
+    Returns
+    -------
+    np.ndarray, shape = (m, )
+        amplitude at each point of t
+    """
+    return infft_matrix(t, f) @ a
 
 
 def make_uniform_2D(values, x_axis, y_axis, n=1024, method="linear"):

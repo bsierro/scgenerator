@@ -9,7 +9,7 @@ from scipy.interpolate import interp1d
 from .. import io
 from ..math import abs2, argclosest, power_fact, u_nm
 from ..utils.parameter import BareParams, hc_model_specific_parameters
-from ..utils import np_cache
+from ..utils.cache import np_cache
 from . import materials as mat
 from . import units
 from .units import c, pi

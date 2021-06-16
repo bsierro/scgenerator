@@ -3,7 +3,8 @@
 # to be used especially when giving plotting ranges : (400, 1400, nm), (-4, 8, ps), ...
 
 from typing import Callable, Union
-
+from dataclasses import dataclass
+from ..utils.parameter import Parameter, type_checker
 import numpy as np
 from numpy import pi
 
@@ -224,6 +225,18 @@ def get_unit(unit: Union[str, Callable]) -> Callable[[float], float]:
     return unit
 
 
+def is_unit(name, value):
+    if not hasattr(get_unit(value), "inv"):
+        raise TypeError("invalid unit specified")
+
+
+@dataclass
+class PlotRange:
+    left: float = Parameter(type_checker(int, float))
+    right: float = Parameter(type_checker(int, float))
+    unit: Callable[[float], float] = Parameter(is_unit, converter=get_unit)
+
+
 def beta2_coef(beta):
     fac = 1e27
     out = np.zeros_like(beta)
@@ -263,45 +276,49 @@ def standardize_dictionary(dico):
     return dico
 
 
-def sort_axis(axis, plt_range):
+def sort_axis(axis, plt_range: PlotRange):
     """
     given an axis, returns this axis cropped according to the given range, converted and sorted
+
     Parameters
     ----------
-        axis : 1D array containing the original axis (usual the w or t array)
-        plt_range : tupple (min, max, conversion_function) used to crop the axis
+    axis : 1D array containing the original axis (usual the w or t array)
+    plt_range : tupple (min, max, conversion_function) used to crop the axis
+
     Returns
-    ----------
-        cropped : the axis cropped, converted and sorted
-        indices : indices to use to slice and sort other array in the same fashion
-        extent : tupple with min and max of cropped
+    -------
+    cropped : the axis cropped, converted and sorted
+    indices : indices to use to slice and sort other array in the same fashion
+    extent : tupple with min and max of cropped
+
     Example
-    ----------
-        w = np.append(np.linspace(0, -10, 20), np.linspace(0, 10, 20))
-        t = np.linspace(-10, 10, 400)
-        W, T = np.meshgrid(w, t)
-        y = np.exp(-W**2 - T**2)
+    -------
+    w = np.append(np.linspace(0, -10, 20), np.linspace(0, 10, 20))
+    t = np.linspace(-10, 10, 400)
+    W, T = np.meshgrid(w, t)
+    y = np.exp(-W**2 - T**2)
 
-        # Define ranges
-        rw = (-4, 4, s)
-        rt = (-2, 6, s)
+    # Define ranges
+    rw = (-4, 4, s)
+    rt = (-2, 6, s)
 
-        w, cw = sort_axis(w, rw)
-        t, ct = sort_axis(t, rt)
+    w, cw = sort_axis(w, rw)
+    t, ct = sort_axis(t, rt)
 
-        # slice y according to the given ranges
-        y = y[ct][:, cw]
+    # slice y according to the given ranges
+    y = y[ct][:, cw]
     """
 
-    r = np.array(plt_range[:2], dtype="float")
-    func = get_unit(plt_range[2])
+    r = np.array((plt_range.left, plt_range.right), dtype="float")
 
-    indices = np.arange(len(axis))[(axis <= np.max(func(r))) & (axis >= np.min(func(r)))]
+    indices = np.arange(len(axis))[
+        (axis <= np.max(plt_range.unit(r))) & (axis >= np.min(plt_range.unit(r)))
+    ]
     cropped = axis[indices]
-    order = np.argsort(func.inv(cropped))
+    order = np.argsort(plt_range.unit.inv(cropped))
     indices = indices[order]
     cropped = cropped[order]
-    out_ax = func.inv(cropped)
+    out_ax = plt_range.unit.inv(cropped)
 
     return out_ax, indices, (out_ax[0], out_ax[-1])
 

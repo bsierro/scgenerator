@@ -248,14 +248,13 @@ def _finish_plot_2D(
     ax,
     file_name,
     file_type,
-    params,
 ):
 
     # apply log transform if required
-    if log != False:
+    if log is not False:
         vmax = defaults["vmax"] if vmax is None else vmax
         vmin = defaults["vmin"] if vmin is None else vmin
-        if isinstance(log, (float, int)) and log != True:
+        if isinstance(log, (float, int)) and log is not True:
             values = units.to_log(values, ref=log)
 
         elif log == "2D":
@@ -338,7 +337,7 @@ def _finish_plot_2D(
         fig.savefig(out_path, bbox_inches="tight", dpi=200)
         print(f"plot saved in {out_path}")
     if cbar_label is not None:
-        return fig, ax, cbar.ax
+        return fig, (ax, cbar.ax)
     else:
         return fig, ax
 
@@ -355,7 +354,7 @@ def plot_spectrogram(
     vmax: float = None,
     cbar_label: str = "normalized intensity (dB)",
     file_type: str = "png",
-    file_name: str = None,
+    file_name: str = "plot",
     cmap: str = None,
     ax: plt.Axes = None,
 ):
@@ -448,13 +447,12 @@ def plot_spectrogram(
         ax,
         file_name,
         file_type,
-        params,
     )
 
 
 def plot_results_2D(
     values: np.ndarray,
-    plt_range: RangeType,
+    plt_range: Union[units.PlotRange, tuple],
     params: BareParams,
     log: Union[int, float, bool, str] = "1D",
     skip: int = 16,
@@ -463,7 +461,7 @@ def plot_results_2D(
     transpose: bool = False,
     cbar_label: Optional[str] = "normalized intensity (dB)",
     file_type: str = "png",
-    file_name: str = None,
+    file_name: str = "plot",
     cmap: str = None,
     ax: plt.Axes = None,
 ):
@@ -528,7 +526,7 @@ def plot_results_2D(
         values = abs2(values)
 
     # make uniform if converting to wavelength
-    if plt_range[2].type == "WL":
+    if plt_range.unit.type == "WL":
         if is_spectrum:
             values = np.apply_along_axis(units.to_WL, 1, values, params.frep, x_axis)
         values = np.array(
@@ -554,7 +552,7 @@ def plot_results_2D(
     return _finish_plot_2D(
         values,
         x_axis,
-        plt_range[2].label,
+        plt_range.unit.label,
         params.z_targets,
         "propagation distance (m)",
         log,
@@ -566,13 +564,12 @@ def plot_results_2D(
         ax,
         file_name,
         file_type,
-        params,
     )
 
 
 def plot_results_1D(
     values: np.ndarray,
-    plt_range: RangeType,
+    plt_range: Union[units.PlotRange, tuple],
     params: BareParams,
     log: Union[str, int, float, bool] = False,
     spacing: Union[int, float] = 1,
@@ -586,7 +583,7 @@ def plot_results_1D(
     line_label: str = None,
     transpose: bool = False,
     **line_kwargs,
-):
+) -> tuple[plt.Figure, plt.Axes, np.ndarray, np.ndarray]:
     """
 
     Parameters
@@ -649,7 +646,7 @@ def plot_results_1D(
     values *= yscaling
 
     # make uniform if converting to wavelength
-    if plt_range[2].type == "WL":
+    if plt_range.unit.type == "WL":
         if is_spectrum:
             values = units.to_WL(values, params.frep, units.m.inv(params.w[ind]))
 
@@ -687,12 +684,12 @@ def plot_results_1D(
         ax.yaxis.set_label_position("right")
         ax.set_xlim(vmax, vmin)
         ax.set_xlabel(ylabel)
-        ax.set_ylabel(plt_range[2].label)
+        ax.set_ylabel(plt_range.unit.label)
     else:
         ax.plot(x_axis, values, label=line_label, **line_kwargs)
         ax.set_ylim(vmin, vmax)
         ax.set_ylabel(ylabel)
-        ax.set_xlabel(plt_range[2].label)
+        ax.set_xlabel(plt_range.unit.label)
 
     if is_new_plot:
         fig.savefig(out_path, bbox_inches="tight", dpi=200)
@@ -700,10 +697,13 @@ def plot_results_1D(
     return fig, ax, x_axis, values
 
 
-def _prep_plot(values: np.ndarray, plt_range: RangeType, params: BareParams):
+def _prep_plot(
+    values: np.ndarray, plt_range: Union[units.PlotRange, tuple], params: BareParams
+) -> tuple[bool, np.ndarray, units.PlotRange]:
     is_spectrum = values.dtype == "complex"
-    plt_range = (*plt_range[:2], units.get_unit(plt_range[2]))
-    if plt_range[2].type in ["WL", "FREQ", "AFREQ"]:
+    if not isinstance(plt_range, units.PlotRange):
+        plt_range = units.PlotRange(*plt_range)
+    if plt_range.unit.type in ["WL", "FREQ", "AFREQ"]:
         x_axis = params.w.copy()
     else:
         x_axis = params.t.copy()
@@ -712,7 +712,7 @@ def _prep_plot(values: np.ndarray, plt_range: RangeType, params: BareParams):
 
 def plot_avg(
     values: np.ndarray,
-    plt_range: RangeType,
+    plt_range: Union[units.PlotRange, tuple],
     params: BareParams,
     log: Union[float, int, str, bool] = False,
     spacing: Union[float, int] = 1,
@@ -809,7 +809,7 @@ def plot_avg(
         values = abs2(values)
     values *= yscaling
     mean_values = np.mean(values, axis=0)
-    if plt_range[2].type == "WL" and renormalize:
+    if plt_range.unit.type == "WL" and renormalize:
         values = np.apply_along_axis(units.to_WL, 1, values, params.frep, x_axis)
         mean_values = units.to_WL(mean_values, params.frep, x_axis)
 
@@ -886,7 +886,7 @@ def plot_avg(
         top.set_ylim(*ext)
         bot.yaxis.tick_right()
         bot.yaxis.set_label_position("right")
-        bot.set_ylabel(plt_range[2].label)
+        bot.set_ylabel(plt_range.unit.label)
         bot.set_ylim(*ext)
     else:
         for value in values:
@@ -898,7 +898,7 @@ def plot_avg(
         top.set_ylim(bottom=vmin, top=vmax)
         top.set_ylabel(ylabel)
         top.set_xlim(*ext)
-        bot.set_xlabel(plt_range[2].label)
+        bot.set_xlabel(plt_range.unit.label)
         bot.set_xlim(*ext)
 
     custom_lines = [
@@ -961,7 +961,7 @@ def prepare_plot_1D(values, plt_range, x_axis, yscaling=1, spacing=1, frep=80e6)
 
     values = values[:, ind]
 
-    if plt_range[2].type == "WL":
+    if plt_range.unit.type == "WL":
         values = np.apply_along_axis(units.to_WL, -1, values, frep, x_axis)
 
     if isinstance(spacing, float):

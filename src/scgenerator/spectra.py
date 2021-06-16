@@ -1,14 +1,16 @@
 import os
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Dict
+from re import UNICODE
+from typing import Callable, Dict, Iterable, Optional, Union
 
 import numpy as np
 
 from . import initialize, io, math
+from .physics import units
 from .const import SPECN_FN
 from .logger import get_logger
-from .plotting import units
+from .plotting import plot_avg, plot_results_1D, plot_results_2D
 
 
 class Spectrum(np.ndarray):
@@ -158,13 +160,12 @@ class Pulse(Sequence):
         Parameters
         ----------
         ind : int or list of int
-        if only certain spectra are desired.
-                - If left to None, returns every spectrum
-                - If only 1 int, will cast the (1, n, nt) array into a (n, nt) array
+            if only certain spectra are desired
         Returns
         ----------
-        spectra : array
-            squeezed array of complex spectra (n simulation on a nt size grid at each ind)
+        spectra : array of shape (nz, m, nt)
+            array of complex spectra (pulse at nz positions consisting
+            of nm simulation on a nt size grid)
         """
 
         self.logger.debug(f"opening {self.path}")
@@ -200,3 +201,46 @@ class Pulse(Sequence):
         spec = Spectrum(spec, self.wl, self.params.frep)
         self.cache[i] = spec
         return spec
+
+    def plot_2D(
+        self,
+        left: float,
+        right: float,
+        unit: Union[Callable[[float], float], str],
+        z_ind: Union[int, Iterable[int]] = None,
+        sim_ind: int = 0,
+        **kwargs,
+    ):
+        plt_range, vals = self.retrieve_plot_values(left, right, unit, z_ind, sim_ind)
+        return plot_results_2D(vals, plt_range, self.params, **kwargs)
+
+    def plot_1D(
+        self,
+        left: float,
+        right: float,
+        unit: Union[Callable[[float], float], str],
+        z_ind: int,
+        sim_ind: int = 0,
+        **kwargs,
+    ):
+        plt_range, vals = self.retrieve_plot_values(left, right, unit, z_ind, sim_ind)
+        return plot_results_1D(vals[0], plt_range, self.params, **kwargs)
+
+    def plot_avg(
+        self,
+        left: float,
+        right: float,
+        unit: Union[Callable[[float], float], str],
+        z_ind: int,
+        **kwargs,
+    ):
+        plt_range, vals = self.retrieve_plot_values(left, right, unit, z_ind, slice(None))
+        return plot_avg(vals, plt_range, self.params, **kwargs)
+
+    def retrieve_plot_values(self, left, right, unit, z_ind, sim_ind):
+        plt_range = units.PlotRange(left, right, unit)
+        if plt_range.unit.type == "TIME":
+            vals = self.all_fields(ind=z_ind)[:, sim_ind]
+        else:
+            vals = self.all_spectra(ind=z_ind)[:, sim_ind]
+        return plt_range, vals
