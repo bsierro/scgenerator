@@ -88,6 +88,11 @@ def load_toml(path: os.PathLike):
     path = conform_toml_path(path)
     with open(path, mode="r") as file:
         dico = toml.load(file)
+    dico.setdefault("variable", {})
+    for key in {"simulation", "fiber", "gas", "pulse"} & dico.keys():
+        section = dico.pop(key, {})
+        dico["variable"].update(section.pop("variable", {}))
+        dico.update(section)
     return dico
 
 

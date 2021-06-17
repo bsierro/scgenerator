@@ -424,7 +424,6 @@ class Simulations:
         io.save_parameters(self.param_seq.config, self.sim_dir, file_name="initial_config.toml")
 
         self.sim_jobs_per_node = 1
-        self.max_concurrent_jobs = np.inf
 
     @property
     def finished_and_complete(self):
@@ -433,9 +432,6 @@ class Simulations:
             return True
         except IncompleteDataFolderError:
             return False
-
-    def limit_concurrent_jobs(self, max_concurrent_jobs):
-        self.max_concurrent_jobs = max_concurrent_jobs
 
     def update(self, param_seq: initialize.ParamSequence):
         self.param_seq = param_seq
@@ -656,8 +652,7 @@ class RaySimulations(Simulations, priority=2):
     def sim_jobs_total(self):
         if self.param_seq.config.worker_num is not None:
             return self.param_seq.config.worker_num
-        tot_cpus = sum([node.get("Resources", {}).get("CPU", 0) for node in ray.nodes()])
-        tot_cpus = min(tot_cpus, self.max_concurrent_jobs)
+        tot_cpus = ray.cluster_resources().get("CPU", 1)
         return int(min(self.param_seq.num_sim, tot_cpus))
 
 
