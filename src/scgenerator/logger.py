@@ -49,16 +49,16 @@ def configure_logger(logger: logging.Logger):
     """
     if not hasattr(logger, "already_configured"):
 
-        print_lvl = lvl_map.get(log_print_level())
-        file_lvl = lvl_map.get(log_file_level())
+        print_lvl = lvl_map.get(log_print_level(), logging.NOTSET)
+        file_lvl = lvl_map.get(log_file_level(), logging.NOTSET)
 
-        if file_lvl is not None:
+        if file_lvl > logging.NOTSET:
             formatter = logging.Formatter("{levelname}: {name}: {message}", style="{")
             file_handler1 = logging.FileHandler("scgenerator.log", "a+")
             file_handler1.setFormatter(formatter)
             file_handler1.setLevel(file_lvl)
             logger.addHandler(file_handler1)
-        if print_lvl is not None:
+        if print_lvl > logging.NOTSET:
             stream_handler = logging.StreamHandler()
             stream_handler.setLevel(print_lvl)
             logger.addHandler(stream_handler)

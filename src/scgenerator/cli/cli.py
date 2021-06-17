@@ -83,7 +83,7 @@ def main():
 
 def run_sim(args):
 
-    method = prep_ray(args)
+    method = prep_ray()
     run_simulation_sequence(*args.configs, method=method)
 
 
@@ -95,7 +95,7 @@ def merge(args):
     io.merge(args.output_name, path_trees)
 
 
-def prep_ray(args):
+def prep_ray():
     logger = get_logger(__name__)
     if ray:
         if env.get(const.START_RAY):
@@ -114,7 +114,7 @@ def prep_ray(args):
 
 def resume_sim(args):
 
-    method = prep_ray(args)
+    method = prep_ray()
     sim = resume_simulations(Path(args.sim_dir), method=method)
     sim.run()
     run_simulation_sequence(*args.configs, method=method, prev_sim_dir=sim.sim_dir)

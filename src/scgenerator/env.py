@@ -19,10 +19,15 @@ def data_folder(task_id: int) -> Optional[str]:
 
 def get(key: str) -> Any:
     str_value = os.environ.get(key)
-    try:
-        return global_config[key]["type"](str_value)
-    except (ValueError, KeyError):
-        return None
+    if isinstance(str_value, str):
+        try:
+            t = global_config[key]["type"]
+            if t == bool:
+                return str_value.lower() == "true"
+            return t(str_value)
+        except (ValueError, KeyError):
+            pass
+    return None
 
 
 def all_environ() -> Dict[str, str]:
