@@ -12,7 +12,6 @@ class TestRecoveryParamSequence(unittest.TestCase):
     def setUp(self):
         shutil.copytree("/Users/benoitsierro/sc_tests/scgenerator_full anomalous55", TMP)
         self.conf = toml.load(TMP + "/initial_config.toml")
-        logger.DEFAULT_LEVEL = logger.logging.FATAL
         io.set_data_folder(55, TMP)
 
     def test_remaining_simulations_count(self):

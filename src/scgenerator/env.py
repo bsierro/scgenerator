@@ -1,13 +1,28 @@
 import os
-from typing import Dict, Literal, Optional, Set
+from typing import Any, Dict, Literal, Optional, Set
 
-from .const import ENVIRON_KEY_BASE, LOG_POLICY, PBAR_POLICY, TMP_FOLDER_KEY_BASE
+from .const import (
+    ENVIRON_KEY_BASE,
+    LOG_FILE_LEVEL,
+    LOG_PRINT_LEVEL,
+    PBAR_POLICY,
+    TMP_FOLDER_KEY_BASE,
+    global_config,
+)
 
 
 def data_folder(task_id: int) -> Optional[str]:
     idstr = str(int(task_id))
     tmp = os.getenv(TMP_FOLDER_KEY_BASE + idstr)
     return tmp
+
+
+def get(key: str) -> Any:
+    str_value = os.environ.get(key)
+    try:
+        return global_config[key]["type"](str_value)
+    except (ValueError, KeyError):
+        return None
 
 
 def all_environ() -> Dict[str, str]:
@@ -17,7 +32,7 @@ def all_environ() -> Dict[str, str]:
 
 
 def pbar_policy() -> Set[Literal["print", "file"]]:
-    policy = os.getenv(PBAR_POLICY)
+    policy = get(PBAR_POLICY)
     if policy == "print" or policy is None:
         return {"print"}
     elif policy == "file":
@@ -28,13 +43,23 @@ def pbar_policy() -> Set[Literal["print", "file"]]:
         return set()
 
 
-def log_policy() -> Set[Literal["print", "file"]]:
-    policy = os.getenv(LOG_POLICY)
-    if policy == "print" or policy is None:
-        return {"print"}
-    elif policy == "file":
-        return {"file"}
-    elif policy == "both":
-        return {"file", "print"}
-    else:
-        return set()
+def log_file_level() -> Set[Literal["critical", "error", "warning", "info", "debug"]]:
+    policy = get(LOG_FILE_LEVEL)
+    try:
+        policy = policy.lower()
+        if policy in {"critical", "error", "warning", "info", "debug"}:
+            return policy
+    except AttributeError:
+        pass
+    return None
+
+
+def log_print_level() -> Set[Literal["critical", "error", "warning", "info", "debug"]]:
+    policy = get(LOG_PRINT_LEVEL)
+    try:
+        policy = policy.lower()
+        if policy in {"critical", "error", "warning", "info", "debug"}:
+            return policy
+    except AttributeError:
+        pass
+    return None

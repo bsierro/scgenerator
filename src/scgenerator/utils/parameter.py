@@ -339,7 +339,7 @@ class BareParams:
     peak_power: float = Parameter(positive(float, int))
     mean_power: float = Parameter(positive(float, int))
     energy: float = Parameter(positive(float, int))
-    soliton_num: float = Parameter(positive(float, int))
+    soliton_num: float = Parameter(non_negative(float, int))
     quantum_noise: bool = Parameter(boolean)
     shape: str = Parameter(literal("gaussian", "sech"))
     wavelength: float = Parameter(in_range_incl(100e-9, 3000e-9))
@@ -362,10 +362,10 @@ class BareParams:
     lower_wavelength_interp_limit: float = Parameter(in_range_incl(100e-9, 3000e-9))
     upper_wavelength_interp_limit: float = Parameter(in_range_incl(200e-9, 5000e-9))
     interp_degree: int = Parameter(positive(int))
-    frep: float = Parameter(positive(float, int))
     prev_sim_dir: str = Parameter(string)
     readjust_wavelength: bool = Parameter(boolean)
     recovery_last_stored: int = Parameter(non_negative(int))
+    worker_num: int = Parameter(positive(int))
 
     # computed
     field_0: np.ndarray = Parameter(type_checker(np.ndarray))

@@ -212,7 +212,6 @@ class Config(BareConfig):
         for param in [
             "behaviors",
             "z_num",
-            "frep",
             "tolerated_error",
             "parallel",
             "repeat",

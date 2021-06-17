@@ -3,11 +3,10 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Type
-from typing_extensions import runtime
 
 import numpy as np
 
-from .. import env, initialize, io, utils
+from .. import const, env, initialize, io, utils
 from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
 from . import pulse
@@ -290,7 +289,6 @@ class SequentialRK4IP(RK4IP):
         save_data=False,
         job_identifier="",
         task_id=0,
-        n_percent=10,
     ):
         self.pbars = pbars
         super().__init__(
@@ -298,7 +296,6 @@ class SequentialRK4IP(RK4IP):
             save_data=save_data,
             job_identifier=job_identifier,
             task_id=task_id,
-            n_percent=n_percent,
         )
 
     def step_saved(self):
@@ -314,7 +311,6 @@ class MutliProcRK4IP(RK4IP):
         save_data=False,
         job_identifier="",
         task_id=0,
-        n_percent=10,
     ):
         self.worker_id = worker_id
         self.p_queue = p_queue
@@ -323,7 +319,6 @@ class MutliProcRK4IP(RK4IP):
             save_data=save_data,
             job_identifier=job_identifier,
             task_id=task_id,
-            n_percent=n_percent,
         )
 
     def step_saved(self):
@@ -512,7 +507,10 @@ class MultiProcSimulations(Simulations, priority=1):
 
     def __init__(self, param_seq: initialize.ParamSequence, task_id):
         super().__init__(param_seq, task_id=task_id)
-        self.sim_jobs_per_node = max(1, os.cpu_count() // 2)
+        if param_seq.config.worker_num is not None:
+            self.sim_jobs_per_node = param_seq.config.worker_num
+        else:
+            self.sim_jobs_per_node = max(1, os.cpu_count() // 2)
         self.queue = multiprocessing.JoinableQueue(self.sim_jobs_per_node)
         self.progress_queue = multiprocessing.Queue()
         self.workers = [
@@ -656,6 +654,8 @@ class RaySimulations(Simulations, priority=2):
 
     @property
     def sim_jobs_total(self):
+        if self.param_seq.config.worker_num is not None:
+            return self.param_seq.config.worker_num
         tot_cpus = sum([node.get("Resources", {}).get("CPU", 0) for node in ray.nodes()])
         tot_cpus = min(tot_cpus, self.max_concurrent_jobs)
         return int(min(self.param_seq.num_sim, tot_cpus))
@@ -664,7 +664,6 @@ class RaySimulations(Simulations, priority=2):
 def run_simulation_sequence(
     *config_files: os.PathLike,
     method=None,
-    final_name: str = None,
     prev_sim_dir: os.PathLike = None,
 ):
     prev = prev_sim_dir
@@ -674,6 +673,7 @@ def run_simulation_sequence(
         prev = sim.sim_dir
     path_trees = io.build_path_trees(sim.sim_dir)
 
+    final_name = env.get(const.OUTPUT_PATH)
     if final_name is None:
         final_name = path_trees[0][-1][0].parent.name + " merged"
 
@@ -687,6 +687,7 @@ def new_simulation(
 ) -> Simulations:
 
     config_dict = io.load_toml(config_file)
+    logger = get_logger(__name__)
 
     if prev_sim_dir is not None:
         config_dict["prev_sim_dir"] = str(prev_sim_dir)
@@ -698,7 +699,7 @@ def new_simulation(
     else:
         param_seq = initialize.ContinuationParamSequence(prev_sim_dir, config_dict)
 
-    print(f"{param_seq.name=}")
+    logger.info(f"running {param_seq.name}")
 
     return Simulations.new(param_seq, task_id, method)
 

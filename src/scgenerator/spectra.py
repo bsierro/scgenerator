@@ -198,7 +198,7 @@ class Pulse(Sequence):
         spec = np.load(self.path / SPECN_FN.format(i))
         if self.__ensure_2d:
             spec = np.atleast_2d(spec)
-        spec = Spectrum(spec, self.wl, self.params.frep)
+        spec = Spectrum(spec, self.wl, self.params.repetition_rate)
         self.cache[i] = spec
         return spec
 

@@ -2,15 +2,19 @@ import argparse
 import os
 import random
 from pathlib import Path
+from collections import ChainMap
 
-from scgenerator import io
-from scgenerator.physics.simulate import (
+from ray.worker import get
+
+from .. import io, env, const
+from ..logger import get_logger
+from ..physics.simulate import (
     SequencialSimulations,
     resume_simulations,
     run_simulation_sequence,
 )
-from scgenerator.physics.fiber import dispersion_coefficients
-
+from ..physics.fiber import dispersion_coefficients
+from pprint import pprint
 
 try:
     import ray
@@ -18,29 +22,26 @@ except ImportError:
     ray = None
 
 
+def set_env_variables(cmd_line_args: dict[str, str]):
+    cm = ChainMap(cmd_line_args, os.environ)
+    for env_key in const.global_config:
+        k = env_key.replace(const.ENVIRON_KEY_BASE, "").lower()
+        v = cm.get(k)
+        if v is not None:
+            os.environ[env_key] = str(v)
+
+
 def create_parser():
     parser = argparse.ArgumentParser(description="scgenerator command", prog="scgenerator")
-
     subparsers = parser.add_subparsers(help="sub-command help")
 
-    parser.add_argument(
-        "--id",
-        type=int,
-        default=random.randint(0, 1e18),
-        help="Unique id of the session. Only useful when running several processes at the same time.",
-    )
-    parser.add_argument(
-        "--start-ray",
-        action="store_true",
-        help="initialize ray (ray must be installed)",
-    )
-
-    parser.add_argument(
-        "--no-ray",
-        action="store_true",
-        help="force not to use ray",
-    )
-    parser.add_argument("--output-name", "-o", help="path to the final output folder", default=None)
+    for key, args in const.global_config.items():
+        names = ["--" + key.replace(const.ENVIRON_KEY_BASE, "").replace("_", "-").lower()]
+        if "short_name" in args:
+            names.append(args["short_name"])
+        parser.add_argument(
+            *names, **{k: v for k, v in args.items() if k not in {"short_name", "type"}}
+        )
 
     run_parser = subparsers.add_parser("run", help="run a simulation from a config file")
     run_parser.add_argument("configs", help="path(s) to the toml configuration file(s)", nargs="+")
@@ -71,15 +72,19 @@ def create_parser():
 def main():
     parser = create_parser()
     args = parser.parse_args()
+
+    set_env_variables({k: v for k, v in vars(args).items() if v is not None})
+
     args.func(args)
 
-    print(f"coef hits : {dispersion_coefficients.hits}, misses : {dispersion_coefficients.misses}")
+    logger = get_logger(__name__)
+    logger.info(f"dispersion cache : {dispersion_coefficients.cache_info()}")
 
 
 def run_sim(args):
 
     method = prep_ray(args)
-    run_simulation_sequence(*args.configs, method=method, final_name=args.output_name)
+    run_simulation_sequence(*args.configs, method=method)
 
 
 def merge(args):
@@ -91,19 +96,20 @@ def merge(args):
 
 
 def prep_ray(args):
+    logger = get_logger(__name__)
     if ray:
-        if args.start_ray:
+        if env.get(const.START_RAY):
             init_str = ray.init()
-        elif not args.no_ray:
+        elif not env.get(const.NO_RAY):
             try:
                 init_str = ray.init(
                     address="auto",
                     _redis_password=os.environ.get("redis_password", "caco1234"),
                 )
-                print(init_str)
+                logger.info(init_str)
             except ConnectionError as e:
-                print(e)
-    return SequencialSimulations if args.no_ray else None
+                logger.error(e)
+    return SequencialSimulations if env.get(const.NO_RAY) else None
 
 
 def resume_sim(args):
@@ -111,9 +117,7 @@ def resume_sim(args):
     method = prep_ray(args)
     sim = resume_simulations(Path(args.sim_dir), method=method)
     sim.run()
-    run_simulation_sequence(
-        *args.configs, method=method, prev_sim_dir=sim.sim_dir, final_name=args.output_name
-    )
+    run_simulation_sequence(*args.configs, method=method, prev_sim_dir=sim.sim_dir)
 
 
 if __name__ == "__main__":

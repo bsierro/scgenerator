@@ -39,7 +39,7 @@ def number_density_van_der_waals(
         ValueError : Since the Van der Waals equation is a cubic one, there could be more than one real, positive solution
     """
 
-    logger = get_logger
+    logger = get_logger(__name__)
 
     if pressure == 0:
         return 0
@@ -73,7 +73,7 @@ def number_density_van_der_waals(
         s = f"Van der Waals eq with parameters P={pressure}, T={temperature}, a={a}, b={b}"
         s += f", There is more than one possible number density : {roots}."
         s += f", {np.min(roots)} was returned"
-        logger.info(s)
+        logger.warning(s)
     return np.min(roots)
 
 
@@ -90,6 +90,8 @@ def sellmeier(lambda_, material_dico, pressure=None, temperature=None):
     ----------
         an array n(lambda_)^2 - 1
     """
+    logger = get_logger(__name__)
+
     WL_THRESHOLD = 8.285e-6
     temp_l = lambda_[lambda_ < WL_THRESHOLD]
     kind = 1
@@ -101,7 +103,6 @@ def sellmeier(lambda_, material_dico, pressure=None, temperature=None):
     t0 = material_dico["sellmeier"].get("t0", 273.15)
     kind = material_dico["sellmeier"].get("kind", 1)
 
-    # Sellmeier equation
     chi = np.zeros_like(lambda_)  # = n^2 - 1
     if kind == 1:
         for b, c in zip(B, C):
@@ -120,6 +121,7 @@ def sellmeier(lambda_, material_dico, pressure=None, temperature=None):
     if pressure is not None:
         chi *= pressure / P0
 
+    logger.debug(f"computed chi between {np.min(chi):.2e} and {np.max(chi):.2e}")
     return chi
 
 

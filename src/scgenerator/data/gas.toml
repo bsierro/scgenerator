@@ -38,12 +38,25 @@ b = 3.978e-5
 a = 0.425
 b = 5.105e-5
 
+[air]
+a = 0.1358
+b = 3.64e-5
+
+[vacuum]
+a = 0
+b = 0
+
 [air.sellmeier]
 B = [57921050000.0, 1679170000.0]
 C = [238018500000000.0, 57362000000000.0]
 P0 = 101325
 T0 = 288.15
 kind = 2
+
+[air.kerr]
+P0 = 101325
+T0 = 293.15
+n2 = 3.01e-23
 
 [nitrogen.sellmeier]
 B = [32431570000.0]
@@ -181,3 +194,16 @@ P0 = 30400.0
 T0 = 273.15
 n2 = 5.8e-23
 source = "Wahlstrand, J. K., Cheng, Y. H., & Milchberg, H. M. (2012). High field optical nonlinearity and the Kramers-Kronig relations. Physical review letters, 109(11), 113904."
+
+[vacuum.sellmeier]
+B = []
+C = []
+P0 = 101325
+T0 = 273.15
+kind = 1
+
+[vacuum.kerr]
+P0 = 30400.0
+T0 = 273.15
+n2 = 0
+source = "none"

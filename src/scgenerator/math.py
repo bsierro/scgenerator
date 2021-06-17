@@ -91,7 +91,7 @@ def u_nm(n, m):
 
 
 @np_cache
-def nfft_matrix(t: np.ndarray, f: np.ndarray) -> np.ndarray:
+def ndft_matrix(t: np.ndarray, f: np.ndarray) -> np.ndarray:
     """creates the nfft matrix
 
     Parameters
@@ -111,7 +111,7 @@ def nfft_matrix(t: np.ndarray, f: np.ndarray) -> np.ndarray:
 
 
 @np_cache
-def infft_matrix(t: np.ndarray, f: np.ndarray) -> np.ndarray:
+def indft_matrix(t: np.ndarray, f: np.ndarray) -> np.ndarray:
     """creates the nfft matrix
 
     Parameters
@@ -126,10 +126,10 @@ def infft_matrix(t: np.ndarray, f: np.ndarray) -> np.ndarray:
     np.ndarray, shape = (m, n)
         multiply ~X(f) by this matrix to get x(t)
     """
-    return np.linalg.pinv(nfft_matrix(t, f))
+    return np.linalg.pinv(ndft_matrix(t, f))
 
 
-def nfft(t: np.ndarray, s: np.ndarray, f: np.ndarray) -> np.ndarray:
+def ndft(t: np.ndarray, s: np.ndarray, f: np.ndarray) -> np.ndarray:
     """computes the Fourier transform of an uneven signal
 
     Parameters
@@ -146,10 +146,10 @@ def nfft(t: np.ndarray, s: np.ndarray, f: np.ndarray) -> np.ndarray:
     np.ndarray, shape = (m, )
         amplitude at each frequency
     """
-    return nfft_matrix(t, f) @ s
+    return ndft_matrix(t, f) @ s
 
 
-def infft(f: np.ndarray, a: np.ndarray, t: np.ndarray) -> np.ndarray:
+def indft(f: np.ndarray, a: np.ndarray, t: np.ndarray) -> np.ndarray:
     """computes the inverse Fourier transform of an uneven spectrum
 
     Parameters
@@ -166,7 +166,7 @@ def infft(f: np.ndarray, a: np.ndarray, t: np.ndarray) -> np.ndarray:
     np.ndarray, shape = (m, )
         amplitude at each point of t
     """
-    return infft_matrix(t, f) @ a
+    return indft_matrix(t, f) @ a
 
 
 def make_uniform_2D(values, x_axis, y_axis, n=1024, method="linear"):

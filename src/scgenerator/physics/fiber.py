@@ -130,7 +130,7 @@ def n_eff_marcatili(lambda_, n_gas_2, core_radius, he_mode=(1, 1)):
     lambda_ : ndarray, shape (n, )
         wavelengths array (m)
     n_gas_2 : ndarray, shape (n, )
-        refractive index of the gas as function of lambda_
+        square of the refractive index of the gas as function of lambda_
     core_radius : float
         inner radius of the capillary (m)
     he_mode : tuple, shape (2, ), optional
@@ -455,7 +455,6 @@ def HCPCF_dispersion(
         Temperature of the material
     pressure : float
         constant pressure
-        FIXME tupple : a pressure gradient from pressure[0] to pressure[1] is computed
 
     Returns
     -------
@@ -692,15 +691,7 @@ def compute_dispersion(params: BareParams):
             )
 
         else:
-            # Load material info
-            gas_name = params.gas_name
-
-            if gas_name == "vacuum":
-                material_dico = None
-            else:
-                material_dico = toml.loads(io.Paths.gets("gas"))[gas_name]
-
-            # compute dispersion
+            material_dico = toml.loads(io.Paths.gets("gas"))[params.gas_name]
             if params.dynamic_dispersion:
                 return dynamic_HCPCF_dispersion(
                     lambda_,
@@ -716,9 +707,6 @@ def compute_dispersion(params: BareParams):
                     params.interp_degree,
                 )
             else:
-
-                # actually compute the dispersion
-
                 beta2 = HCPCF_dispersion(
                     lambda_,
                     material_dico,
@@ -730,10 +718,14 @@ def compute_dispersion(params: BareParams):
                 )
 
                 if material_dico is not None:
-                    A_eff = 1.5 * params.core_radius ** 2
-                    n2 = mat.non_linear_refractive_index(
-                        material_dico, params.pressure, params.temperature
-                    )
+
+                    A_eff = 1.5 * params.core_radius ** 2 if params.A_eff is None else params.A_eff
+                    if params.n2 is None:
+                        n2 = mat.non_linear_refractive_index(
+                            material_dico, params.pressure, params.temperature
+                        )
+                    else:
+                        n2 = params.n2
                     gamma = gamma_parameter(n2, params.w0, A_eff)
                 else:
                     gamma = None

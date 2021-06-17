@@ -8,13 +8,9 @@ from pathlib import Path
 from typing import Tuple
 
 import numpy as np
-from toml import load
-
-from scgenerator.utils.parameter import BareConfig
 
 from ..initialize import validate_config_sequence
 from ..io import Paths, load_config
-from ..utils import count_variations
 
 
 def primes(n):
@@ -90,7 +86,7 @@ def create_parser():
         "--environment-setup",
         required=False,
         default=f"source {os.path.expanduser('~/anaconda3/etc/profile.d/conda.sh')} && conda activate sc && "
-        "export SCGENERATOR_PBAR_POLICY=file && export SCGENERATOR_LOG_POLICY=file",
+        "export SCGENERATOR_PBAR_POLICY=file && export SCGENERATOR_LOG_PRINT_LEVEL=none && export SCGENERATOR_LOG_FILE_LEVEL=info",
         help="commands to run to setup the environement (default : activate the sc environment with conda)",
     )
     parser.add_argument(
