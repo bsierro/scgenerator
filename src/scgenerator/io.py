@@ -411,12 +411,12 @@ def merge(destination: os.PathLike, path_trees: List[PathTree] = None):
         z_num += prev_z_num
 
     pbars = utils.PBars(
-        path_trees, 1, desc="Merging", worker_kwargs=dict(total=z_num, desc="current pos")
+        len(path_trees) * z_num, "Merging", 1, worker_kwargs=dict(total=z_num, desc="current pos")
     )
     for path_tree in path_trees:
+        pbars.reset(1)
         iden = PARAM_SEPARATOR.join(path_tree[-1][0].name.split()[2:-2])
         merge_path_tree(path_tree, destination / iden, z_callback=lambda i: pbars.update(1))
-        pbars.update(0)
 
 
 def sim_dirs(path_trees: List[PathTree]) -> Generator[Path, None, None]:
