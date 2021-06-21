@@ -14,7 +14,7 @@ from .errors import *
 from .logger import get_logger
 from .math import power_fact
 from .physics import fiber, pulse, units
-from .utils import count_variations, override_config, required_simulations
+from .utils import count_variations, override_config, pretty_format_value, required_simulations
 from .utils.parameter import BareConfig, BareParams, hc_model_specific_parameters
 
 
@@ -519,13 +519,15 @@ def validate_config_sequence(*configs: os.PathLike) -> Tuple[Config, int]:
     """
     previous = None
     variables = set()
+    num = 1
     for config in configs:
         if (p := Path(config)).is_dir():
             config = p / "initial_config.toml"
         dico = io.load_toml(config)
         previous = Config.from_bare(override_config(dico, previous))
+        num *= previous.repeat
         variables |= {(k, tuple(v)) for k, v in previous.variable.items()}
-    return previous, np.product([len(v) for k, v in variables])
+    return previous, num * int(np.product([len(v) for k, v in variables if len(v) > 0]))
 
 
 def wspace(t, t_num=0):

@@ -43,7 +43,7 @@ def plot_init_field_spec(
         else:
             continue
 
-        plot_1_init_spec_field(lim_t, lim_l, left, right, style, lbl, params)
+        lbl = plot_1_init_spec_field(lim_t, lim_l, left, right, style, lbl, params)
         all_labels.append(lbl)
     finish_plot(fig, left, right, all_labels, params)
 
@@ -60,7 +60,7 @@ def plot_dispersion(config_path: Path, lim: tuple[float, float] = None):
         else:
             continue
 
-        plot_1_dispersion(lim, left, right, style, lbl, params)
+        lbl = plot_1_dispersion(lim, left, right, style, lbl, params)
         all_labels.append(lbl)
     finish_plot(fig, left, right, all_labels, params)
 

@@ -216,7 +216,7 @@ def plot_init(args):
 
 def plot_dispersion(args):
     if args.limits is None:
-        lims = [None, None]
+        lims = None
     else:
         lims = 1e-9 * np.array(args.limits, dtype=float)
     scripts.plot_dispersion(args.config, lims)
