@@ -196,7 +196,7 @@ def format_variable_list(l: List[Tuple[str, Any]]):
 
 
 def branch_id(branch: Tuple[Path, ...]) -> str:
-    return "".join("".join(re.sub(r"id\d\S*num\d", "", b.name).split()[2:-2]) for b in branch)
+    return "".join("".join(re.sub(r"id\d+\S*num\d+", "", b.name).split()[2:-2]) for b in branch)
 
 
 def format_value(value) -> str:

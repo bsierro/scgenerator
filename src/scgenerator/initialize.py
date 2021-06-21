@@ -526,7 +526,7 @@ def validate_config_sequence(*configs: os.PathLike) -> Tuple[Config, int]:
         previous = Config.from_bare(override_config(dico, previous))
         variables |= {(k, tuple(v)) for k, v in previous.variable.items()}
         variables.add(("repeat", range(previous.repeat)))
-    return previous, int(np.product([len(v) for k, v in variables if len(v) > 0]))
+    return previous, int(np.product([len(v) for _, v in variables if len(v) > 0]))
 
 
 def wspace(t, t_num=0):
