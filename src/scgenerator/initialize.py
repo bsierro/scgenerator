@@ -519,15 +519,14 @@ def validate_config_sequence(*configs: os.PathLike) -> Tuple[Config, int]:
     """
     previous = None
     variables = set()
-    repeat = 1
     for config in configs:
         if (p := Path(config)).is_dir():
             config = p / "initial_config.toml"
         dico = io.load_toml(config)
         previous = Config.from_bare(override_config(dico, previous))
-        repeat = previous.repeat
         variables |= {(k, tuple(v)) for k, v in previous.variable.items()}
-    return previous, repeat * int(np.product([len(v) for k, v in variables if len(v) > 0]))
+        variables.add(("repeat", range(previous.repeat)))
+    return previous, int(np.product([len(v) for k, v in variables if len(v) > 0]))
 
 
 def wspace(t, t_num=0):
