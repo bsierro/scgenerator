@@ -6,7 +6,7 @@ from typing import Dict, List, Tuple, Type
 
 import numpy as np
 
-from .. import const, env, initialize, io, utils
+from .. import env, initialize, io, utils
 from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
 from . import pulse
@@ -668,7 +668,7 @@ def run_simulation_sequence(
         prev = sim.sim_dir
     path_trees = io.build_path_trees(sim.sim_dir)
 
-    final_name = env.get(const.OUTPUT_PATH)
+    final_name = env.get(env.OUTPUT_PATH)
     if final_name is None:
         final_name = path_trees[0][-1][0].parent.name + " merged"
 

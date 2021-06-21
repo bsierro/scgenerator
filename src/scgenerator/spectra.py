@@ -33,19 +33,29 @@ class Spectrum(np.ndarray):
 
 
 class Pulse(Sequence):
-    def __init__(self, path: os.PathLike, ensure_2d=True):
+    def __init__(self, path: os.PathLike, default_ind: Union[int, Iterable[int]] = None):
+        """load a data folder as a pulse
+
+        Parameters
+        ----------
+        path : os.PathLike
+            path to the data (folder containing .npy files)
+        default_ind : int | Iterable[int], optional
+            default indices to be loaded, by default None
+
+        Raises
+        ------
+        FileNotFoundError
+            path does not contain proper data
+        """
         self.logger = get_logger(__name__)
         self.path = Path(path)
-        self.__ensure_2d = ensure_2d
+        self.default_ind = default_ind
 
         if not self.path.is_dir():
             raise FileNotFoundError(f"Folder {self.path} does not exist")
 
-        self.params = None
-        try:
-            self.params = io.load_params(self.path / "params.toml")
-        except FileNotFoundError:
-            self.logger.info(f"parameters corresponding to {self.path} not found")
+        self.params = io.load_params(self.path / "params.toml")
 
         initialize.build_sim_grid_in_place(self.params)
 
@@ -173,8 +183,11 @@ class Pulse(Sequence):
         # Check if file exists and assert how many z positions there are
 
         if ind is None:
-            ind = range(self.nmax)
-        elif isinstance(ind, int):
+            if self.default_ind is None:
+                ind = range(self.nmax)
+            else:
+                ind = self.default_ind
+        if isinstance(ind, int):
             ind = [ind]
 
         # Load the spectra
@@ -184,8 +197,10 @@ class Pulse(Sequence):
         spectra = np.array(spectra)
 
         self.logger.debug(f"all spectra from {self.path} successfully loaded")
-
-        return spectra
+        if len(ind) == 1:
+            return spectra[0]
+        else:
+            return spectra
 
     def all_fields(self, ind=None):
         return np.fft.ifft(self.all_spectra(ind=ind), axis=-1)
@@ -196,8 +211,7 @@ class Pulse(Sequence):
         if i in self.cache:
             return self.cache[i]
         spec = np.load(self.path / SPECN_FN.format(i))
-        if self.__ensure_2d:
-            spec = np.atleast_2d(spec)
+        spec = np.atleast_2d(spec)
         spec = Spectrum(spec, self.wl, self.params.repetition_rate)
         self.cache[i] = spec
         return spec

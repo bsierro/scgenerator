@@ -147,9 +147,11 @@ def run_sim(args):
 def merge(args):
     path_trees = io.build_path_trees(Path(args.path))
 
-    if args.output_name is None:
-        args.output_name = path_trees[0][-1][0].parent.name + " merged"
-    io.merge(args.output_name, path_trees)
+    output = env.output_path()
+    if output is None:
+        output = path_trees[0][-1][0].parent.name + " merged"
+
+    io.merge(output, path_trees)
 
 
 def prep_ray():
