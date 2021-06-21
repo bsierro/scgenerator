@@ -211,3 +211,10 @@ def make_uniform_1D(values, x_axis, n=1024, method="linear"):
     """
     xx = np.linspace(*span(x_axis), len(x_axis))
     return interp1d(x_axis, values, kind=method)(xx)
+
+
+def all_zeros(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """find all the x values such that y(x)=0 with linear interpolation"""
+    pos = np.argwhere(y[1:] * y[:-1] < 0)[:, 0]
+    m = (y[pos] - y[pos - 1]) / (x[pos] - x[pos - 1])
+    return -y[pos] / m + x[pos]

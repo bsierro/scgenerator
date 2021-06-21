@@ -5,6 +5,7 @@ from functools import lru_cache
 from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
 
 import numpy as np
+from numpy.lib.function_base import disp
 
 from ..const import __version__
 
@@ -158,7 +159,7 @@ def func_validator(name, n):
 
 
 class Parameter:
-    def __init__(self, validator, converter=None, default=None):
+    def __init__(self, validator, converter=None, default=None, display_info=None):
         """Single parameter
 
         Parameters
@@ -178,6 +179,7 @@ class Parameter:
         self.validator = validator
         self.converter = converter
         self.default = default
+        self.display_info = display_info
 
     def __set_name__(self, owner, name):
         self.name = name
@@ -200,6 +202,16 @@ class Parameter:
                 if self.converter is not None:
                     value = self.converter(value)
             instance.__dict__[self.name] = value
+
+    def display(self, num: float):
+        if self.display_info is None:
+            return str(num)
+        else:
+            fac, unit = self.display_info
+            num_str = format(num * fac, ".2f")
+            if num_str.endswith(".00"):
+                num_str = num_str[:-3]
+            return f"{num_str} {unit}"
 
 
 class VariableParameter:
@@ -243,6 +255,7 @@ valid_variable = {
     "gamma",
     "pitch",
     "pitch_ratio",
+    "effective_mode_diameter",
     "core_radius",
     "capillary_num",
     "capillary_outer_d",
@@ -326,26 +339,26 @@ class BareParams:
     capillary_nested: int = Parameter(non_negative(int))
 
     # gas
-    gas_name: str = Parameter(literal("vacuum", "helium", "air"), converter=str.lower)
+    gas_name: str = Parameter(string, converter=str.lower)
     pressure: Union[float, Iterable[float]] = Parameter(
-        validator_or(non_negative(float, int), num_list)
+        validator_or(non_negative(float, int), num_list), display_info=(1e-5, "bar")
     )
-    temperature: float = Parameter(positive(float, int))
+    temperature: float = Parameter(positive(float, int), display_info=(1, "K"))
     plasma_density: float = Parameter(non_negative(float, int))
 
     # pulse
     field_file: str = Parameter(string)
-    repetition_rate: float = Parameter(non_negative(float, int))
-    peak_power: float = Parameter(positive(float, int))
-    mean_power: float = Parameter(positive(float, int))
-    energy: float = Parameter(positive(float, int))
+    repetition_rate: float = Parameter(non_negative(float, int), display_info=(1e-6, "MHz"))
+    peak_power: float = Parameter(positive(float, int), display_info=(1e-3, "kW"))
+    mean_power: float = Parameter(positive(float, int), display_info=(1e3, "mW"))
+    energy: float = Parameter(positive(float, int), display_info=(1e6, "μJ"))
     soliton_num: float = Parameter(non_negative(float, int))
     quantum_noise: bool = Parameter(boolean)
     shape: str = Parameter(literal("gaussian", "sech"))
-    wavelength: float = Parameter(in_range_incl(100e-9, 3000e-9))
+    wavelength: float = Parameter(in_range_incl(100e-9, 3000e-9), display_info=(1e9, "nm"))
     intensity_noise: float = Parameter(in_range_incl(0, 1))
-    width: float = Parameter(in_range_excl(0, 1e-9))
-    t0: float = Parameter(in_range_excl(0, 1e-9))
+    width: float = Parameter(in_range_excl(0, 1e-9), display_info=(1e15, "fs"))
+    t0: float = Parameter(in_range_excl(0, 1e-9), display_info=(1e15, "fs"))
 
     # simulation
     behaviors: str = Parameter(validator_list(literal("spm", "raman", "ss")))

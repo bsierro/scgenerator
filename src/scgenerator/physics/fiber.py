@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Literal, Tuple
 
 import numpy as np
 import toml
@@ -276,10 +276,10 @@ def A_eff_hasan(core_radius, capillary_num, capillary_spacing):
 
 
 def HCPCF_find_with_given_ZDW(
-    variable,
-    target,
-    search_range,
-    material_dico,
+    variable: Literal["pressure", "temperature"],
+    target: float,
+    search_range: tuple[float, float],
+    material_dico: dict[str, Any],
     model="marcatili",
     model_params={},
     pressure=None,
@@ -673,10 +673,12 @@ def compute_dispersion(params: BareParams):
     if params.dispersion_file is not None:
         disp_file = np.load(params.dispersion_file)
         lambda_ = disp_file["wavelength"]
+        interp_range = (np.min(lambda_), np.max(lambda_))
         D = disp_file["dispersion"]
         beta2 = D_to_beta2(D, lambda_)
         gamma = None
     else:
+        interp_range = params.interp_range
         lambda_ = lambda_for_dispersion()
         beta2 = np.zeros_like(lambda_)
 
@@ -744,7 +746,7 @@ def compute_dispersion(params: BareParams):
         else:
             gamma = 0
 
-    return beta2_coef, gamma
+    return beta2_coef, gamma, interp_range
 
 
 @np_cache

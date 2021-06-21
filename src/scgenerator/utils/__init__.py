@@ -4,30 +4,24 @@ scgenerator module but some function may be used in any python program
 
 """
 
-import functools
 import itertools
 import multiprocessing
 import threading
-from functools import update_wrapper
 from collections import abc
 from copy import deepcopy
 from dataclasses import asdict, replace
 from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Tuple, TypeVar, Union
-from copy import copy
 
 import numpy as np
-from numpy.lib.index_tricks import nd_grid
 from tqdm import tqdm
 
-from ..logger import get_logger
 
 from .. import env
 from ..const import PARAM_SEPARATOR
 from ..math import *
 from .parameter import BareConfig, BareParams
-from scgenerator import logger
 
 T_ = TypeVar("T_")
 
@@ -204,7 +198,7 @@ def branch_id(branch: Tuple[Path, ...]) -> str:
     return "".join("".join(b.name.split()[2:-2]) for b in branch)
 
 
-def format_value(value):
+def format_value(value) -> str:
     if type(value) == type(False):
         return str(value)
     elif isinstance(value, (float, int)):
@@ -213,6 +207,10 @@ def format_value(value):
         return "-".join([format_value(v) for v in value])
     else:
         return str(value)
+
+
+def pretty_format_value(name: str, value) -> str:
+    return getattr(BareParams, name).display(value)
 
 
 def variable_iterator(config: BareConfig) -> Iterator[Tuple[List[Tuple[str, Any]], BareParams]]:

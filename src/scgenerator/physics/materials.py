@@ -2,7 +2,7 @@ import numpy as np
 
 from ..logger import get_logger
 from . import units
-from .units import NA, c, kB
+from .units import NA, c, kB, me, e
 
 
 def pressure_from_gradient(ratio, p0, p1):
@@ -170,3 +170,7 @@ def non_linear_refractive_index(material_dico, pressure=None, temperature=None):
         ratio = 1
 
     return ratio * n2_ref
+
+
+def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:
+    return w * np.sqrt(2 * me * I) / (e * np.abs(field))

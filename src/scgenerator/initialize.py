@@ -97,7 +97,7 @@ class Params(BareParams):
             self.dynamic_dispersion = False
         else:
             self.dynamic_dispersion = fiber.is_dynamic_dispersion(self.pressure)
-            self.beta, temp_gamma = fiber.compute_dispersion(self)
+            self.beta, temp_gamma, self.interp_range = fiber.compute_dispersion(self)
             if self.dynamic_dispersion:
                 self.gamma_func = temp_gamma
                 self.beta_func = self.beta

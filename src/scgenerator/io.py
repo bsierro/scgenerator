@@ -1,8 +1,6 @@
-from dataclasses import asdict
 import itertools
 import os
 import shutil
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Sequence, Tuple
 
@@ -11,15 +9,9 @@ import pkg_resources as pkg
 import toml
 
 from . import env, utils
-from .const import (
-    PARAM_FN,
-    PARAM_SEPARATOR,
-    SPEC1_FN,
-    SPECN_FN,
-    TMP_FOLDER_KEY_BASE,
-    Z_FN,
-    __version__,
-)
+from .const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, SPECN_FN, Z_FN, __version__
+from .env import TMP_FOLDER_KEY_BASE
+
 from .errors import IncompleteDataFolderError
 from .logger import get_logger
 from .utils.parameter import BareConfig, BareParams
@@ -93,6 +85,8 @@ def load_toml(path: os.PathLike):
         section = dico.pop(key, {})
         dico["variable"].update(section.pop("variable", {}))
         dico.update(section)
+    if len(dico["variable"]) == 0:
+        dico.pop("variable")
     return dico
 
 
