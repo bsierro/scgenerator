@@ -2,7 +2,7 @@ import itertools
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Sequence, Tuple
+from typing import Any, Callable, Dict, Generator, List, Sequence, Tuple
 
 import numpy as np
 import pkg_resources as pkg
@@ -352,7 +352,9 @@ def group_path_branches(path_branches: List[Tuple[Path, ...]]) -> List[PathTree]
     ]
 
 
-def merge_path_tree(path_tree: PathTree, destination: Path):
+def merge_path_tree(
+    path_tree: PathTree, destination: Path, z_callback: Callable[[int], None] = None
+):
     """given a path tree, copies the file into the right location
 
     Parameters
@@ -370,6 +372,8 @@ def merge_path_tree(path_tree: PathTree, destination: Path):
         z_arr.append(z)
         spec_out_name = SPECN_FN.format(i)
         np.save(destination / spec_out_name, merged_spectra)
+        if z_callback is not None:
+            z_callback(i)
     d = np.diff(z_arr)
     d[d < 0] = 0
     z_arr = np.concatenate(([z_arr[0]], np.cumsum(d)))
@@ -394,15 +398,25 @@ def merge(destination: os.PathLike, path_trees: List[PathTree] = None):
 
     destination = ensure_folder(Path(destination))
 
+    z_num = 0
+    prev_z_num = 0
+
     for i, sim_dir in enumerate(sim_dirs(path_trees)):
+        conf = sim_dir / "initial_config.toml"
         shutil.copy(
-            sim_dir / "initial_config.toml",
+            conf,
             destination / f"initial_config_{i}.toml",
         )
+        prev_z_num = load_toml(conf).get("z_num", prev_z_num)
+        z_num += prev_z_num
 
-    for path_tree in utils.PBars(path_trees, desc="Merging"):
+    pbars = utils.PBars(
+        path_trees, 1, desc="Merging", worker_kwargs=dict(total=z_num, desc="current pos")
+    )
+    for path_tree in path_trees:
         iden = PARAM_SEPARATOR.join(path_tree[-1][0].name.split()[2:-2])
-        merge_path_tree(path_tree, destination / iden)
+        merge_path_tree(path_tree, destination / iden, z_callback=lambda i: pbars.update(1))
+        pbars.update(0)
 
 
 def sim_dirs(path_trees: List[PathTree]) -> Generator[Path, None, None]:
