@@ -2,7 +2,9 @@
 # For example, nm(X) means "I give the number X in nm, figure out the ang. freq."
 # to be used especially when giving plotting ranges : (400, 1400, nm), (-4, 8, ps), ...
 
-from typing import Callable, Union
+import re
+from threading import settrace
+from typing import Callable, TypeVar, Union
 from dataclasses import dataclass
 from ..utils.parameter import Parameter, type_checker
 import numpy as np
@@ -21,204 +23,147 @@ prefix = dict(P=1e12, G=1e9, M=1e6, k=1e3, d=1e-1, c=1e-2, m=1e-3, u=1e-6, n=1e-
 
 """
 Below are common units. You can define your own unit function
-this function must have a few porperties:
-inv : function
-    inverse of the function. example :
-        um(1) -> 883651567308853.2
-        um.inv(883651567308853.2) -> 1.0
-label : str
-    label to be displayed on plot
-type : ("WL", "FREQ", "AFREQ", "TIME", "OTHER")
+provided you decorate it with @unit and provide at least a type and a label
+types are "WL", "FREQ", "AFREQ", "TIME", "PRESSURE", "TEMPERATURE", "OTHER"
 """
+_T = TypeVar("_T")
 
 
-def m(l):
+class From:
+    pass
+
+
+class To:
+    pass
+
+
+units_map = dict()
+
+
+def unit(tpe: str, label: str, inv: Callable = None):
+    def unit_maker(func):
+        nonlocal inv
+        name = func.__name__
+        if inv is None:
+            inv = func
+        setattr(From, name, func.__call__)
+        setattr(To, name, inv.__call__)
+        func.type = tpe
+        func.label = label
+        func.inv = inv
+        if name in units_map:
+            raise NameError(f"Two unit functions with the same name {name!r} were defined")
+        units_map[name] = func
+        return func
+
+    return unit_maker
+
+
+@unit("WL", r"Wavelength $\lambda$ (m)")
+def m(l: _T) -> _T:
     return 2 * pi * c / l
 
 
-m.inv = m
-m.label = r"Wavelength $\lambda$ (m)"
-m.type = "WL"
-
-
-def nm(l):
+@unit("WL", r"Wavelength $\lambda$ (nm)")
+def nm(l: _T) -> _T:
     return 2 * pi * c / (l * 1e-9)
 
 
-nm.inv = nm
-nm.label = r"Wavelength $\lambda$ (nm)"
-nm.type = "WL"
-
-
-def um(l):
+@unit("WL", r"Wavelength $\lambda$ (μm)")
+def um(l: _T) -> _T:
     return 2 * pi * c / (l * 1e-6)
 
 
-um.inv = um
-um.label = r"Wavelength $\lambda$ ($\mathrm{\mu}$m)"
-um.type = "WL"
-
-
-def THz(f):
+@unit("FREQ", r"Frequency $f$ (THz)", lambda w: w / (1e12 * 2 * pi))
+def THz(f: _T) -> _T:
     return 1e12 * 2 * pi * f
 
 
-THz.inv = lambda w: w / (1e12 * 2 * pi)
-THz.label = r"Frequency $f$ (THz)"
-THz.type = "FREQ"
-
-
-def PHz(f):
+@unit("FREQ", r"Frequency $f$ (PHz)", lambda w: w / (1e15 * 2 * pi))
+def PHz(f: _T) -> _T:
     return 1e15 * 2 * pi * f
 
 
-PHz.inv = lambda w: w / (1e15 * 2 * pi)
-PHz.label = r"Frequency $f$ (PHz)"
-PHz.type = "FREQ"
-
-
-def rad_s(w):
+@unit("AFREQ", r"Angular frequency $\omega$ ($\frac{\mathrm{rad}}{\mathrm{s}}$)")
+def rad_s(w: _T) -> _T:
     return w
 
 
-rad_s.inv = rad_s
-rad_s.label = r"Angular frequency $\omega$ ($\frac{\mathrm{rad}}{\mathrm{s}}$)"
-rad_s.type = "AFREQ"
-
-
-def Prad_s(w):
+@unit(
+    "AFREQ", r"Angular frequency $\omega$ ($\frac{\mathrm{Prad}}{\mathrm{s}}$)", lambda w: 1e-15 * w
+)
+def Prad_s(w: _T) -> _T:
     return w * 1e15
 
 
-Prad_s.inv = lambda w: 1e-15 * w
-Prad_s.label = r"Angular frequency $\omega$ ($\frac{\mathrm{Prad}}{\mathrm{s}}$)"
-Prad_s.type = "AFREQ"
-
-
-def rel_time(t):
+@unit("TIME", r"relative time ${\tau}/{\tau_\mathrm{0, FWHM}}$")
+def rel_time(t: _T) -> _T:
     return t
 
 
-rel_time.inv = rel_time
-rel_time.label = r"relative time ${\tau}/{\tau_\mathrm{0, FWHM}}$"
-rel_time.type = "TIME"
-
-
-def rel_freq(f):
+@unit("FREQ", r"relative angular freq. $(\omega - \omega_0)/\Delta\omega_0$")
+def rel_freq(f: _T) -> _T:
     return f
 
 
-rel_freq.inv = rel_freq
-rel_freq.label = r"relative angular freq. $(\omega - \omega_0)/\Delta\omega_0$"
-rel_freq.type = "FREQ"
-
-
-def s(t):
+@unit("TIME", r"Time $t$ (s)")
+def s(t: _T) -> _T:
     return t
 
 
-s.inv = s
-s.label = r"Time $t$ (s)"
-s.type = "TIME"
-
-
-def us(t):
+@unit("TIME", r"Time $t$ (us)", lambda t: t * 1e6)
+def us(t: _T) -> _T:
     return t * 1e-6
 
 
-us.inv = lambda t: t * 1e6
-us.label = r"Time $t$ (us)"
-us.type = "TIME"
-
-
-def ns(t):
+@unit("TIME", r"Time $t$ (ns)", lambda t: t * 1e9)
+def ns(t: _T) -> _T:
     return t * 1e-9
 
 
-ns.inv = lambda t: t * 1e9
-ns.label = r"Time $t$ (ns)"
-ns.type = "TIME"
-
-
-def ps(t):
+@unit("TIME", r"Time $t$ (ps)", lambda t: t * 1e12)
+def ps(t: _T) -> _T:
     return t * 1e-12
 
 
-ps.inv = lambda t: t * 1e12
-ps.label = r"Time $t$ (ps)"
-ps.type = "TIME"
-
-
-def fs(t):
+@unit("TIME", r"Time $t$ (fs)", lambda t: t * 1e15)
+def fs(t: _T) -> _T:
     return t * 1e-15
 
 
-fs.inv = lambda t: t * 1e15
-fs.label = r"Time $t$ (fs)"
-fs.type = "TIME"
-
-
-def inv(x):
+@unit("WL", "inverse")
+def inv(x: _T) -> _T:
     return 1 / x
 
 
-inv.inv = inv
-inv.label = "inverse"
-inv.type = "WL"
-
-
-def bar(p):
+@unit("PRESSURE", "Pressure (bar)", lambda p: 1e-5 * p)
+def bar(p: _T) -> _T:
     return 1e5 * p
 
 
-bar.inv = lambda p: 1e-5 * p
-bar.label = "Pressure (bar)"
-bar.type = "PRESSURE"
-
-
-def beta2_fs_cm(b2):
+@unit("OTHER", r"$\beta_2$ (fs$^2$/cm)", lambda b2: 1e28 * b2)
+def beta2_fs_cm(b2: _T) -> _T:
     return 1e-28 * b2
 
 
-beta2_fs_cm.inv = lambda b2: 1e28 * b2
-beta2_fs_cm.label = r"$\beta_2$ (fs$^2$/cm)"
-beta2_fs_cm.type = "OTHER"
-
-
-def beta2_ps_km(b2):
+@unit("OTHER", r"$\beta_2$ (ps$^2$/km)", lambda b2: 1e27 * b2)
+def beta2_ps_km(b2: _T) -> _T:
     return 1e-27 * b2
 
 
-beta2_ps_km.inv = lambda b2: 1e27 * b2
-beta2_ps_km.label = r"$\beta_2$ (ps$^2$/km)"
-beta2_ps_km.type = "OTHER"
-
-
-def D_ps_nm_km(D):
+@unit("OTHER", r"$D$ (ps/(nm km))", lambda D: 1e6 * D)
+def D_ps_nm_km(D: _T) -> _T:
     return 1e-6 * D
 
 
-D_ps_nm_km.inv = lambda D: 1e6 * D
-D_ps_nm_km.label = r"$D$ (ps/(nm km))"
-D_ps_nm_km.type = "OTHER"
+@unit("TEMPERATURE", r"Temperature (K)")
+def K(t: _T) -> _T:
+    return t
 
 
-units_map = dict(
-    nm=nm,
-    um=um,
-    m=m,
-    THz=THz,
-    PHz=PHz,
-    rad_s=rad_s,
-    Prad_s=Prad_s,
-    rel_freq=rel_freq,
-    rel_time=rel_time,
-    s=s,
-    us=us,
-    ns=ns,
-    ps=ps,
-    fs=fs,
-)
+@unit("TEMPERATURE", r"Temperature (°C)", lambda t_K: t_K - 272.15)
+def C(t_C: _T) -> _T:
+    return t_C + 272.15
 
 
 def get_unit(unit: Union[str, Callable]) -> Callable[[float], float]:
@@ -325,13 +270,22 @@ def sort_axis(axis, plt_range: PlotRange):
     return out_ax, indices, (out_ax[0], out_ax[-1])
 
 
-def to_WL(spectrum, frep, lambda_):
+def to_WL(spectrum: np.ndarray, lambda_: np.ndarray) -> np.ndarray:
+    """rescales the spectrum because of uneven binning when going from freq to wl
+
+    Parameters
+    ----------
+    spectrum : np.ndarray, shape (n, )
+        intensity spectrum
+    lambda_ : np.ndarray, shape (n, )
+        wavelength in m
+
+    Returns
+    -------
+    np.ndarray, shape (n, )
+        intensity spectrum correctly scaled
     """
-    When a spectrogram is displayed as function of wl instead of frequency, we
-    need to adjust the amplitude of each bin for the integral over the whole frequency
-    range to match.
-    """
-    m = 2 * pi * c / (lambda_ ** 2) * frep * spectrum
+    m = 2 * pi * c / (lambda_ ** 2) * spectrum
     return m
 
 

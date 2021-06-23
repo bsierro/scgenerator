@@ -3,24 +3,30 @@ from collections.abc import Sequence
 from pathlib import Path
 from re import UNICODE
 from typing import Callable, Dict, Iterable, Optional, Union
+from matplotlib.pyplot import subplot
+from dataclasses import replace
 
 import numpy as np
+from tqdm.std import Bar
 
 from . import initialize, io, math
-from .physics import units
+from .physics import units, pulse
 from .const import SPECN_FN
 from .logger import get_logger
 from .plotting import plot_avg, plot_results_1D, plot_results_2D
+from .utils.parameter import BareParams
 
 
 class Spectrum(np.ndarray):
-    def __new__(cls, input_array, wl, frep=1):
+    params: BareParams
+
+    def __new__(cls, input_array, params: BareParams):
         # Input array is an already formed ndarray instance
         # We first cast to be our class type
         obj = np.asarray(input_array).view(cls)
         # add the new attribute to the created instance
-        obj.frep = frep
-        obj.wl = wl
+        obj.params = params
+
         # Finally, we must return the newly created object:
         return obj
 
@@ -28,8 +34,91 @@ class Spectrum(np.ndarray):
         # see InfoArray.__array_finalize__ for comments
         if obj is None:
             return
-        self.frep = getattr(obj, "frep", None)
-        self.wl = getattr(obj, "wl", None)
+        self.params = getattr(obj, "params", None)
+
+    def __getitem__(self, key) -> "Spectrum":
+        return super().__getitem__(key)
+
+    def energy(self) -> Union[np.ndarray, float]:
+        if self.ndim == 1:
+            m = np.argwhere(self.params.l > 0)[:, 0]
+            m = np.array(sorted(m, key=lambda el: self.params.l[el]))
+            return np.trapz(self.wl_int[m], self.params.l[m])
+        else:
+            return np.array([s.energy() for s in self])
+
+    def crop_wl(self, left: float, right: float) -> tuple[np.ndarray, np.ndarray]:
+        cond = (self.params.l >= left) & (self.params.l <= right)
+        return cond
+
+    @property
+    def wl_int(self):
+        return units.to_WL(math.abs2(self), self.params.l)
+
+    @property
+    def freq_int(self):
+        return math.abs2(self)
+
+    @property
+    def afreq_int(self):
+        return math.abs2(self)
+
+    @property
+    def time_int(self):
+        return math.abs2(np.fft.ifft(self))
+
+    def amplitude(self, unit):
+        if unit.type in ["WL", "FREQ", "AFREQ"]:
+            x_axis = unit.inv(self.params.w)
+        else:
+            x_axis = unit.inv(self.params.t)
+
+        order = np.argsort(x_axis)
+        func = dict(
+            WL=self.wl_amp,
+            FREQ=self.freq_amp,
+            AFREQ=self.afreq_amp,
+            TIME=self.time_amp,
+        )[unit.type]
+
+        for spec in self:
+            yield x_axis[order], func(spec)[:, order]
+
+    @property
+    def wl_amp(self):
+        return (
+            np.sqrt(
+                units.to_WL(
+                    math.abs2(self),
+                    self.params.l,
+                )
+            )
+            * self
+            / np.abs(self)
+        )
+
+    @property
+    def freq_amp(self):
+        return self
+
+    @property
+    def afreq_amp(self):
+        return self
+
+    @property
+    def time_amp(self):
+        return np.fft.ifft(self)
+
+    @property
+    def wl_max(self):
+        if self.ndim == 1:
+            return self.params.l[np.argmax(self.wl_int, axis=-1)]
+        return np.array([s.wl_max for s in self])
+
+    def mask_wl(self, pos: float, width: float) -> "Spectrum":
+        return self * np.exp(
+            -(((self.params.l - pos) / (pulse.fwhm_to_T0_fac["gaussian"] * width)) ** 2)
+        )
 
 
 class Pulse(Sequence):
@@ -112,7 +201,7 @@ class Pulse(Sequence):
             yield x_axis[order], func(spec)[:, order]
 
     def _to_wl_int(self, spectrum):
-        return units.to_WL(math.abs2(spectrum), spectrum.frep, spectrum.wl)
+        return units.to_WL(math.abs2(spectrum), spectrum.wl)
 
     def _to_freq_int(self, spectrum):
         return math.abs2(spectrum)
@@ -145,7 +234,6 @@ class Pulse(Sequence):
             np.sqrt(
                 units.to_WL(
                     math.abs2(spectrum),
-                    spectrum.frep,
                     spectrum.wl,
                 )
             )
@@ -162,7 +250,7 @@ class Pulse(Sequence):
     def _to_time_amp(self, spectrum):
         return np.fft.ifft(spectrum)
 
-    def all_spectra(self, ind=None):
+    def all_spectra(self, ind=None) -> Spectrum:
         """
         loads the data already simulated.
         defauft shape is (z_targets, n, nt)
@@ -194,7 +282,6 @@ class Pulse(Sequence):
         spectra = []
         for i in ind:
             spectra.append(self._load1(i))
-        spectra = np.array(spectra)
 
         self.logger.debug(f"all spectra from {self.path} successfully loaded")
         if len(ind) == 1:
@@ -212,7 +299,7 @@ class Pulse(Sequence):
             return self.cache[i]
         spec = np.load(self.path / SPECN_FN.format(i))
         spec = np.atleast_2d(spec)
-        spec = Spectrum(spec, self.wl, self.params.repetition_rate)
+        spec = Spectrum(spec, self.params)
         self.cache[i] = spec
         return spec
 

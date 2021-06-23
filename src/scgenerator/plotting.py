@@ -421,9 +421,7 @@ def plot_spectrogram(
     new_f, ind_f, _ = units.sort_axis(params.w, f_range)
     values = spec[ind_t][:, ind_f]
     if f_range[2].type == "WL":
-        values = np.apply_along_axis(
-            units.to_WL, 1, values, params.repetition_rate, units.m(f_range[2].inv(new_f))
-        )
+        values = np.apply_along_axis(units.to_WL, 1, values, units.m(f_range[2].inv(new_f)))
         values = np.apply_along_axis(make_uniform_1D, 1, values, new_f)
 
     if time_axis == 0:
@@ -528,7 +526,7 @@ def plot_results_2D(
     # make uniform if converting to wavelength
     if plt_range.unit.type == "WL":
         if is_spectrum:
-            values = np.apply_along_axis(units.to_WL, 1, values, params.repetition_rate, x_axis)
+            values = np.apply_along_axis(units.to_WL, 1, values, x_axis)
         values = np.array(
             [make_uniform_1D(v, x_axis, n=len(x_axis), method="linear") for v in values]
         )
@@ -648,7 +646,7 @@ def plot_results_1D(
     # make uniform if converting to wavelength
     if plt_range.unit.type == "WL":
         if is_spectrum:
-            values = units.to_WL(values, params.repetition_rate, units.m.inv(params.w[ind]))
+            values = units.to_WL(values, units.m.inv(params.w[ind]))
 
     # change the resolution
     if isinstance(spacing, float):
@@ -810,8 +808,8 @@ def plot_avg(
     values *= yscaling
     mean_values = np.mean(values, axis=0)
     if plt_range.unit.type == "WL" and renormalize:
-        values = np.apply_along_axis(units.to_WL, 1, values, params.repetition_rate, x_axis)
-        mean_values = units.to_WL(mean_values, params.repetition_rate, x_axis)
+        values = np.apply_along_axis(units.to_WL, 1, values, x_axis)
+        mean_values = units.to_WL(mean_values, x_axis)
 
     # change the resolution
     if isinstance(spacing, float):
@@ -962,7 +960,7 @@ def prepare_plot_1D(values, plt_range, x_axis, yscaling=1, spacing=1, frep=80e6)
     values = values[:, ind]
 
     if plt_range.unit.type == "WL":
-        values = np.apply_along_axis(units.to_WL, -1, values, frep, x_axis)
+        values = np.apply_along_axis(units.to_WL, -1, values, x_axis)
 
     if isinstance(spacing, float):
         new_x_axis = np.linspace(*span(x_axis), int(len(x_axis) / spacing))

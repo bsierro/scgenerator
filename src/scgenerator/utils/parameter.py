@@ -384,6 +384,7 @@ class BareParams:
     field_0: np.ndarray = Parameter(type_checker(np.ndarray))
     spec_0: np.ndarray = Parameter(type_checker(np.ndarray))
     w: np.ndarray = Parameter(type_checker(np.ndarray))
+    l: np.ndarray = Parameter(type_checker(np.ndarray))
     w_c: np.ndarray = Parameter(type_checker(np.ndarray))
     w0: float = Parameter(positive(float))
     w_power_fact: np.ndarray = Parameter(validator_list(type_checker(np.ndarray)))

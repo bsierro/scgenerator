@@ -635,7 +635,8 @@ def build_sim_grid(
     t_num = len(t)
     z_targets = np.linspace(0, length, z_num)
     w_c, w0, w, w_power_fact = update_frequency_domain(t, wavelength)
-    return z_targets, t, time_window, t_num, dt, w_c, w0, w, w_power_fact
+    l = units.To.m(w)
+    return z_targets, t, time_window, t_num, dt, w_c, w0, w, w_power_fact, l
 
 
 def build_sim_grid_in_place(params: BareParams):
@@ -650,6 +651,7 @@ def build_sim_grid_in_place(params: BareParams):
         params.w0,
         params.w,
         params.w_power_fact,
+        params.l,
     ) = build_sim_grid(
         params.length, params.z_num, params.wavelength, params.time_window, params.t_num, params.dt
     )
