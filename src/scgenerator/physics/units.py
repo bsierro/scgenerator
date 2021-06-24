@@ -6,6 +6,9 @@ import re
 from threading import settrace
 from typing import Callable, TypeVar, Union
 from dataclasses import dataclass
+from matplotlib import pyplot as plt
+
+from numpy.lib.arraysetops import isin
 from ..utils.parameter import Parameter, type_checker
 import numpy as np
 from numpy import pi
@@ -255,7 +258,8 @@ def sort_axis(axis, plt_range: PlotRange):
     # slice y according to the given ranges
     y = y[ct][:, cw]
     """
-
+    if isinstance(plt_range, tuple):
+        plt_range = PlotRange(*plt_range)
     r = np.array((plt_range.left, plt_range.right), dtype="float")
 
     indices = np.arange(len(axis))[

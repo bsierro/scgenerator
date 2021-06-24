@@ -63,6 +63,6 @@ def configure_logger(logger: logging.Logger):
             stream_handler.setLevel(print_lvl)
             logger.addHandler(stream_handler)
 
-        logger.setLevel(min(print_lvl, file_lvl))
+        logger.setLevel(logging.DEBUG)
         logger.already_configured = True
     return logger

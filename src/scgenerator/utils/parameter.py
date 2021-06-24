@@ -421,7 +421,7 @@ class BareParams:
         dico : dict
             dictionary
         """
-        forbiden_keys = ["w_c", "w_power_fact", "field_0", "spec_0", "w", "t", "z_targets"]
+        forbiden_keys = ["w_c", "w_power_fact", "field_0", "spec_0", "w", "t", "z_targets", "l"]
         types = (np.ndarray, float, int, str, list, tuple, dict)
         out = {}
         for key, value in dico.items():

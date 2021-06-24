@@ -12,13 +12,16 @@ n is the number of spectra at the same z position and nt is the size of the time
 import itertools
 import os
 from pathlib import Path
-from typing import Literal, Tuple
+from typing import Literal, Tuple, TypeVar
 
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy import pi
 from numpy.fft import fft, fftshift, ifft
+from scipy import optimize
 from scipy.interpolate import UnivariateSpline
+from scipy.optimize import minimize_scalar
+from scipy.optimize.optimize import OptimizeResult
 
 from .. import io
 from ..defaults import default_plotting
@@ -30,7 +33,7 @@ from . import units
 
 c = 299792458.0
 hbar = 1.05457148e-34
-
+T = TypeVar("T")
 
 #
 fwhm_to_T0_fac = dict(
@@ -535,14 +538,23 @@ def peak_ind(values, mam=None):
         am = np.argmax(values)
     else:
         m, am = mam
-    left_ind = (
-        am
-        - np.where((values[am:0:-1] - values[am - 1 :: -1] < 0) & (values[am:0:-1] < m / 2))[0][0]
-    )
-    right_ind = (
-        am + np.where((values[am:-1] - values[am + 1 :] < 0) & (values[am:-1] < m / 2))[0][0]
-    )
-    return left_ind - 3, right_ind + 3
+
+    try:
+        left_ind = (
+            am
+            - np.where((values[am:0:-1] - values[am - 1 :: -1] <= 0) & (values[am:0:-1] < m / 2))[
+                0
+            ][0]
+        ) - 3
+    except IndexError:
+        left_ind = 0
+    try:
+        right_ind = (
+            am + np.where((values[am:-1] - values[am + 1 :] <= 0) & (values[am:-1] < m / 2))[0][0]
+        ) + 3
+    except IndexError:
+        right_ind = len(values) - 1
+    return left_ind, right_ind
 
 
 def setup_splines(x_axis, values, mam=None):
@@ -895,3 +907,32 @@ def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float
     peak_power = intensity.max()
     energy = np.trapz(intensity, t)
     return fwhm, peak_power, energy
+
+
+def remove_2nd_order_dispersion(
+    spectrum: T, w_c: np.ndarray, beta2: float, max_z: float = -1.0
+) -> tuple[T, OptimizeResult]:
+    """attempts to remove 2nd order dispersion from a complex spectrum
+
+    Parameters
+    ----------
+    spectrum : np.ndarray or Spectrum, shape (n, )
+        spectrum from which to remove 2nd order dispersion
+    w_c : np.ndarray, shape (n, )
+        corresponding centered angular frequencies (w-w0)
+    beta2 : float
+        2nd order dispersion coefficient
+
+    Returns
+    -------
+    np.ndarray, shape (n, )
+        spectrum with 2nd order dispersion removed
+    """
+    # makeshift_t = np.linspace(0, 1, len(w_c))
+    propagate = lambda z: spectrum * np.exp(-0.5j * beta2 * w_c ** 2 * z)
+
+    def score(z):
+        return 1 / np.max(abs2(np.fft.ifft(propagate(z))))
+
+    opti = minimize_scalar(score, bracket=(max_z, 0))
+    return propagate(opti.x), opti

@@ -4,6 +4,7 @@ scgenerator module but some function may be used in any python program
 
 """
 
+from argparse import ArgumentTypeError
 import itertools
 import multiprocessing
 import re
@@ -214,6 +215,17 @@ def pretty_format_value(name: str, value) -> str:
     return getattr(BareParams, name).display(value)
 
 
+def pretty_format_from_file_name(name: str) -> str:
+    s = name.split(PARAM_SEPARATOR)
+    out = []
+    for key, value in zip(s[::2], s[1::2]):
+        try:
+            out.append(getattr(BareParams, key).display(float(value)))
+        except (AttributeError, ValueError):
+            out.append(key + PARAM_SEPARATOR + value)
+    return PARAM_SEPARATOR.join(out)
+
+
 def variable_iterator(config: BareConfig) -> Iterator[Tuple[List[Tuple[str, Any]], BareParams]]:
     """given a config with "variable" parameters, iterates through every possible combination,
     yielding a a list of (parameter_name, value) tuples and a full config dictionary.
@@ -282,3 +294,21 @@ def override_config(new: Dict[str, Any], old: BareConfig = None) -> BareConfig:
     for k in new:
         variable.pop(k, None)  # remove old ones
     return replace(old, variable=variable, **{k: None for k in variable}, **new)
+
+
+def auto_crop(x: np.ndarray, y: np.ndarray, rel_thr: float = 0.01) -> np.ndarray:
+    threshold = y.min() + rel_thr * (y.max() - y.min())
+    above_threshold = y > threshold
+    ind = np.argsort(x)
+    valid_ind = [
+        np.array(list(g)) for k, g in itertools.groupby(ind, key=lambda i: above_threshold[i]) if k
+    ]
+    ind_above = sorted(valid_ind, key=lambda el: len(el), reverse=True)[0]
+    width = len(ind_above)
+    return np.concatenate(
+        (
+            np.arange(max(ind_above[0] - width, 0), ind_above[0]),
+            ind_above,
+            np.arange(ind_above[-1] + 1, min(len(y), ind_above[-1] + width)),
+        )
+    )

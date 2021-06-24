@@ -1,10 +1,12 @@
-from typing import Any, Dict, List, Literal, Tuple
+from typing import Any, Dict, Iterable, List, Literal, Tuple, Union
 
 import numpy as np
 import toml
 from numpy.fft import fft, ifft
 from numpy.polynomial.chebyshev import Chebyshev, cheb2poly
 from scipy.interpolate import interp1d
+
+from ..logger import get_logger
 
 from .. import io
 from ..math import abs2, argclosest, power_fact, u_nm
@@ -15,14 +17,14 @@ from . import units
 from .units import c, pi
 
 
-def lambda_for_dispersion():
+def lambda_for_dispersion(left: float, right: float) -> np.ndarray:
     """Returns a wl vector for dispersion calculation
 
     Returns
     -------
     array of wl values
     """
-    return np.linspace(190e-9, 3000e-9, 4000)
+    return np.arange(left - 2e-9, right + 3e-9, 1e-9)
 
 
 def is_dynamic_dispersion(pressure=None):
@@ -679,7 +681,7 @@ def compute_dispersion(params: BareParams):
         gamma = None
     else:
         interp_range = params.interp_range
-        lambda_ = lambda_for_dispersion()
+        lambda_ = lambda_for_dispersion(*interp_range)
         beta2 = np.zeros_like(lambda_)
 
         if params.model == "pcf":
@@ -773,7 +775,7 @@ def dispersion_coefficients(
         beta2_coef : 1D array
             Taylor coefficients in decreasing order
     """
-
+    logger = get_logger()
     if interp_range is None:
         r = slice(2, -2)
     else:
@@ -783,13 +785,48 @@ def dispersion_coefficients(
         r = (lambda_ > max(lambda_[2], interp_range[0])) & (
             lambda_ < min(lambda_[-2], interp_range[1])
         )
+    logger.debug(
+        f"interpolating dispersion between {lambda_[r].min()*1e9:.1f}nm and {lambda_[r].max()*1e9:.1f}nm"
+    )
+    # import matplotlib.pyplot as plt
 
     # we get the beta2 Taylor coeffiecients by making a fit around w0
     w_c = units.m(lambda_) - w0
+    # interp = interp1d(w_c[r], beta2[r])
+    # w_c = np.linspace(w_c)
+    # fig, ax = plt.subplots()
+    # ax.plot(w_c[r], beta2[r])
+    # fig.show()
+
     fit = Chebyshev.fit(w_c[r], beta2[r], deg)
     beta2_coef = cheb2poly(fit.convert().coef) * np.cumprod([1] + list(range(1, deg + 1)))
 
     return beta2_coef
+
+
+def dispersion_from_coefficients(
+    w_c: np.ndarray, beta: Union[list[float], np.ndarray]
+) -> np.ndarray:
+    """computes the dispersion profile (beta2) from the beta coefficients
+
+    Parameters
+    ----------
+    w_c : np.ndarray, shape (n, )
+        centered angular frequency (0 <=> pump frequency)
+    beta : Iterable[float]
+        beta coefficients
+
+    Returns
+    -------
+    np.ndarray, shape (n, )
+        beta2 as function of w_c
+    """
+
+    coef = np.array(beta) / np.cumprod([1] + list(range(1, len(beta))))
+    beta_arr = np.zeros_like(w_c)
+    for k, b in reversed(list(enumerate(coef))):
+        beta_arr = beta_arr + b * w_c ** k
+    return beta_arr
 
 
 def delayed_raman_t(t, raman_type="stolen"):
@@ -1007,3 +1044,16 @@ def effective_core_radius(lambda_, core_radius, s=0.08, h=200e-9):
 def effective_radius_HCARF(core_radius, t, f1, f2, lambda_):
     """eq. 3 in Hasan 2018"""
     return f1 * core_radius * (1 - f2 * lambda_ ** 2 / (core_radius * t))
+
+
+if __name__ == "__main__":
+    w = np.linspace(0, 1, 4096)
+    c = np.arange(8)
+    import time
+
+    t = time.time()
+
+    for _ in range(10000):
+        dispersion_from_coefficients(w, c)
+
+    print((time.time() - t) / 10, "ms")

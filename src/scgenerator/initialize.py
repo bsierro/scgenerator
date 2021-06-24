@@ -85,8 +85,8 @@ class Params(BareParams):
         logger = get_logger(__name__)
 
         self.interp_range = (
-            max(self.lower_wavelength_interp_limit, units.m.inv(np.max(self.w[self.w > 0]))),
-            min(self.upper_wavelength_interp_limit, units.m.inv(np.min(self.w[self.w > 0]))),
+            max(self.lower_wavelength_interp_limit, self.l[self.l > 0].min()),
+            min(self.upper_wavelength_interp_limit, self.l[self.l > 0].max()),
         )
 
         temp_gamma = None
@@ -106,7 +106,7 @@ class Params(BareParams):
 
         if self.gamma is None:
             self.gamma = temp_gamma
-            logger.info(f"using computed \u0263 = {self.gamma:.2e} W/m^2")
+            logger.info(f"using computed \u0263 = {self.gamma:.2e} W/m\u00B2")
 
         # Raman response
         if "raman" in self.behaviors:

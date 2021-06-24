@@ -47,7 +47,7 @@ class Spectrum(np.ndarray):
         else:
             return np.array([s.energy() for s in self])
 
-    def crop_wl(self, left: float, right: float) -> tuple[np.ndarray, np.ndarray]:
+    def crop_wl(self, left: float, right: float) -> np.ndarray:
         cond = (self.params.l >= left) & (self.params.l <= right)
         return cond
 
@@ -120,6 +120,9 @@ class Spectrum(np.ndarray):
             -(((self.params.l - pos) / (pulse.fwhm_to_T0_fac["gaussian"] * width)) ** 2)
         )
 
+    def measure(self) -> tuple[float, float, float]:
+        return pulse.measure_field(self.params.t, self.time_amp)
+
 
 class Pulse(Sequence):
     def __init__(self, path: os.PathLike, default_ind: Union[int, Iterable[int]] = None):
@@ -180,7 +183,7 @@ class Pulse(Sequence):
     def __len__(self):
         return self.nmax
 
-    def __getitem__(self, key):
+    def __getitem__(self, key) -> Spectrum:
         return self.all_spectra(ind=range(self.nmax)[key]).squeeze()
 
     def intensity(self, unit):
@@ -282,6 +285,7 @@ class Pulse(Sequence):
         spectra = []
         for i in ind:
             spectra.append(self._load1(i))
+        spectra = Spectrum(spectra, self.params)
 
         self.logger.debug(f"all spectra from {self.path} successfully loaded")
         if len(ind) == 1:

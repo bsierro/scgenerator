@@ -1,7 +1,7 @@
 from itertools import cycle
 import itertools
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable, Optional
 from cycler import cycler
 
 import matplotlib.pyplot as plt
@@ -12,8 +12,14 @@ from ..utils.parameter import BareParams
 from ..initialize import ParamSequence
 from ..physics import units, fiber
 from ..spectra import Pulse
-from ..utils import pretty_format_value
+from ..utils import pretty_format_value, pretty_format_from_file_name, auto_crop
 from .. import env, math
+
+
+def fingerprint(params: BareParams):
+    h1 = hash(params.field_0.tobytes())
+    h2 = tuple(params.beta)
+    return h1, h2
 
 
 def plot_all(sim_dir: Path, limits: list[str]):
@@ -26,7 +32,13 @@ def plot_all(sim_dir: Path, limits: list[str]):
             left, right, unit = lim.split(",")
             left = float(left)
             right = float(right)
-            pulse.plot_2D(left, right, unit, file_name=p.parent / f"{p.name}_{left}_{right}_{unit}")
+            pulse.plot_2D(
+                left,
+                right,
+                unit,
+                file_name=p.parent
+                / f"{pretty_format_from_file_name(p.name)} {left} {right} {unit}",
+            )
 
 
 def plot_init_field_spec(
@@ -49,7 +61,7 @@ def plot_init_field_spec(
 
 
 def plot_dispersion(config_path: Path, lim: tuple[float, float] = None):
-    fig, (left, right) = plt.subplots(1, 2, figsize=(12, 7), sharex=True)
+    fig, (left, right) = plt.subplots(1, 2, figsize=(12, 7))
     left.grid()
     right.grid()
     all_labels = []
@@ -62,7 +74,7 @@ def plot_dispersion(config_path: Path, lim: tuple[float, float] = None):
 
         lbl = plot_1_dispersion(lim, left, right, style, lbl, params)
         all_labels.append(lbl)
-    finish_plot(fig, left, right, all_labels, params)
+    finish_plot(fig, right, all_labels, params)
 
 
 def plot_init(
@@ -77,8 +89,8 @@ def plot_init(
     all_labels = []
     already_plotted = set()
     for style, lbl, params in plot_helper(config_path):
-        if (bbb := hash(params.field_0.tobytes())) not in already_plotted:
-            already_plotted.add(bbb)
+        if (fp := fingerprint(params)) not in already_plotted:
+            already_plotted.add(fp)
         else:
             continue
         lbl = plot_1_dispersion(lim_disp, tl, tr, style, lbl, params)
@@ -90,8 +102,8 @@ def plot_init(
 def plot_1_init_spec_field(lim_t, lim_l, left, right, style, lbl, params):
     field = math.abs2(params.field_0)
     spec = math.abs2(params.spec_0)
-    t = units.fs.inv(params.t)
-    wl = units.nm.inv(params.w)
+    t = units.To.fs(params.t)
+    wl = units.To.nm(params.w)
 
     lbl.append(f"max at {wl[spec.argmax()]:.1f} nm")
 
@@ -100,54 +112,68 @@ def plot_1_init_spec_field(lim_t, lim_l, left, right, style, lbl, params):
         mt &= t >= lim_t[0]
         mt &= t <= lim_t[1]
     else:
-        mt = find_lim(t, field)
+        mt = auto_crop(t, field)
     ml = np.ones_like(wl, dtype=bool)
     if lim_l is not None:
-        ml &= t >= lim_l[0]
-        ml &= t <= lim_l[1]
+        ml &= wl >= lim_l[0]
+        ml &= wl <= lim_l[1]
     else:
-        ml = find_lim(wl, spec)
+        ml = auto_crop(wl, spec)
 
     left.plot(t[mt], field[mt])
     right.plot(wl[ml], spec[ml], label=" ", **style)
     return lbl
 
 
-def plot_1_dispersion(lim, left, right, style, lbl, params):
-    coef = params.beta / np.cumprod([1] + list(range(1, len(params.beta))))
-    w_c = params.w_c
-
-    beta_arr = np.zeros_like(w_c)
-    for k, beta in reversed(list(enumerate(coef))):
-        beta_arr = beta_arr + beta * w_c ** k
+def plot_1_dispersion(
+    lim: Optional[tuple[float, float]],
+    left: plt.Axes,
+    right: plt.Axes,
+    style: dict[str, Any],
+    lbl: list[str],
+    params: BareParams,
+):
+    beta_arr = fiber.dispersion_from_coefficients(params.w_c, params.beta)
     wl = units.m.inv(params.w)
+    D = fiber.beta2_to_D(beta_arr, wl) * 1e6
 
     zdw = math.all_zeros(wl, beta_arr)
     if len(zdw) > 0:
         zdw = zdw[np.argmin(abs(zdw - params.wavelength))]
-        lbl.append(f"ZDW at {zdw*1e9:.1f}nm")
+        lbl.append(f"ZDW at {zdw:.1f}nm")
     else:
         lbl.append("")
 
     m = np.ones_like(wl, dtype=bool)
     if lim is None:
         lim = params.interp_range
-    m &= wl >= lim[0]
-    m &= wl <= lim[1]
+    m &= wl >= (lim[0] if lim[0] < 1 else lim[0] * 1e-9)
+    m &= wl <= (lim[1] if lim[1] < 1 else lim[1] * 1e-9)
+
+    left.annotate(
+        rf"$\lambda_{{\mathrm{{min}}}}={np.min(params.l[params.l>0])*1e9:.1f}$ nm"
+        f"lower interpolation limit : {params.interp_range[0]*1e9:.1f} nm",
+        (0, 1),
+        xycoords="axes fraction",
+        va="top",
+        ha="left",
+    )
 
     m = np.argwhere(m)[:, 0]
     m = np.array(sorted(m, key=lambda el: wl[el]))
 
+    if len(m) == 0:
+        raise ValueError(f"nothing to plot in the range {lim!r}")
+
     # plot D
-    D = fiber.beta2_to_D(beta_arr, wl) * 1e6
     right.plot(1e9 * wl[m], D[m], label=" ", **style)
     right.set_ylabel(units.D_ps_nm_km.label)
 
     # plot beta
-    left.plot(1e9 * wl[m], units.beta2_fs_cm.inv(beta_arr[m]), label=" ", **style)
+    left.plot(units.To.Prad_s(params.w[m]), units.beta2_fs_cm.inv(beta_arr[m]), label=" ", **style)
     left.set_ylabel(units.beta2_fs_cm.label)
 
-    left.set_xlabel("wavelength (nm)")
+    left.set_xlabel(units.Prad_s.label)
     right.set_xlabel("wavelength (nm)")
     return lbl
 
@@ -188,21 +214,3 @@ def plot_helper(config_path: Path) -> Iterable[tuple[dict, list[str], BareParams
     for style, (variables, params) in zip(cc, pseq):
         lbl = [pretty_format_value(name, value) for name, value in variables[1:-1]]
         yield style, lbl, params
-
-
-def find_lim(x: np.ndarray, y: np.ndarray, rel_thr: float = 0.01) -> int:
-    threshold = y.min() + rel_thr * (y.max() - y.min())
-    above_threshold = y > threshold
-    ind = np.argsort(x)
-    valid_ind = [
-        np.array(list(g)) for k, g in itertools.groupby(ind, key=lambda i: above_threshold[i]) if k
-    ]
-    ind_above = sorted(valid_ind, key=lambda el: len(el), reverse=True)[0]
-    width = len(ind_above)
-    return np.concatenate(
-        (
-            np.arange(max(ind_above[0] - width, 0), ind_above[0]),
-            ind_above,
-            np.arange(ind_above[-1] + 1, min(len(y), ind_above[-1] + width)),
-        )
-    )

@@ -30,7 +30,7 @@ def plot_setup(
     - an axis
     """
     out_path = defaults["name"] if out_path is None else out_path
-    plot_name = out_path.stem
+    plot_name = out_path.name.replace(f".{file_type}", "")
     out_dir = out_path.resolve().parent
 
     file_name = plot_name + "." + file_type
@@ -286,9 +286,8 @@ def _finish_plot_2D(
     if isinstance(ax, tuple) and len(ax) > 1:
         ax, cbar_ax = ax[0], ax[1]
 
-    folder_name = ""
     if is_new_plot:
-        out_path, fig, ax = plot_setup(out_path=Path(folder_name) / file_name, file_type=file_type)
+        out_path, fig, ax = plot_setup(out_path=Path(file_name), file_type=file_type)
     else:
         fig = ax.get_figure()
 

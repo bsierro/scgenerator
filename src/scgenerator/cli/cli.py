@@ -104,7 +104,7 @@ def create_parser():
     init_plot_parser.add_argument("config", help="path to the config file")
     init_plot_parser.add_argument(
         "--dispersion-limits",
-        "-s",
+        "-d",
         default=None,
         type=float,
         nargs=2,
