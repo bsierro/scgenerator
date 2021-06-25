@@ -66,13 +66,17 @@ def plot_dispersion(config_path: Path, lim: tuple[float, float] = None):
     right.grid()
     all_labels = []
     already_plotted = set()
+    loss_ax = None
+    plt.sca(left)
     for style, lbl, params in plot_helper(config_path):
+        if params.alpha is not None and loss_ax is None:
+            loss_ax = right.twinx()
         if (bbb := tuple(params.beta)) not in already_plotted:
             already_plotted.add(bbb)
         else:
             continue
 
-        lbl = plot_1_dispersion(lim, left, right, style, lbl, params)
+        lbl = plot_1_dispersion(lim, left, right, style, lbl, params, loss_ax)
         all_labels.append(lbl)
     finish_plot(fig, right, all_labels, params)
 
@@ -84,16 +88,19 @@ def plot_init(
     lim_disp: tuple[float, float] = None,
 ):
     fig, ((tl, tr), (bl, br)) = plt.subplots(2, 2, figsize=(14, 10))
+    loss_ax = None
     tl.grid()
     tr.grid()
     all_labels = []
     already_plotted = set()
     for style, lbl, params in plot_helper(config_path):
+        if params.alpha is not None and loss_ax is None:
+            loss_ax = tr.twinx()
         if (fp := fingerprint(params)) not in already_plotted:
             already_plotted.add(fp)
         else:
             continue
-        lbl = plot_1_dispersion(lim_disp, tl, tr, style, lbl, params)
+        lbl = plot_1_dispersion(lim_disp, tl, tr, style, lbl, params, loss_ax)
         lbl = plot_1_init_spec_field(lim_field, lim_spec, bl, br, style, lbl, params)
         all_labels.append(lbl)
     finish_plot(fig, tr, all_labels, params)
@@ -132,6 +139,7 @@ def plot_1_dispersion(
     style: dict[str, Any],
     lbl: list[str],
     params: BareParams,
+    loss: plt.Axes = None,
 ):
     beta_arr = fiber.dispersion_from_coefficients(params.w_c, params.beta)
     wl = units.m.inv(params.w)
@@ -150,13 +158,21 @@ def plot_1_dispersion(
     m &= wl >= (lim[0] if lim[0] < 1 else lim[0] * 1e-9)
     m &= wl <= (lim[1] if lim[1] < 1 else lim[1] * 1e-9)
 
-    left.annotate(
+    info_str = (
         rf"$\lambda_{{\mathrm{{min}}}}={np.min(params.l[params.l>0])*1e9:.1f}$ nm"
-        f"lower interpolation limit : {params.interp_range[0]*1e9:.1f} nm",
-        (0, 1),
+        + f"\nlower interpolation limit : {params.interp_range[0]*1e9:.1f} nm\n"
+        + f"max time delay : {params.t.max()*1e12:.1f} ps"
+    )
+
+    left.annotate(
+        info_str,
+        xy=(1, 1),
+        xytext=(-12, -12),
         xycoords="axes fraction",
+        textcoords="offset points",
         va="top",
-        ha="left",
+        ha="right",
+        backgroundcolor=(1, 1, 1, 0.4),
     )
 
     m = np.argwhere(m)[:, 0]
@@ -170,11 +186,18 @@ def plot_1_dispersion(
     right.set_ylabel(units.D_ps_nm_km.label)
 
     # plot beta
-    left.plot(units.To.Prad_s(params.w[m]), units.beta2_fs_cm.inv(beta_arr[m]), label=" ", **style)
+    left.plot(units.To.nm(params.w[m]), units.beta2_fs_cm.inv(beta_arr[m]), label=" ", **style)
     left.set_ylabel(units.beta2_fs_cm.label)
 
-    left.set_xlabel(units.Prad_s.label)
+    left.set_xlabel(units.nm.label)
     right.set_xlabel("wavelength (nm)")
+
+    if params.alpha is not None and loss is not None:
+        loss.plot(1e9 * wl[m], params.alpha[m], c="r", ls="--")
+        loss.set_ylabel("loss (1/m)", color="r")
+        loss.set_yscale("log")
+        loss.tick_params(axis="y", labelcolor="r")
+
     return lbl
 
 

@@ -320,6 +320,7 @@ class BareParams:
     input_transmission: float = Parameter(in_range_incl(0, 1))
     gamma: float = Parameter(non_negative(float, int))
     n2: float = Parameter(non_negative(float, int))
+    loss: str = Parameter(literal("capillary"))
     effective_mode_diameter: float = Parameter(positive(float, int))
     A_eff: float = Parameter(non_negative(float, int))
     pitch: float = Parameter(in_range_excl(0, 1e-3))
@@ -383,6 +384,7 @@ class BareParams:
     # computed
     field_0: np.ndarray = Parameter(type_checker(np.ndarray))
     spec_0: np.ndarray = Parameter(type_checker(np.ndarray))
+    alpha: np.ndarray = Parameter(type_checker(np.ndarray))
     w: np.ndarray = Parameter(type_checker(np.ndarray))
     l: np.ndarray = Parameter(type_checker(np.ndarray))
     w_c: np.ndarray = Parameter(type_checker(np.ndarray))
@@ -421,7 +423,17 @@ class BareParams:
         dico : dict
             dictionary
         """
-        forbiden_keys = ["w_c", "w_power_fact", "field_0", "spec_0", "w", "t", "z_targets", "l"]
+        forbiden_keys = [
+            "w_c",
+            "w_power_fact",
+            "field_0",
+            "spec_0",
+            "w",
+            "t",
+            "z_targets",
+            "l",
+            "alpha",
+        ]
         types = (np.ndarray, float, int, str, list, tuple, dict)
         out = {}
         for key, value in dico.items():

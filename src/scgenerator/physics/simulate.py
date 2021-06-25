@@ -61,8 +61,11 @@ class RK4IP:
         self.save_data = save_data
 
         self.w_c = params.w_c
+        self.w = params.w
+        self.dw = self.w[1] - self.w[0]
         self.w0 = params.w0
         self.w_power_fact = params.w_power_fact
+        self.alpha = params.alpha
         self.spec_0 = params.spec_0
         self.z_targets = params.z_targets
         self.z_final = params.length
@@ -85,19 +88,38 @@ class RK4IP:
         )
 
         if self.dynamic_dispersion:
-            self.disp = lambda r: fast_dispersion_op(self.w_c, self.beta(r), self.w_power_fact)
+            self.disp = lambda r: fast_dispersion_op(
+                self.w_c, self.beta(r), self.w_power_fact, alpha=self.alpha
+            )
         else:
-            self.disp = lambda r: fast_dispersion_op(self.w_c, self.beta, self.w_power_fact)
+            self.disp = lambda r: fast_dispersion_op(
+                self.w_c, self.beta, self.w_power_fact, alpha=self.alpha
+            )
 
         # Set up which quantity is conserved for adaptive step size
         if self.adapt_step_size:
-            if "raman" in self.behaviors:
-                self.conserved_quantity_func = pulse.photon_number
+            if "raman" in self.behaviors and self.alpha is not None:
+                self.logger.debug("Conserved quantity : photon number with loss")
+                self.conserved_quantity_func = lambda spectrum, h: pulse.photon_number_with_loss(
+                    spectrum, self.w, self.dw, self.gamma, self.alpha, h
+                )
+            elif "raman" in self.behaviors:
+                self.logger.debug("Conserved quantity : photon number without loss")
+                self.conserved_quantity_func = lambda spectrum, h: pulse.photon_number(
+                    spectrum, self.w, self.dw, self.gamma
+                )
+            elif self.alpha is not None:
+                self.logger.debug("Conserved quantity : energy with loss")
+                self.conserved_quantity_func = lambda spectrum, h: pulse.pulse_energy_with_loss(
+                    spectrum, self.dw, self.alpha, h
+                )
             else:
-                self.logger.debug("energy conserved")
-                self.conserved_quantity_func = pulse.pulse_energy
+                self.logger.debug("Conserved quantity : energy without loss")
+                self.conserved_quantity_func = lambda spectrum, h: pulse.pulse_energy(
+                    spectrum, self.dw
+                )
         else:
-            self.conserved_quantity_func = lambda a, b, c, d: 0
+            self.conserved_quantity_func = lambda spectrum, h: 0.0
 
     def _setup_sim_parameters(self):
         # making sure to keep only the z that we want
@@ -114,12 +136,7 @@ class RK4IP:
         self.current_spectrum = self.spec_0.copy()
         self.stored_spectra = self.starting_num * [None] + [self.current_spectrum.copy()]
         self.cons_qty = [
-            self.conserved_quantity_func(
-                self.current_spectrum,
-                self.w_c + self.w0,
-                self.d_w,
-                self.gamma,
-            ),
+            self.conserved_quantity_func(self.current_spectrum, 0),
             0,
         ]
         self.size_fac = 2 ** (1 / 5)
@@ -255,9 +272,7 @@ class RK4IP:
             new_spectrum = expD * (A_I + k1 / 6 + k2 / 3 + k3 / 3) + k4 / 6
 
             if self.adapt_step_size:
-                self.cons_qty[step] = self.conserved_quantity_func(
-                    new_spectrum, self.w_c + self.w0, self.d_w, self.gamma
-                )
+                self.cons_qty[step] = self.conserved_quantity_func(new_spectrum, h)
                 curr_p_change = np.abs(self.cons_qty[step - 1] - self.cons_qty[step])
                 cons_qty_change_ok = self.error_ok * self.cons_qty[step - 1]
 
@@ -275,6 +290,8 @@ class RK4IP:
                 else:
                     keep = True
                     h_next_step = h
+            else:
+                keep = True
         return h, h_next_step, new_spectrum
 
     def step_saved(self):

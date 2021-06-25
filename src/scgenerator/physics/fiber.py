@@ -1,20 +1,24 @@
-from typing import Any, Dict, Iterable, List, Literal, Tuple, Union
+from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 
 import numpy as np
+from numpy.ma import core
 import toml
 from numpy.fft import fft, ifft
 from numpy.polynomial.chebyshev import Chebyshev, cheb2poly
+from numpy.polynomial.polynomial import Polynomial
 from scipy.interpolate import interp1d
 
 from ..logger import get_logger
 
 from .. import io
 from ..math import abs2, argclosest, power_fact, u_nm
-from ..utils.parameter import BareParams, hc_model_specific_parameters
+from ..utils.parameter import BareConfig, BareParams, hc_model_specific_parameters
 from ..utils.cache import np_cache
 from . import materials as mat
 from . import units
 from .units import c, pi
+
+pipi = 2 * pi
 
 
 def lambda_for_dispersion(left: float, right: float) -> np.ndarray:
@@ -90,12 +94,12 @@ def dispersion_parameter(n_eff: np.ndarray, lambda_: np.ndarray):
 
 def beta2_to_D(beta2, λ):
     """returns the D parameter corresponding to beta2(λ)"""
-    return -(2 * pi * c) / (λ ** 2) * beta2
+    return -(pipi * c) / (λ ** 2) * beta2
 
 
 def D_to_beta2(D, λ):
     """returns the beta2 parameters corresponding to D(λ)"""
-    return -(λ ** 2) / (2 * pi * c) * D
+    return -(λ ** 2) / (pipi * c) * D
 
 
 def plasma_dispersion(lambda_, number_density, simple=False):
@@ -148,7 +152,7 @@ def n_eff_marcatili(lambda_, n_gas_2, core_radius, he_mode=(1, 1)):
     """
     u = u_nm(*he_mode)
 
-    return np.sqrt(n_gas_2 - (lambda_ * u / (2 * pi * core_radius)) ** 2)
+    return np.sqrt(n_gas_2 - (lambda_ * u / (pipi * core_radius)) ** 2)
 
 
 def n_eff_marcatili_adjusted(lambda_, n_gas_2, core_radius, he_mode=(1, 1), fit_parameters=()):
@@ -179,7 +183,7 @@ def n_eff_marcatili_adjusted(lambda_, n_gas_2, core_radius, he_mode=(1, 1), fit_
 
     corrected_radius = effective_core_radius(lambda_, core_radius, *fit_parameters)
 
-    return np.sqrt(n_gas_2 - (lambda_ * u / (2 * pi * corrected_radius)) ** 2)
+    return np.sqrt(n_gas_2 - (lambda_ * u / (pipi * corrected_radius)) ** 2)
 
 
 @np_cache
@@ -242,7 +246,7 @@ def n_eff_hasan(
 
     R_eff = f1 * core_radius * (1 - f2 * lambda_ ** 2 / (core_radius * capillary_thickness))
 
-    n_eff_2 = n_gas_2 - (u * lambda_ / (2 * pi * R_eff)) ** 2
+    n_eff_2 = n_gas_2 - (u * lambda_ / (pipi * R_eff)) ** 2
 
     chi_sil = mat.sellmeier(lambda_, io.load_material_dico("silica"))
 
@@ -593,7 +597,7 @@ def PCF_dispersion(lambda_, pitch, ratio_d, w0=None, n2=None, A_eff=None):
 
     n_co = 1.45
     a_eff = pitch / np.sqrt(3)
-    pi2a = 2 * pi * a_eff
+    pi2a = pipi * a_eff
 
     ratio_l = lambda_ / pitch
 
@@ -643,13 +647,23 @@ def PCF_dispersion(lambda_, pitch, ratio_d, w0=None, n2=None, A_eff=None):
         if A_eff is None:
             V_eff = pi2a / lambda_ * np.sqrt(n_co ** 2 - n_FSM2)
             w_eff = a_eff * (0.65 + 1.619 / V_eff ** 1.5 + 2.879 / V_eff ** 6)
-            A_eff = interp1d(lambda_, w_eff, kind="linear")(units.m.inv(w0)) ** 2 * pi
+            A_eff = interp1d(lambda_, w_eff, kind="linear")(units.m.inv(w0)) ** pipi
 
         if n2 is None:
             n2 = 2.6e-20
         gamma = gamma_parameter(n2, w0, A_eff)
 
         return beta2, gamma
+
+
+def compute_loss(params: BareParams) -> Optional[np.ndarray]:
+    if params.loss == "capillary":
+        mask = params.l < params.upper_wavelength_interp_limit
+        alpha = capillary_loss(params.l[mask], params.he_mode, params.core_radius)
+        out = np.zeros_like(params.l)
+        out[mask] = alpha
+        return out
+    return None
 
 
 def compute_dispersion(params: BareParams):
@@ -695,7 +709,7 @@ def compute_dispersion(params: BareParams):
             )
 
         else:
-            material_dico = toml.loads(io.Paths.gets("gas"))[params.gas_name]
+            material_dico = io.load_material_dico(params.gas_name)
             if params.dynamic_dispersion:
                 return dynamic_HCPCF_dispersion(
                     lambda_,
@@ -788,18 +802,20 @@ def dispersion_coefficients(
     logger.debug(
         f"interpolating dispersion between {lambda_[r].min()*1e9:.1f}nm and {lambda_[r].max()*1e9:.1f}nm"
     )
-    # import matplotlib.pyplot as plt
 
     # we get the beta2 Taylor coeffiecients by making a fit around w0
     w_c = units.m(lambda_) - w0
-    # interp = interp1d(w_c[r], beta2[r])
-    # w_c = np.linspace(w_c)
-    # fig, ax = plt.subplots()
-    # ax.plot(w_c[r], beta2[r])
-    # fig.show()
+    interp = interp1d(w_c[r], beta2[r])
+    w_c = np.linspace(w_c[r].min(), w_c[r].max(), len(w_c[r]))
 
-    fit = Chebyshev.fit(w_c[r], beta2[r], deg)
-    beta2_coef = cheb2poly(fit.convert().coef) * np.cumprod([1] + list(range(1, deg + 1)))
+    # import matplotlib.pyplot as plt
+
+    # ax = plt.gca()
+    # ax.plot(w_c, interp(w_c) * 1e28)
+
+    fit = Chebyshev.fit(w_c, interp(w_c), deg)
+    poly_coef = cheb2poly(fit.convert().coef)
+    beta2_coef = poly_coef * np.cumprod([1] + list(range(1, deg + 1)))
 
     return beta2_coef
 
@@ -935,13 +951,13 @@ def create_non_linear_op(behaviors, w_c, w0, gamma, raman_type="stolen", f_r=0, 
 
     if isinstance(gamma, (float, int)):
 
-        def N_func(spectrum: np.ndarray, r=0):
+        def N_func(spectrum: np.ndarray, r=0) -> np.ndarray:
             field = ifft(spectrum)
             return -1j * gamma * (1 + ss_part) * fft(field * (spm_part(field) + raman_part(field)))
 
     else:
 
-        def N_func(spectrum: np.ndarray, r=0):
+        def N_func(spectrum: np.ndarray, r=0) -> np.ndarray:
             field = ifft(spectrum)
             return (
                 -1j * gamma(r) * (1 + ss_part) * fft(field * (spm_part(field) + raman_part(field)))
@@ -950,7 +966,7 @@ def create_non_linear_op(behaviors, w_c, w0, gamma, raman_type="stolen", f_r=0, 
     return N_func
 
 
-def fast_dispersion_op(w_c, beta_arr, power_fact_arr, where=slice(None)):
+def fast_dispersion_op(w_c, beta_arr, power_fact_arr, where=slice(None), alpha=None):
     """
     dispersive operator
 
@@ -975,8 +991,10 @@ def fast_dispersion_op(w_c, beta_arr, power_fact_arr, where=slice(None)):
 
     out = np.zeros_like(dispersion)
     out[where] = dispersion[where]
-
-    return -1j * out
+    if alpha is None:
+        return -1j * out
+    else:
+        return -1j * out - alpha / 2
 
 
 def _fast_disp_loop(dispersion: np.ndarray, beta_arr, power_fact_arr):
@@ -1044,6 +1062,31 @@ def effective_core_radius(lambda_, core_radius, s=0.08, h=200e-9):
 def effective_radius_HCARF(core_radius, t, f1, f2, lambda_):
     """eq. 3 in Hasan 2018"""
     return f1 * core_radius * (1 - f2 * lambda_ ** 2 / (core_radius * t))
+
+
+def capillary_loss(lambda_: np.ndarray, he_mode: tuple[int, int], core_radius: float) -> np.ndarray:
+    """computes the wavelenth dependent capillary loss according to Marcatili
+
+    Parameters
+    ----------
+    lambda_ : np.ndarray, shape (n, )
+        wavelength array
+    he_mode : tuple[int, int]
+        tuple of mode (n, m)
+    core_radius : float
+        in m
+
+    Returns
+    -------
+    np.ndarray
+        loss in 1/m
+    """
+    alpha = np.zeros_like(lambda_)
+    mask = lambda_ > 0
+    chi_silica = mat.sellmeier(lambda_[mask], io.load_material_dico("silica"))
+    nu_n = 0.5 * (chi_silica + 2) / np.sqrt(chi_silica)
+    alpha[mask] = nu_n * (u_nm(*he_mode) * lambda_[mask] / pipi) ** 2 * core_radius ** -3
+    return alpha
 
 
 if __name__ == "__main__":

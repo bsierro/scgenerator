@@ -282,12 +282,22 @@ def gauss_pulse(t, t0, P0, offset=0):
     return np.sqrt(P0) * np.exp(-(((t - offset) / t0) ** 2))
 
 
-def photon_number(spectrum, w, dw, gamma):
+def photon_number(spectrum, w, dw, gamma) -> float:
     return np.sum(1 / gamma * abs2(spectrum) / w * dw)
 
 
-def pulse_energy(spectrum, w, dw, _):
+def photon_number_with_loss(spectrum, w, dw, gamma, alpha, h) -> float:
+    spec2 = abs2(spectrum)
+    return np.sum(1 / gamma * spec2 / w * dw) - h * np.sum(alpha / gamma * spec2 / w * dw)
+
+
+def pulse_energy(spectrum, dw) -> float:
     return np.sum(abs2(spectrum) * dw)
+
+
+def pulse_energy_with_loss(spectrum, dw, alpha, h) -> float:
+    spec2 = abs2(spectrum)
+    return np.sum(spec2 * dw) - h * np.sum(alpha * spec2 * dw)
 
 
 def technical_noise(rms_noise, relative_factor=0.4):

@@ -43,6 +43,13 @@ class Params(BareParams):
             )
             logger.info("added some quantum noise")
 
+        if self.step_size is not None:
+            self.error_ok = self.step_size
+            self.adapt_step_size = False
+        else:
+            self.error_ok = self.tolerated_error
+            self.adapt_step_size = True
+
         self.spec_0 = np.fft.fft(self.field_0)
 
     def __build_sim_grid(self):
@@ -112,6 +119,8 @@ class Params(BareParams):
         if "raman" in self.behaviors:
             self.hr_w = fiber.delayed_raman_w(self.t, self.dt, self.raman_type)
 
+        self.alpha = fiber.compute_loss(self)
+
     def __compute_custom_pulse(self):
         logger = get_logger(__name__)
 
@@ -129,15 +138,9 @@ class Params(BareParams):
             self.wavelength = pulse.correct_wavelength(self.wavelength, self.w_c, self.field_0)
             logger.info(f"moved wavelength from {1e9*old_wl:.2f} to {1e9*self.wavelength:.2f}")
             self.w_c, self.w0, self.w, self.w_power_fact = update_frequency_domain(
-                self.t, self.wavelength
+                self.t, self.wavelength, self.interp_degree
             )
 
-        if self.step_size is not None:
-            self.error_ok = self.step_size
-            self.adapt_step_size = False
-        else:
-            self.error_ok = self.tolerated_error
-            self.adapt_step_size = True
         return did_set_custom_pulse
 
 
@@ -190,6 +193,10 @@ class Config(BareConfig):
                     self.get_fiber(param)
             else:
                 for param in hc_model_specific_parameters[self.model]:
+                    self.get_fiber(param)
+        if self.contains("loss"):
+            if self.loss == "capillary":
+                for param in ["core_radius", "he_mode"]:
                     self.get_fiber(param)
         for param in ["length", "input_transmission"]:
             self.get(param)
@@ -612,21 +619,54 @@ def build_sim_grid(
     length: float,
     z_num: int,
     wavelength: float,
+    deg: int,
     time_window: float = None,
     t_num: int = None,
     dt: float = None,
-):
+) -> tuple[
+    np.ndarray, np.ndarray, float, int, float, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray
+]:
     """computes a bunch of values that relate to the simulation grid
 
     Parameters
     ----------
-    params : dict
-        flattened parameter dictionary
+    length : float
+        length of the fiber in m
+    z_num : int
+        number of spatial points
+    wavelength : float
+        pump wavelength in m
+    deg : int
+        dispersion interpolation degree
+    time_window : float, optional
+        total width of the temporal grid in s, by default None
+    t_num : int, optional
+        number of temporal grid points, by default None
+    dt : float, optional
+        spacing of the temporal grid in s, by default None
 
     Returns
     -------
-    dict
-        updated parameter dictionary
+    z_targets : np.ndarray, shape (z_num, )
+        spatial points in m
+    t : np.ndarray, shape (t_num, )
+        temporal points in s
+    time_window : float
+        total width of the temporal grid in s, by default None
+    t_num : int
+        number of temporal grid points, by default None
+    dt : float
+        spacing of the temporal grid in s, by default None
+    w_c : np.ndarray, shape (t_num, )
+        centered angular frequencies in rad/s where 0 is the pump frequency
+    w0 : float
+        pump angular frequency
+    w : np.ndarray, shape (t_num, )
+        actual angualr frequency grid in rad/s
+    w_power_fact : np.ndarray, shape (deg, t_num)
+        set of all the necessaray powers of w_c
+    l : np.ndarray, shape (t_num)
+        wavelengths in m
     """
     t = tspace(time_window, t_num, dt)
 
@@ -634,7 +674,7 @@ def build_sim_grid(
     dt = t[1] - t[0]
     t_num = len(t)
     z_targets = np.linspace(0, length, z_num)
-    w_c, w0, w, w_power_fact = update_frequency_domain(t, wavelength)
+    w_c, w0, w, w_power_fact = update_frequency_domain(t, wavelength, deg)
     l = units.To.m(w)
     return z_targets, t, time_window, t_num, dt, w_c, w0, w, w_power_fact, l
 
@@ -653,12 +693,18 @@ def build_sim_grid_in_place(params: BareParams):
         params.w_power_fact,
         params.l,
     ) = build_sim_grid(
-        params.length, params.z_num, params.wavelength, params.time_window, params.t_num, params.dt
+        params.length,
+        params.z_num,
+        params.wavelength,
+        params.interp_degree,
+        params.time_window,
+        params.t_num,
+        params.dt,
     )
 
 
 def update_frequency_domain(
-    t: np.ndarray, wavelength: float
+    t: np.ndarray, wavelength: float, deg: int
 ) -> Tuple[np.ndarray, float, np.ndarray, np.ndarray]:
     """updates the frequency grid
 
@@ -668,6 +714,8 @@ def update_frequency_domain(
         time array
     wavelength : float
         wavelength
+    deg : int
+        interpolation degree of the dispersion
 
     Returns
     -------
@@ -677,5 +725,5 @@ def update_frequency_domain(
     w_c = wspace(t)
     w0 = units.m(wavelength)
     w = w_c + w0
-    w_power_fact = np.array([power_fact(w_c, k) for k in range(2, 11)])
+    w_power_fact = np.array([power_fact(w_c, k) for k in range(2, deg + 3)])
     return w_c, w0, w, w_power_fact
