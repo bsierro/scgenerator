@@ -13,6 +13,7 @@ import itertools
 import os
 from pathlib import Path
 from typing import Literal, Tuple, TypeVar
+from collections import namedtuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -47,6 +48,11 @@ P0T0_to_E0_fac = dict(
     gaussian=np.sqrt(pi / 2),  # int(a * exp(-(x/b)^2)^2 * dx) from -inf to inf = sqrt(pi/2) * a * b
 )
 """relates the total energy (amplitue^2) to the t0 parameter of the amplitude and the peak intensity (peak_amplitude^2)"""
+
+PulseProperties = namedtuple(
+    "PulseProperties",
+    "quality mean_coherence fwhm_noise mean_fwhm peak_rin energy_rin timing_jitter",
+)
 
 
 def initial_field(t, shape, t0, peak_power):
@@ -475,12 +481,14 @@ def g12(values):
     # Create all the possible pairs of values
     n = len(values)
     field_pairs = itertools.combinations(values, 2)
+    mean_spec = np.mean(abs2(values), axis=0)
+    mask = mean_spec > 1e-15 * mean_spec.max()
     corr = np.zeros_like(values[0])
     for pair in field_pairs:
-        corr += pair[0].conj() * pair[1]
-    g12_arr = corr / (n * (n - 1) / 2 * np.mean(abs2(values), axis=0))
+        corr[mask] += pair[0][mask].conj() * pair[1][mask]
+    corr[mask] = corr[mask] / (n * (n - 1) / 2 * mean_spec[mask])
 
-    return np.abs(g12_arr)
+    return np.abs(corr)
 
 
 def avg_g12(values):
@@ -842,39 +850,45 @@ def _detailed_find_lobe_limits(
     )
 
 
-def measure_properties(spectra, t, compress=True, debug=""):
+def measure_properties(spectra, t, compress=True, return_limits=False, debug="") -> PulseProperties:
     """measure the quality factor, the fwhm variation, the peak power variation,
 
     Parameters
     ----------
-        spectra : 2D array
-            set of n spectra in sc-ordering that differ only by noise
-        t : 1D array
-            time axis of the simulation
-        compress : bool, optional
-            whether to perform pulse compression. Default value is True, but this
-            should be set to False to measure the initial pulse as output by gaussian_pulse
-            or sech_pulse because compressing it would result in glitches and wrong measurements
+    spectra : np.ndarray, shape (n, nt)
+        set of n spectra on a grid of nt angular frequency points
+    t : np.ndarray, shape (nt, )
+        time axis of the simulation
+    compress : bool, optional
+        whether to perform pulse compression. Default value is True, but this
+        should be set to False to measure the initial pulse as output by gaussian_pulse
+        or sech_pulse because compressing it would result in glitches and wrong measurements
+    return_limits : bool, optional
+        return the time values of the limits
 
     Returns
     ----------
-        qf : float
+    PulseProperties object:
+        quality : float
             quality factor of the pulse ensemble
-        mean_g12 : float
+        mean_gmean_coherence12 : float
             mean coherence of the spectra ensemble
-        fwhm_var : float
-            relative noise in temporal width of the compressed pulse
-        fwhm_abs : float
-            width of the mean compressed pulse
-        int_var : flaot
-            relative noise in the compressed pulse peak intensity
-        t_jitter : float
+        fwhm_noise : float
+            relative noise in temporal width of the (compressed) pulse
+        mean_fwhm : float
+            width of the mean (compressed) pulse
+        peak_rin : float
+            relative noise in the (compressed) pulse peak intensity
+        energy_rin : float
+            relative noise in the (compressed) pulse total_energy
+        timing_jitter : float
             standard deviantion in absolute temporal peak position
+    all_limits : list[tuple[np.ndarray, np.ndarray]], only if return_limits = True
+        list of tuples of the form ([left_lobe_lim, right_lobe_lim, lobe_pos], [left_hm, right_hm])
     """
     if compress:
         fields = abs2(compress_pulse(spectra))
     else:
-        print("Skipping compression")
         fields = abs2(ifft(spectra))
 
     field = np.mean(fields, axis=0)
@@ -897,16 +911,28 @@ def measure_properties(spectra, t, compress=True, debug=""):
     P0 = []
     fwhm = []
     t_offset = []
+    energies = []
+    all_lims: list[tuple[np.ndarray, np.ndarray]] = []
     for f in fields:
         lobe_lim, fwhm_lim, _, big_spline = find_lobe_limits(t, f, debug)
+        all_lims.append((lobe_lim, fwhm_lim))
         P0.append(big_spline(lobe_lim[2]))
         fwhm.append(length(fwhm_lim))
         t_offset.append(lobe_lim[2])
+        energies.append(np.trapz(fields, t))
     fwhm_var = np.std(fwhm) / np.mean(fwhm)
     int_var = np.std(P0) / np.mean(P0)
+    en_var = np.std(energies) / np.mean(energies)
     t_jitter = np.std(t_offset)
 
-    return qf, mean_g12, fwhm_var, fwhm_abs, int_var, t_jitter
+    if isinstance(mean_g12, np.ndarray) and mean_g12.ndim == 0:
+        mean_g12 = mean_g12[()]
+    pp = PulseProperties(qf, mean_g12, fwhm_var, fwhm_abs, int_var, en_var, t_jitter)
+
+    if return_limits:
+        return pp, all_lims
+    else:
+        return pp
 
 
 def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float]:

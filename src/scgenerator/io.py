@@ -162,7 +162,7 @@ def load_config(path: os.PathLike) -> BareConfig:
     return BareConfig(**config)
 
 
-def load_material_dico(name):
+def load_material_dico(name: str) -> dict[str, Any]:
     """loads a material dictionary
     Parameters
     ----------
