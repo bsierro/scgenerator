@@ -647,7 +647,7 @@ def PCF_dispersion(lambda_, pitch, ratio_d, w0=None, n2=None, A_eff=None):
         if A_eff is None:
             V_eff = pi2a / lambda_ * np.sqrt(n_co ** 2 - n_FSM2)
             w_eff = a_eff * (0.65 + 1.619 / V_eff ** 1.5 + 2.879 / V_eff ** 6)
-            A_eff = interp1d(lambda_, w_eff, kind="linear")(units.m.inv(w0)) ** pipi
+            A_eff = interp1d(lambda_, w_eff, kind="linear")(units.m.inv(w0)) ** 2 * pi
 
         if n2 is None:
             n2 = 2.6e-20

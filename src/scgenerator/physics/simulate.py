@@ -1,5 +1,6 @@
 import multiprocessing
 import os
+import random
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Type
@@ -704,7 +705,7 @@ def new_simulation(
     if prev_sim_dir is not None:
         config_dict["prev_sim_dir"] = str(prev_sim_dir)
 
-    task_id = np.random.randint(1e9, 1e12)
+    task_id = random.randint(1e9, 1e12)
 
     if prev_sim_dir is None:
         param_seq = initialize.ParamSequence(config_dict)
@@ -718,7 +719,7 @@ def new_simulation(
 
 def resume_simulations(sim_dir: Path, method: Type[Simulations] = None) -> Simulations:
 
-    task_id = np.random.randint(1e9, 1e12)
+    task_id = random.randint(1e9, 1e12)
     config = io.load_toml(sim_dir / "initial_config.toml")
     io.set_data_folder(task_id, sim_dir)
     param_seq = initialize.RecoveryParamSequence(config, task_id)

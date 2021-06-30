@@ -26,7 +26,8 @@ def material_dispersion(
     material: str,
     pressure=None,
     temperature=None,
-    ideal=False,
+    ideal=True,
+    safe=True,
 ):
     """returns the dispersion profile (beta_2) of a bulk material.
 
@@ -41,7 +42,7 @@ def material_dispersion(
     pressure : float, optional
         constant pressure
     ideal : bool, optional
-        whether to use the ideal gas law instead of the van der Waals equation, by default False
+        whether to use the ideal gas law instead of the van der Waals equation, by default True
 
     Returns
     -------
@@ -50,6 +51,9 @@ def material_dispersion(
     """
 
     w = units.m(wavelengths)
+
+    order = np.argsort(w)
+
     material_dico = load_material_dico(material)
     if ideal:
         n_gas_2 = materials.sellmeier(wavelengths, material_dico, pressure, temperature) + 1
@@ -59,12 +63,19 @@ def material_dispersion(
         )
         N_0 = materials.number_density_van_der_waals(material_dico=material_dico)
         n_gas_2 = materials.sellmeier(wavelengths, material_dico) * N_1 / N_0 + 1
-
-    return fiber.beta2(w, np.sqrt(n_gas_2))
+    if safe:
+        disp = np.zeros(len(w))
+        ind = w > 0
+        disp[ind] = material_dispersion(
+            units.To.m(w[ind]), material, pressure, temperature, ideal, False
+        )
+        return disp
+    else:
+        return fiber.beta2(w[order], np.sqrt(n_gas_2[order]))[order]
 
 
 def find_optimal_depth(
-    spectrum: T, w_c: np.ndarray, w0: float, material: str = "silica", max_z: float = 1.0
+    spectrum: T, w_c: np.ndarray, w0: float, material: str, max_z: float = 1.0
 ) -> tuple[T, pulse.OptimizeResult]:
     """finds the optimal silica depth to compress a pulse
 
@@ -86,12 +97,26 @@ def find_optimal_depth(
     float
         distance in m
     """
-    silica_disp = material_dispersion(units.To.m(w_c + w0), material)
+    w = w_c + w0
+    disp = np.zeros(len(w))
+    ind = w > (w0 / 10)
+    disp[ind] = material_dispersion(units.To.m(w[ind]), material)
 
-    propagate = lambda z: spectrum * np.exp(-0.5j * silica_disp * w_c ** 2 * z)
+    propagate = lambda z: spectrum * np.exp(-0.5j * disp * w_c ** 2 * z)
+    integrate = lambda z: math.abs2(np.fft.ifft(propagate(z)))
 
     def score(z):
-        return 1 / np.max(math.abs2(np.fft.ifft(propagate(z))))
+        return -np.nansum(integrate(z) ** 6)
 
-    opti = minimize_scalar(score, bracket=(0, max_z))
-    return opti.x
+    # import matplotlib.pyplot as plt
+
+    # to_test = np.linspace(0, max_z, 200)
+    # scores = [score(z) for z in to_test]
+    # fig, ax = plt.subplots()
+    # ax.plot(to_test, scores / np.min(scores))
+    # plt.show()
+    # plt.close(fig)
+    # ama = np.argmin(scores)
+
+    opti = minimize_scalar(score, method="bounded", bounds=(0, max_z))
+    return propagate(opti.x), opti

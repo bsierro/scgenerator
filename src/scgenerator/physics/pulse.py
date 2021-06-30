@@ -572,7 +572,7 @@ def peak_ind(values, mam=None):
         ) + 3
     except IndexError:
         right_ind = len(values) - 1
-    return left_ind, right_ind
+    return max(0, left_ind), min(len(values) - 1, right_ind)
 
 
 def setup_splines(x_axis, values, mam=None):
@@ -685,8 +685,7 @@ def find_lobe_limits(x_axis, values, debug="", already_sorted=True):
             dd_roots,
             fwhm_pos,
             peak_pos,
-            folder_name,
-            file_name,
+            out_path,
             fig,
             ax,
             color,
@@ -716,7 +715,7 @@ def find_lobe_limits(x_axis, values, debug="", already_sorted=True):
             c=color[5],
         )
         ax.legend()
-        fig.savefig(os.path.join(folder_name, file_name), bbox_inches="tight")
+        fig.savefig(out_path, bbox_inches="tight")
         plt.close(fig)
 
     else:
@@ -818,9 +817,7 @@ def _detailed_find_lobe_limits(
     # if measurement of the peak is not straightforward, we plot the situation to see
     # if the final measurement is good or not
 
-    folder_name, file_name, fig, ax = plot_setup(
-        file_name=f"it_{iterations}_{debug}", folder_name="measurements_errors_plots"
-    )
+    out_path, fig, ax = plot_setup(out_path=f"measurement_errors_plots/it_{iterations}_{debug}")
 
     new_fwhm_pos = np.array([np.max(left_pos), np.min(right_pos)])
 
@@ -842,8 +839,7 @@ def _detailed_find_lobe_limits(
         dd_roots,
         fwhm_pos,
         peak_pos,
-        folder_name,
-        file_name,
+        out_path,
         fig,
         ax,
         color,
@@ -946,7 +942,7 @@ def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float
 
 
 def remove_2nd_order_dispersion(
-    spectrum: T, w_c: np.ndarray, beta2: float, max_z: float = -1.0
+    spectrum: T, w_c: np.ndarray, beta2: float, max_z: float = -100.0
 ) -> tuple[T, OptimizeResult]:
     """attempts to remove 2nd order dispersion from a complex spectrum
 
@@ -964,11 +960,49 @@ def remove_2nd_order_dispersion(
     np.ndarray, shape (n, )
         spectrum with 2nd order dispersion removed
     """
-    # makeshift_t = np.linspace(0, 1, len(w_c))
     propagate = lambda z: spectrum * np.exp(-0.5j * beta2 * w_c ** 2 * z)
 
     def score(z):
-        return 1 / np.max(abs2(np.fft.ifft(propagate(z))))
+        return -np.max(abs2(np.fft.ifft(propagate(z))))
 
     opti = minimize_scalar(score, bracket=(max_z, 0))
     return propagate(opti.x), opti
+
+
+def remove_2nd_order_dispersion2(
+    spectrum: T, w_c: np.ndarray, max_gdd: float = 1000e-30
+) -> tuple[T, OptimizeResult]:
+    """attempts to remove 2nd order dispersion from a complex spectrum
+
+    Parameters
+    ----------
+    spectrum : np.ndarray or Spectrum, shape (n, )
+        spectrum from which to remove 2nd order dispersion
+    w_c : np.ndarray, shape (n, )
+        corresponding centered angular frequencies (w-w0)
+
+    Returns
+    -------
+    np.ndarray, shape (n, )
+        spectrum with 2nd order dispersion removed
+    """
+    propagate = lambda gdd: spectrum * np.exp(-0.5j * w_c ** 2 * 1e-30 * gdd)
+    integrate = lambda gdd: abs2(np.fft.ifft(propagate(gdd)))
+
+    def score(gdd):
+        return -np.sum(integrate(gdd) ** 6)
+
+    # def score(gdd):
+    #     return -np.max(integrate(gdd))
+
+    # to_test = np.linspace(-max_gdd, max_gdd, 200)
+    # scores = [score(g) for g in to_test]
+    # fig, ax = plt.subplots()
+    # ax.plot(to_test, scores / np.min(scores))
+    # plt.show()
+    # plt.close(fig)
+    # ama = np.argmin(scores)
+
+    opti = minimize_scalar(score, bounds=(-max_gdd * 1e30, max_gdd * 1e30))
+    opti["x"] *= 1e-30
+    return propagate(opti.x * 1e30), opti

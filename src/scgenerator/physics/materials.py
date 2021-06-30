@@ -1,8 +1,13 @@
+from typing import Any, Callable
 import numpy as np
+import scipy.special
+from scipy.integrate import cumulative_trapezoid
+
+from scgenerator import math
 
 from ..logger import get_logger
 from . import units
-from .units import NA, c, kB, me, e
+from .units import NA, c, kB, me, e, hbar
 
 
 def pressure_from_gradient(ratio, p0, p1):
@@ -174,3 +179,57 @@ def non_linear_refractive_index(material_dico, pressure=None, temperature=None):
 
 def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:
     return w * np.sqrt(2 * me * I) / (e * np.abs(field))
+
+
+def free_electron_density(
+    t: np.ndarray, field: np.ndarray, N0: float, rate_func: Callable[[np.ndarray], np.ndarray]
+) -> np.ndarray:
+    return N0 * (1 - np.exp(-cumulative_trapezoid(rate_func(field), t, initial=0)))
+
+
+def ionization_rate_ADK(
+    ionization_energy: float, atomic_number
+) -> Callable[[np.ndarray], np.ndarray]:
+    Z = -(atomic_number - 1) * e
+
+    omega_p = ionization_energy / hbar
+    nstar = Z * np.sqrt(2.1787e-18 / ionization_energy)
+    omega_t = lambda field: e * np.abs(field) / np.sqrt(2 * me * ionization_energy)
+    Cnstar = 2 ** (2 * nstar) / (scipy.special.gamma(nstar + 1) ** 2)
+    omega_C = omega_p / 4 * math.abs2(Cnstar)
+
+    def rate(field: np.ndarray) -> np.ndarray:
+        opt4 = 4 * omega_t(field) / om
+        return omega_C * (4 * omega_p / ot) ** (2 * nstar - 1) * np.exp(-4 * omega_p / (3 * ot))
+
+    return rate
+
+
+class Plasma:
+    def __init__(self, t: np.ndarray, ionization_energy: float, atomic_number: int):
+        self.t = t
+        self.Ip = ionization_energy
+        self.atomic_number = atomic_number
+        self.rate = ionization_rate_ADK(self.Ip, self.atomic_number)
+
+    def __call__(self, field: np.ndarray, N0: float) -> np.ndarray:
+        """returns the number density of free electrons as function of time
+
+        Parameters
+        ----------
+        field : np.ndarray
+            electric field in V/m
+        N0 : float
+            total number density of matter
+
+        Returns
+        -------
+        np.ndarray
+            number density of free electrons as function of time
+        """
+        Ne = free_electron_density(self.t, field, N0, self.rate)
+        return cumulative_trapezoid(
+            np.gradient(Ne, self.t) * self.Ip / field, self.t, initial=0
+        ) + e ** 2 / me * cumulative_trapezoid(
+            cumulative_trapezoid(Ne * field, self.t, initial=0), self.t, initial=0
+        )

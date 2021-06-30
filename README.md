@@ -118,13 +118,13 @@ capillary_nested : int, optional
    
 
 gamma: float, optional unless beta is directly provided
-    nonlinear parameter in m^2 / W. Will overwrite any computed gamma parameter.
+    nonlinear parameter in m^-1*W^-1. Will overwrite any computed gamma parameter.
 
 effective_mode_diameter : float, optional
     effective mode field diameter in m
 
 n2 : float, optional
-    non linear refractive index
+    non linear refractive index in m^2/W
 
 A_eff : float, optional
     effective mode field area

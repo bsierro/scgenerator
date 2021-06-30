@@ -30,6 +30,7 @@ def plot_setup(
     - an axis
     """
     out_path = defaults["name"] if out_path is None else out_path
+    out_path = Path(out_path)
     plot_name = out_path.name.replace(f".{file_type}", "")
     out_dir = out_path.resolve().parent
 
