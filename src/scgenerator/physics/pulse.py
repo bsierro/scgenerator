@@ -239,7 +239,7 @@ def setup_custom_field(params: BareParams) -> bool:
 
     if params.prev_data_dir is not None:
         spec = io.load_last_spectrum(Path(params.prev_data_dir))[1]
-        field_0 = np.fft.ifft(spec) * np.sqrt(params.input_transmission)
+        field_0 = np.fft.ifft(spec)
     elif params.field_file is not None:
         field_data = np.load(params.field_file)
         field_interp = interp1d(
@@ -257,6 +257,9 @@ def setup_custom_field(params: BareParams) -> bool:
         width, peak_power, energy = measure_field(params.t, field_0)
     else:
         did_set = False
+
+    if did_set:
+        field_0 = field_0 * np.sqrt(params.input_transmission)
 
     return did_set, width, peak_power, energy, field_0
 

@@ -39,6 +39,7 @@ def plot_all(sim_dir: Path, limits: list[str]):
                 file_name=p.parent
                 / f"{pretty_format_from_file_name(p.name)} {left} {right} {unit}",
             )
+        plt.close("all")
 
 
 def plot_init_field_spec(
