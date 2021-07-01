@@ -8,6 +8,8 @@ import numpy as np
 from matplotlib.colors import ListedColormap
 from scipy.interpolate import UnivariateSpline
 
+from .logger import get_logger
+
 from . import io, math
 from .defaults import default_plotting as defaults
 from .math import abs2, make_uniform_1D, span
@@ -250,7 +252,7 @@ def _finish_plot_2D(
     file_name,
     file_type,
 ):
-
+    logger = get_logger(__name__)
     # apply log transform if required
     if log is not False:
         vmax = defaults["vmax"] if vmax is None else vmax
@@ -272,7 +274,7 @@ def _finish_plot_2D(
         elif log == "unique 1D":
             try:
                 ref = _finish_plot_2D.ref
-                print(f"recovered reference value {ref} for log plot")
+                logger.info(f"recovered reference value {ref} for log plot")
             except AttributeError:
                 ref = np.max(values, axis=1)
                 ind = np.argmax((ref[:-1] - ref[1:]) < 0)
@@ -335,7 +337,7 @@ def _finish_plot_2D(
 
     if is_new_plot:
         fig.savefig(out_path, bbox_inches="tight", dpi=200)
-        print(f"plot saved in {out_path}")
+        logger.info(f"plot saved in {out_path}")
     if cbar_label is not None:
         return fig, (ax, cbar.ax)
     else:

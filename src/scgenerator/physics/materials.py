@@ -196,11 +196,11 @@ def ionization_rate_ADK(
     nstar = Z * np.sqrt(2.1787e-18 / ionization_energy)
     omega_t = lambda field: e * np.abs(field) / np.sqrt(2 * me * ionization_energy)
     Cnstar = 2 ** (2 * nstar) / (scipy.special.gamma(nstar + 1) ** 2)
-    omega_C = omega_p / 4 * math.abs2(Cnstar)
+    omega_pC = omega_p * Cnstar
 
     def rate(field: np.ndarray) -> np.ndarray:
-        opt4 = 4 * omega_t(field) / om
-        return omega_C * (4 * omega_p / ot) ** (2 * nstar - 1) * np.exp(-4 * omega_p / (3 * ot))
+        opt4 = 4 * omega_p / omega_t(field)
+        return omega_pC * opt4 ** (2 * nstar - 1) * np.exp(-opt4 / 3)
 
     return rate
 
@@ -229,7 +229,8 @@ class Plasma:
         """
         Ne = free_electron_density(self.t, field, N0, self.rate)
         return cumulative_trapezoid(
-            np.gradient(Ne, self.t) * self.Ip / field, self.t, initial=0
-        ) + e ** 2 / me * cumulative_trapezoid(
-            cumulative_trapezoid(Ne * field, self.t, initial=0), self.t, initial=0
+            np.gradient(Ne, self.t) * self.Ip / field
+            + e ** 2 / me * cumulative_trapezoid(Ne * field, self.t, initial=0),
+            self.t,
+            initial=0,
         )

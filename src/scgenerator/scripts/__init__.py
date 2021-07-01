@@ -6,6 +6,7 @@ from cycler import cycler
 
 import matplotlib.pyplot as plt
 import numpy as np
+from tqdm import tqdm
 
 from ..utils.parameter import BareParams
 
@@ -22,24 +23,26 @@ def fingerprint(params: BareParams):
     return h1, h2
 
 
-def plot_all(sim_dir: Path, limits: list[str]):
-    for p in sim_dir.glob("*"):
-        if not p.is_dir():
-            continue
-
-        pulse = Pulse(p)
-        for lim in limits:
-            left, right, unit = lim.split(",")
-            left = float(left)
-            right = float(right)
-            pulse.plot_2D(
-                left,
-                right,
-                unit,
-                file_name=p.parent
-                / f"{pretty_format_from_file_name(p.name)} {left} {right} {unit}",
-            )
-        plt.close("all")
+def plot_all(sim_dir: Path, limits: list[str], **opts):
+    dir_list = list(p for p in sim_dir.glob("*") if p.is_dir())
+    limits = [
+        tuple(func(el) for func, el in zip([float, float, str], lim.split(","))) for lim in limits
+    ]
+    print(limits)
+    with tqdm(total=len(dir_list) * len(limits)) as bar:
+        for p in dir_list:
+            pulse = Pulse(p)
+            for left, right, unit in limits:
+                pulse.plot_2D(
+                    left,
+                    right,
+                    unit,
+                    file_name=p.parent
+                    / f"{pretty_format_from_file_name(p.name)} {left} {right} {unit}",
+                    **opts,
+                )
+                bar.update()
+            plt.close("all")
 
 
 def plot_init_field_spec(

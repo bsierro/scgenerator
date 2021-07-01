@@ -125,6 +125,26 @@ def modify_field_ratio(
     return ratio
 
 
+def convert_field_units(envelope: np.ndarray, n: np.ndarray, A_eff: float) -> np.ndarray:
+    """[summary]
+
+    Parameters
+    ----------
+    envelope : np.ndarray, shape (n,)
+        complex envelope in units such that |envelope|^2 is in W
+    n : np.ndarray, shape (n,)
+        refractive index
+    A_eff : float
+        effective mode field area in m^2
+
+    Returns
+    -------
+    np.ndarray, shape (n,)
+        real field in V/m
+    """
+    return 2 * envelope.real / np.sqrt(2 * units.epsilon0 * units.c * n * A_eff)
+
+
 def conform_pulse_params(
     shape: Literal["gaussian", "sech"],
     width: float = None,
