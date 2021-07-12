@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Tuple, TypeVar, Union
 
 import numpy as np
+import random
 from tqdm import tqdm
 
 
@@ -37,6 +38,8 @@ class PBars:
         head_kwargs=None,
         worker_kwargs=None,
     ) -> "PBars":
+
+        self.id = random.randint(100000, 999999)
 
         if isinstance(task, abc.Iterable):
             self.iterator: Iterable[T_] = iter(task)
@@ -63,7 +66,7 @@ class PBars:
             if "desc" in kwargs:
                 kwargs["desc"] = kwargs["desc"].format(worker_id=i)
             self.append(tqdm(position=i, ncols=100, ascii=False, **kwargs))
-        self.print_path = Path("progress " + self.pbars[0].desc).resolve()
+        self.print_path = Path(f"progress {self.pbars[0].desc} {self.id}").resolve()
         self.close_ev = threading.Event()
         if "file" in self.policy:
             self.thread = threading.Thread(target=self.print_worker, daemon=True)

@@ -24,7 +24,12 @@ def fingerprint(params: BareParams):
 
 
 def plot_all(sim_dir: Path, limits: list[str], **opts):
+    for k, v in opts.items():
+        if k in ["skip"]:
+            opts[k] = int(v)
     dir_list = list(p for p in sim_dir.glob("*") if p.is_dir())
+    if len(dir_list) == 0:
+        dir_list = [sim_dir]
     limits = [
         tuple(func(el) for func, el in zip([float, float, str], lim.split(","))) for lim in limits
     ]
