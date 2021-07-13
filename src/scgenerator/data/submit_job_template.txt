@@ -9,7 +9,7 @@
 ### Give all resources to a single Ray task, ray can manage the resources internally
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task={cpus_per_node}
-
+{dependency}
 
 # Load modules or your own conda environment here
 {environment_setup}

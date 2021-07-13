@@ -92,6 +92,7 @@ def create_parser():
     parser.add_argument(
         "--command", default="run", choices=["run", "resume", "merge"], help="command to run"
     )
+    parser.add_argument("--dependency", default=None, help="sbatch dependency argument")
     return parser
 
 
@@ -111,6 +112,11 @@ def main():
     parser = create_parser()
     template = Paths.gets("submit_job_template")
     args = parser.parse_args()
+
+    if args.dependency is None:
+        args.dependency = ""
+    else:
+        args.dependency = f"#SBATCH --dependency={args.dependency}"
 
     if not re.match(r"^[0-9]{2}:[0-9]{2}:[0-9]{2}$", args.time) and not re.match(
         r"^[0-9]+$", args.time
