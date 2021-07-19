@@ -455,7 +455,7 @@ def plot_results_2D(
     plt_range: Union[units.PlotRange, tuple],
     params: BareParams,
     log: Union[int, float, bool, str] = "1D",
-    skip: int = 16,
+    skip: int = 1,
     vmin: float = None,
     vmax: float = None,
     transpose: bool = False,

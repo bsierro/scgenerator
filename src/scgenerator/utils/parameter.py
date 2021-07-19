@@ -315,12 +315,14 @@ class BareParams:
     # root
     name: str = Parameter(string)
     prev_data_dir: str = Parameter(string)
+    previous_config_file:str = Parameter(string)
 
     # # fiber
     input_transmission: float = Parameter(in_range_incl(0, 1))
     gamma: float = Parameter(non_negative(float, int))
     n2: float = Parameter(non_negative(float, int))
     loss: str = Parameter(literal("capillary"))
+    loss_file: str = Parameter(string)
     effective_mode_diameter: float = Parameter(positive(float, int))
     A_eff: float = Parameter(non_negative(float, int))
     pitch: float = Parameter(in_range_excl(0, 1e-3))
@@ -371,7 +373,7 @@ class BareParams:
     z_num: int = Parameter(positive(int))
     time_window: float = Parameter(positive(float, int))
     dt: float = Parameter(in_range_excl(0, 5e-15))
-    tolerated_error: float = Parameter(in_range_excl(1e-15, 1e-5))
+    tolerated_error: float = Parameter(in_range_excl(1e-15, 1e-3))
     step_size: float = Parameter(positive(float, int))
     lower_wavelength_interp_limit: float = Parameter(in_range_incl(100e-9, 3000e-9))
     upper_wavelength_interp_limit: float = Parameter(in_range_incl(200e-9, 5000e-9))

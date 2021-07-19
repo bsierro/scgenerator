@@ -657,7 +657,12 @@ def PCF_dispersion(lambda_, pitch, ratio_d, w0=None, n2=None, A_eff=None):
 
 
 def compute_loss(params: BareParams) -> Optional[np.ndarray]:
-    if params.loss == "capillary":
+    if params.loss_file is not None:
+        loss_data = np.load(params.loss_file)
+        wl = loss_data["wavelength"]
+        loss = loss_data["loss"]
+        return interp1d(wl, loss, fill_value=0, bounds_error=False)(params.l)
+    elif params.loss == "capillary":
         mask = params.l < params.upper_wavelength_interp_limit
         alpha = capillary_loss(params.l[mask], params.he_mode, params.core_radius)
         out = np.zeros_like(params.l)

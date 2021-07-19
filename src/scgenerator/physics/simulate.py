@@ -3,7 +3,7 @@ import os
 import random
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Type
+from typing import Dict, List, Tuple, Type, Union
 
 import numpy as np
 
@@ -679,6 +679,15 @@ def run_simulation_sequence(
     method=None,
     prev_sim_dir: os.PathLike = None,
 ):
+    config_files = list(config_files)
+    if len(config_files) == 1:
+        while True:
+            conf = io.load_toml(config_files[0])
+            if (prev := conf.get("previous_config_file")) is not None:
+                config_files.insert(0, prev)
+            else:
+                break
+
     prev = prev_sim_dir
     for config_file in config_files:
         sim = new_simulation(config_file, prev, method)
@@ -694,12 +703,14 @@ def run_simulation_sequence(
 
 
 def new_simulation(
-    config_file: os.PathLike,
+    config: Union[dict, os.PathLike],
     prev_sim_dir=None,
     method: Type[Simulations] = None,
 ) -> Simulations:
-
-    config_dict = io.load_toml(config_file)
+    if isinstance(config, dict):
+        config_dict = config
+    else:
+        config_dict = io.load_toml(config)
     logger = get_logger(__name__)
 
     if prev_sim_dir is not None:
