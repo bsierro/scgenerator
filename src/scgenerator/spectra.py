@@ -278,7 +278,7 @@ class Pulse(Sequence):
                 ind = range(self.nmax)
             else:
                 ind = self.default_ind
-        if isinstance(ind, int):
+        if isinstance(ind, (int, np.integer)):
             ind = [ind]
 
         # Load the spectra
