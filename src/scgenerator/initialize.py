@@ -366,11 +366,6 @@ class ContinuationParamSequence(ParamSequence):
         self.prev_sim_dir = Path(prev_sim_dir)
         init_config = io.load_config(self.prev_sim_dir / "initial_config.toml")
 
-        self.prev_variable_lists = [
-            (set(variable_list[1:]), self.prev_sim_dir / utils.format_variable_list(variable_list))
-            for variable_list, _ in required_simulations(init_config)
-        ]
-
         new_variable_keys = set(new_config_dict.get("variable", {}).keys())
         new_config = utils.override_config(new_config_dict, init_config)
         super().__init__(new_config)
@@ -412,14 +407,15 @@ class ContinuationParamSequence(ParamSequence):
         ValueError
             no data folder found
         """
-        new_set = set(new_variable_list[1:])
+        new_target = set(utils.format_variable_list(new_variable_list).split()[2:])
         path_dic = defaultdict(list)
         max_in_common = 0
-        for stored_set, path in self.prev_variable_lists:
-            in_common = stored_set & new_set
+        for data_dir in self.prev_sim_dir.glob("id*"):
+            candidate = set(data_dir.name.split()[2:])
+            in_common = candidate & new_target
             num_in_common = len(in_common)
             max_in_common = max(num_in_common, max_in_common)
-            path_dic[num_in_common].append(path)
+            path_dic[num_in_common].append(data_dir)
 
         return path_dic[max_in_common]
 

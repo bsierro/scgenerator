@@ -315,7 +315,7 @@ class BareParams:
     # root
     name: str = Parameter(string)
     prev_data_dir: str = Parameter(string)
-    previous_config_file:str = Parameter(string)
+    previous_config_file: str = Parameter(string)
 
     # # fiber
     input_transmission: float = Parameter(in_range_incl(0, 1))
