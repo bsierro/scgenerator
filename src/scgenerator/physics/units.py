@@ -186,6 +186,9 @@ class PlotRange:
     right: float = Parameter(type_checker(int, float))
     unit: Callable[[float], float] = Parameter(is_unit, converter=get_unit)
 
+    def __str__(self):
+        return f"{self.left:.1f}-{self.right:.1f} {self.unit.__name__}"
+
 
 def beta2_coef(beta):
     fac = 1e27

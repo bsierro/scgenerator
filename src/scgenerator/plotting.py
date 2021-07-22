@@ -580,10 +580,9 @@ def plot_results_1D(
     file_type: str = "pdf",
     file_name: str = None,
     ax: plt.Axes = None,
-    line_label: str = None,
     transpose: bool = False,
     **line_kwargs,
-) -> tuple[plt.Figure, plt.Axes, np.ndarray, np.ndarray]:
+) -> tuple[plt.Figure, plt.Axes, plt.Line2D, np.ndarray, np.ndarray]:
     """
 
     Parameters
@@ -620,13 +619,15 @@ def plot_results_1D(
             special name to give to the plot. A name is automatically assigned anyway
         ax : matplotlib.axes._subplots.AxesSubplot object, optional
             axis on which to draw the plot
-        line_label : str, optional
-            label of the line
         transpose : bool, optional
             transpose the plot
         line_kwargs : to be passed to plt.plot
     returns
-        fig, ax : matplotlib objects containing the plots
+        fig, ax, line : matplotlib objects containing the plots
+        x_axis : np.ndarray
+            new x axis array
+        ind : np.ndarray
+            corresponding indices on the old axis
     example:
         if spectra is a (m, n, nt) array, one can plot a spectrum evolution as such:
         >>> fig, ax = plot_results_2D(spectra[:, -1], (600, 1600, nm), log=True, "Heidt2017")
@@ -674,19 +675,21 @@ def plot_results_1D(
     is_new_plot = ax is None
 
     folder_name = ""
+    if file_name is None:
+        file_name = params.name + str(plt_range)
     if is_new_plot:
         out_path, fig, ax = plot_setup(out_path=Path(folder_name) / file_name, file_type=file_type)
     else:
         fig = ax.get_figure()
     if transpose:
-        ax.plot(values, x_axis, label=line_label, **line_kwargs)
+        (line,) = ax.plot(values, x_axis, **line_kwargs)
         ax.yaxis.tick_right()
         ax.yaxis.set_label_position("right")
         ax.set_xlim(vmax, vmin)
         ax.set_xlabel(ylabel)
         ax.set_ylabel(plt_range.unit.label)
     else:
-        ax.plot(x_axis, values, label=line_label, **line_kwargs)
+        (line,) = ax.plot(x_axis, values, **line_kwargs)
         ax.set_ylim(vmin, vmax)
         ax.set_ylabel(ylabel)
         ax.set_xlabel(plt_range.unit.label)
@@ -694,7 +697,7 @@ def plot_results_1D(
     if is_new_plot:
         fig.savefig(out_path, bbox_inches="tight", dpi=200)
         print(f"plot saved in {out_path}")
-    return fig, ax, x_axis, values
+    return fig, ax, line, x_axis, values
 
 
 def _prep_plot(

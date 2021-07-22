@@ -7,6 +7,8 @@ from matplotlib.pyplot import subplot
 from dataclasses import replace
 
 import numpy as np
+from numpy.lib import utils
+from numpy.lib.arraysetops import isin
 from tqdm.std import Bar
 
 from . import initialize, io, math
@@ -14,7 +16,7 @@ from .physics import units, pulse
 from .const import SPECN_FN
 from .logger import get_logger
 from .plotting import plot_avg, plot_results_1D, plot_results_2D
-from .utils.parameter import BareParams
+from .utils.parameter import BareParams, validator_and
 
 
 class Spectrum(np.ndarray):
@@ -184,7 +186,7 @@ class Pulse(Sequence):
         return self.nmax
 
     def __getitem__(self, key) -> Spectrum:
-        return self.all_spectra(ind=range(self.nmax)[key]).squeeze()
+        return self.all_spectra(key)
 
     def intensity(self, unit):
         if unit.type in ["WL", "FREQ", "AFREQ"]:
@@ -253,7 +255,7 @@ class Pulse(Sequence):
     def _to_time_amp(self, spectrum):
         return np.fft.ifft(spectrum)
 
-    def all_spectra(self, ind=None) -> Spectrum:
+    def all_spectra(self, ind) -> Spectrum:
         """
         loads the data already simulated.
         defauft shape is (z_targets, n, nt)
@@ -280,6 +282,10 @@ class Pulse(Sequence):
                 ind = self.default_ind
         if isinstance(ind, (int, np.integer)):
             ind = [ind]
+        elif isinstance(ind, (float, np.floating)):
+            ind = [self.z_ind(ind)]
+        elif isinstance(ind[0], (float, np.floating)):
+            ind = [self.z_ind(ii) for ii in ind]
 
         # Load the spectra
         spectra = []
@@ -312,11 +318,11 @@ class Pulse(Sequence):
         left: float,
         right: float,
         unit: Union[Callable[[float], float], str],
-        z_ind: Union[int, Iterable[int]] = None,
+        z_pos: Union[int, Iterable[int]] = None,
         sim_ind: int = 0,
         **kwargs,
     ):
-        plt_range, vals = self.retrieve_plot_values(left, right, unit, z_ind, sim_ind)
+        plt_range, vals = self.retrieve_plot_values(left, right, unit, z_pos, sim_ind)
         return plot_results_2D(vals, plt_range, self.params, **kwargs)
 
     def plot_1D(
@@ -324,28 +330,47 @@ class Pulse(Sequence):
         left: float,
         right: float,
         unit: Union[Callable[[float], float], str],
-        z_ind: int,
+        z_pos: int,
         sim_ind: int = 0,
         **kwargs,
     ):
-        plt_range, vals = self.retrieve_plot_values(left, right, unit, z_ind, sim_ind)
-        return plot_results_1D(vals[0], plt_range, self.params, **kwargs)
+        plt_range, vals = self.retrieve_plot_values(left, right, unit, z_pos, sim_ind)
+        return plot_results_1D(vals, plt_range, self.params, **kwargs)
 
     def plot_avg(
         self,
         left: float,
         right: float,
         unit: Union[Callable[[float], float], str],
-        z_ind: int,
+        z_pos: int,
         **kwargs,
     ):
-        plt_range, vals = self.retrieve_plot_values(left, right, unit, z_ind, slice(None))
+        plt_range, vals = self.retrieve_plot_values(left, right, unit, z_pos, slice(None))
         return plot_avg(vals, plt_range, self.params, **kwargs)
 
-    def retrieve_plot_values(self, left, right, unit, z_ind, sim_ind):
+    def retrieve_plot_values(self, left, right, unit, z_pos, sim_ind):
         plt_range = units.PlotRange(left, right, unit)
         if plt_range.unit.type == "TIME":
-            vals = self.all_fields(ind=z_ind)[:, sim_ind]
+            vals = self.all_fields(ind=z_pos)
         else:
-            vals = self.all_spectra(ind=z_ind)[:, sim_ind]
+            vals = self.all_spectra(ind=z_pos)
+        if vals.ndim == 3:
+            vals = vals[:, sim_ind]
+        else:
+            vals = vals[sim_ind]
         return plt_range, vals
+
+    def z_ind(self, z: float) -> int:
+        """return the closest z index to the given target
+
+        Parameters
+        ----------
+        z : float
+            target
+
+        Returns
+        -------
+        int
+            index
+        """
+        return math.argclosest(self.z, z)
