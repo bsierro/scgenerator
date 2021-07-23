@@ -182,13 +182,6 @@ def progress_worker(
             pbars[0].update()
 
 
-def count_variations(config: BareConfig) -> int:
-    """returns (sim_num, variable_params_num) where sim_num is the total number of simulations required and
-    variable_params_num is the number of distinct parameters that will vary."""
-    sim_num = np.prod([len(l) for l in config.variable.values()]) * config.repeat
-    return int(sim_num)
-
-
 def format_variable_list(l: List[Tuple[str, Any]]):
     joints = 2 * PARAM_SEPARATOR
     str_list = []
@@ -229,7 +222,7 @@ def pretty_format_from_file_name(name: str) -> str:
     return PARAM_SEPARATOR.join(out)
 
 
-def variable_iterator(config: BareConfig) -> Iterator[Tuple[List[Tuple[str, Any]], BareParams]]:
+def variable_iterator(config: BareConfig) -> Iterator[Tuple[List[Tuple[str, Any]], dict[str, Any]]]:
     """given a config with "variable" parameters, iterates through every possible combination,
     yielding a a list of (parameter_name, value) tuples and a full config dictionary.
 
@@ -240,10 +233,10 @@ def variable_iterator(config: BareConfig) -> Iterator[Tuple[List[Tuple[str, Any]
 
     Yields
     -------
-    Iterator[Tuple[List[Tuple[str, Any]], BareParams]]
+    Iterator[Tuple[List[Tuple[str, Any]], dict[str, Any]]]
         variable_list : a list of (name, value) tuple of parameter name and value that are variable.
 
-        params : a BareParams obj for one simulation
+        params : a dict[str, Any] to be fed to Params
     """
     possible_keys = []
     possible_ranges = []
@@ -264,10 +257,12 @@ def variable_iterator(config: BareConfig) -> Iterator[Tuple[List[Tuple[str, Any]
         param_dict = asdict(config)
         param_dict.pop("variable")
         param_dict.update(indiv_config)
-        yield variable_list, BareParams(**param_dict)
+        yield variable_list, param_dict
 
 
-def required_simulations(config: BareConfig) -> Iterator[Tuple[List[Tuple[str, Any]], BareParams]]:
+def required_simulations(
+    *configs: BareConfig,
+) -> Iterator[Tuple[List[Tuple[str, Any]], BareParams]]:
     """takes the output of `scgenerator.utils.variable_iterator` which is a new dict per different
     parameter set and iterates through every single necessary simulation
 
@@ -281,22 +276,49 @@ def required_simulations(config: BareConfig) -> Iterator[Tuple[List[Tuple[str, A
         dict : a config dictionary for one simulation
     """
     i = 0  # unique sim id
-    for variable_only, bare_params in variable_iterator(config):
-        for j in range(config.repeat):
+    for data in itertools.product(*[variable_iterator(config) for config in configs]):
+        all_variable_only, all_params_dict = list(zip(*data))
+        params_dict = all_params_dict[0]
+        for p in all_params_dict[1:]:
+            params_dict.update({k: v for k, v in p.items() if v is not None})
+        variable_only = reduce_all_variable(all_variable_only)
+        for j in range(configs[0].repeat or 1):
             variable_ind = [("id", i)] + variable_only + [("num", j)]
             i += 1
-            yield variable_ind, bare_params
+            yield variable_ind, BareParams(**params_dict)
 
 
-def override_config(new: Dict[str, Any], old: BareConfig = None) -> BareConfig:
+def reduce_all_variable(all_variable: list[list[tuple[str, Any]]]) -> list[tuple[str, Any]]:
+    out = []
+    for n, variable_list in enumerate(all_variable):
+        out += [("fiber", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[n % 26] * (n // 26 + 1)), *variable_list]
+    return out
+
+
+def override_config(new: BareConfig, old: BareConfig = None) -> BareConfig:
     """makes sure all the parameters set in new are there, leaves untouched parameters in old"""
+    new_dict = asdict(new)
     if old is None:
-        return BareConfig(**new)
+        return BareConfig(**new_dict)
     variable = deepcopy(old.variable)
-    variable.update(new.pop("variable", {}))  # add new variable
-    for k in new:
-        variable.pop(k, None)  # remove old ones
-    return replace(old, variable=variable, **{k: None for k in variable}, **new)
+    new_dict = {k: v for k, v in new_dict.items() if v is not None}
+
+    for k, v in new_dict.pop("variable", {}).items():
+        variable[k] = v
+    for k in variable:
+        new_dict[k] = None
+    return replace(old, variable=variable, **new_dict)
+
+
+def final_config_from_sequence(*configs: BareConfig) -> BareConfig:
+    if len(configs) == 0:
+        raise ValueError("Must provide at least one config")
+    if len(configs) == 1:
+        return configs[0]
+    elif len(configs) == 2:
+        return override_config(*configs[::-1])
+    else:
+        return override_config(configs[-1], final_config_from_sequence(*configs[:-1]))
 
 
 def auto_crop(x: np.ndarray, y: np.ndarray, rel_thr: float = 0.01) -> np.ndarray:

@@ -14,7 +14,7 @@ from .errors import *
 from .logger import get_logger
 from .math import power_fact
 from .physics import fiber, pulse, units
-from .utils import count_variations, override_config, pretty_format_value, required_simulations
+from .utils import override_config, required_simulations
 from .utils.parameter import BareConfig, BareParams, hc_model_specific_parameters
 
 
@@ -320,8 +320,10 @@ class ParamSequence:
         config_dict : Union[Dict[str, Any], os.PathLike, BareConfig]
             Can be either a dictionary, a path to a config toml file or BareConfig obj
         """
-        if isinstance(config_dict, BareConfig):
+        if isinstance(config_dict, Config):
             self.config = config_dict
+        elif isinstance(config_dict, BareConfig):
+            self.config = Config.from_bare(config_dict)
         else:
             if not isinstance(config_dict, Mapping):
                 config_dict = io.load_toml(config_dict)
@@ -329,7 +331,7 @@ class ParamSequence:
         self.name = self.config.name
         self.logger = get_logger(__name__)
 
-        self.update_num_sim(count_variations(self.config))
+        self.update_num_sim()
 
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Params]]:
         """iterates through all possible parameters, yielding a config as well as a flattened
@@ -343,14 +345,18 @@ class ParamSequence:
     def __repr__(self) -> str:
         return f"dispatcher generated from config {self.name}"
 
-    def update_num_sim(self, num_sim):
+    def update_num_sim(self):
+        num_sim = self.count_variations()
         self.num_sim = num_sim
         self.num_steps = self.num_sim * self.config.z_num
         self.single_sim = self.num_sim == 1
 
+    def count_variations(self) -> int:
+        return count_variations(self.config)
+
 
 class ContinuationParamSequence(ParamSequence):
-    def __init__(self, prev_sim_dir: os.PathLike, new_config_dict: Dict[str, Any]):
+    def __init__(self, prev_sim_dir: os.PathLike, new_config: BareConfig):
         """Parameter sequence that builds on a previous simulation but with a new configuration
         It is recommended that only the fiber and the number of points stored may be changed and
         changing other parameters could results in unexpected behaviors. The new config doesn't have to
@@ -364,30 +370,19 @@ class ContinuationParamSequence(ParamSequence):
             new config
         """
         self.prev_sim_dir = Path(prev_sim_dir)
-        init_config = io.load_config(self.prev_sim_dir / "initial_config.toml")
-
-        new_variable_keys = set(new_config_dict.get("variable", {}).keys())
-        new_config = utils.override_config(new_config_dict, init_config)
-        super().__init__(new_config)
-        additional_sims_factor = int(
-            np.prod(
-                [
-                    len(init_config.variable[k])
-                    for k in (new_variable_keys & init_config.variable.keys())
-                ]
-            )
-        )
-        self.update_num_sim(self.num_sim * additional_sims_factor)
+        self.bare_configs = io.load_config_sequence(new_config.previous_config_file)
+        self.bare_configs.append(new_config)
+        self.bare_configs[0] = Config.from_bare(self.bare_configs[0])
+        final_config = utils.final_config_from_sequence(*self.bare_configs)
+        super().__init__(final_config)
 
     def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Params]]:
         """iterates through all possible parameters, yielding a config as well as a flattened
         computed parameters set each time"""
-        for variable_list, bare_params in required_simulations(self.config):
-            variable_list.insert(1, ("prev_data_dir", None))
-            for prev_data_dir in self.find_prev_data_dirs(variable_list):
-                variable_list[1] = ("prev_data_dir", str(prev_data_dir.name))
-                bare_params.prev_data_dir = str(prev_data_dir.resolve())
-                yield variable_list, Params.from_bare(bare_params)
+        for variable_list, bare_params in required_simulations(*self.bare_configs):
+            prev_data_dir = self.find_prev_data_dirs(variable_list)[0]
+            bare_params.prev_data_dir = str(prev_data_dir.resolve())
+            yield variable_list, Params.from_bare(bare_params)
 
     def find_prev_data_dirs(self, new_variable_list: List[Tuple[str, Any]]) -> List[Path]:
         """finds the previous simulation data that this new config should start from
@@ -418,6 +413,17 @@ class ContinuationParamSequence(ParamSequence):
             path_dic[num_in_common].append(data_dir)
 
         return path_dic[max_in_common]
+
+    def count_variations(self) -> int:
+        return count_variations(*self.bare_configs)
+
+
+def count_variations(*bare_configs: BareConfig) -> int:
+    sim_num = 1
+    for conf in bare_configs:
+        for l in conf.variable.values():
+            sim_num *= len(l)
+    return sim_num * (bare_configs[0].repeat or 1)
 
 
 class RecoveryParamSequence(ParamSequence):
@@ -506,7 +512,7 @@ class RecoveryParamSequence(ParamSequence):
         return path_dic[max_in_common]
 
 
-def validate_config_sequence(*configs: os.PathLike) -> Tuple[Config, int]:
+def validate_config_sequence(*configs: os.PathLike) -> tuple[str, int]:
     """validates a sequence of configs where all but the first one may have
     parameters missing
 
@@ -517,19 +523,17 @@ def validate_config_sequence(*configs: os.PathLike) -> Tuple[Config, int]:
 
     Returns
     -------
-    Dict[str, Any]
-        the final config as would be simulated, but of course missing input fields in the middle
+    int
+        total number of simulations
     """
+
     previous = None
-    variables = set()
     for config in configs:
         if (p := Path(config)).is_dir():
             config = p / "initial_config.toml"
-        dico = io.load_toml(config)
-        previous = Config.from_bare(override_config(dico, previous))
-        variables |= {(k, tuple(v)) for k, v in previous.variable.items()}
-        variables.add(("repeat", range(previous.repeat)))
-    return previous, int(np.product([len(v) for _, v in variables if len(v) > 0]))
+        new_conf = io.load_config(config)
+        previous = Config.from_bare(override_config(new_conf, previous))
+    return previous.name, count_variations(*configs)
 
 
 def wspace(t, t_num=0):

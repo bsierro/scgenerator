@@ -1,22 +1,17 @@
 import os
 from collections.abc import Sequence
 from pathlib import Path
-from re import UNICODE
-from typing import Callable, Dict, Iterable, Optional, Union
-from matplotlib.pyplot import subplot
-from dataclasses import replace
+from typing import Callable, Dict, Iterable, Union
 
+import matplotlib.pyplot as plt
 import numpy as np
-from numpy.lib import utils
-from numpy.lib.arraysetops import isin
-from tqdm.std import Bar
 
 from . import initialize, io, math
-from .physics import units, pulse
 from .const import SPECN_FN
 from .logger import get_logger
-from .plotting import plot_avg, plot_results_1D, plot_results_2D
-from .utils.parameter import BareParams, validator_and
+from .physics import pulse, units
+from .plotting import mean_values_plot, propagation_plot, single_position_plot
+from .utils.parameter import BareParams
 
 
 class Spectrum(np.ndarray):
@@ -255,7 +250,7 @@ class Pulse(Sequence):
     def _to_time_amp(self, spectrum):
         return np.fft.ifft(spectrum)
 
-    def all_spectra(self, ind) -> Spectrum:
+    def all_spectra(self, ind=None) -> Spectrum:
         """
         loads the data already simulated.
         defauft shape is (z_targets, n, nt)
@@ -318,35 +313,38 @@ class Pulse(Sequence):
         left: float,
         right: float,
         unit: Union[Callable[[float], float], str],
+        ax: plt.Axes,
         z_pos: Union[int, Iterable[int]] = None,
         sim_ind: int = 0,
         **kwargs,
     ):
         plt_range, vals = self.retrieve_plot_values(left, right, unit, z_pos, sim_ind)
-        return plot_results_2D(vals, plt_range, self.params, **kwargs)
+        return propagation_plot(vals, plt_range, self.params, ax, **kwargs)
 
     def plot_1D(
         self,
         left: float,
         right: float,
         unit: Union[Callable[[float], float], str],
+        ax: plt.Axes,
         z_pos: int,
         sim_ind: int = 0,
         **kwargs,
     ):
         plt_range, vals = self.retrieve_plot_values(left, right, unit, z_pos, sim_ind)
-        return plot_results_1D(vals, plt_range, self.params, **kwargs)
+        return single_position_plot(vals, plt_range, self.params, ax, **kwargs)
 
-    def plot_avg(
+    def plot_mean(
         self,
         left: float,
         right: float,
         unit: Union[Callable[[float], float], str],
+        ax: plt.Axes,
         z_pos: int,
         **kwargs,
     ):
         plt_range, vals = self.retrieve_plot_values(left, right, unit, z_pos, slice(None))
-        return plot_avg(vals, plt_range, self.params, **kwargs)
+        return mean_values_plot(vals, plt_range, self.params, ax, **kwargs)
 
     def retrieve_plot_values(self, left, right, unit, z_pos, sim_ind):
         plt_range = units.PlotRange(left, right, unit)

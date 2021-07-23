@@ -679,18 +679,11 @@ def run_simulation_sequence(
     method=None,
     prev_sim_dir: os.PathLike = None,
 ):
-    config_files = list(config_files)
-    if len(config_files) == 1:
-        while True:
-            conf = io.load_toml(config_files[0])
-            if (prev := conf.get("previous_config_file")) is not None:
-                config_files.insert(0, prev)
-            else:
-                break
+    configs = io.load_config_sequence(*config_files)
 
     prev = prev_sim_dir
-    for config_file in config_files:
-        sim = new_simulation(config_file, prev, method)
+    for config in configs:
+        sim = new_simulation(config, prev, method)
         sim.run()
         prev = sim.sim_dir
     path_trees = io.build_path_trees(sim.sim_dir)
@@ -703,25 +696,21 @@ def run_simulation_sequence(
 
 
 def new_simulation(
-    config: Union[dict, os.PathLike],
+    config: utils.BareConfig,
     prev_sim_dir=None,
     method: Type[Simulations] = None,
 ) -> Simulations:
-    if isinstance(config, dict):
-        config_dict = config
-    else:
-        config_dict = io.load_toml(config)
     logger = get_logger(__name__)
 
     if prev_sim_dir is not None:
-        config_dict["prev_sim_dir"] = str(prev_sim_dir)
+        config.prev_sim_dir = str(prev_sim_dir)
 
     task_id = random.randint(1e9, 1e12)
 
     if prev_sim_dir is None:
-        param_seq = initialize.ParamSequence(config_dict)
+        param_seq = initialize.ParamSequence(config)
     else:
-        param_seq = initialize.ContinuationParamSequence(prev_sim_dir, config_dict)
+        param_seq = initialize.ContinuationParamSequence(prev_sim_dir, config)
 
     logger.info(f"running {param_seq.name}")
 

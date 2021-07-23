@@ -127,22 +127,20 @@ def main():
         )
 
     if args.command == "merge":
-        final_config = load_config(Path(args.configs[0]) / "initial_config.toml")
+        final_name = load_config(Path(args.configs[0]) / "initial_config.toml").name
         sim_num = "many"
         args.nodes = 1
         args.cpus_per_node = 1
     else:
         config_paths = args.configs
-        final_config, sim_num = validate_config_sequence(*config_paths)
+        final_name, sim_num = validate_config_sequence(*config_paths)
 
         args.nodes, args.cpus_per_node = distribute(sim_num, args.nodes, args.cpus_per_node)
 
-    submit_path = Path(
-        "submit " + final_config.name + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh"
-    )
+    submit_path = Path("submit " + final_name + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh")
     tmp_path = Path("submit tmp.sh")
 
-    job_name = f"supercontinuum {final_config.name}"
+    job_name = f"supercontinuum {final_name}"
     submit_sh = template.format(
         job_name=job_name, configs_list=" ".join(f'"{c}"' for c in args.configs), **vars(args)
     )

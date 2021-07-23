@@ -159,6 +159,11 @@ def D_ps_nm_km(D: _T) -> _T:
     return 1e-6 * D
 
 
+@unit("OTHER", r"a.u.")
+def unity(x: _T) -> _T:
+    return x
+
+
 @unit("TEMPERATURE", r"Temperature (K)")
 def K(t: _T) -> _T:
     return t
@@ -229,7 +234,7 @@ def standardize_dictionary(dico):
     return dico
 
 
-def sort_axis(axis, plt_range: PlotRange):
+def sort_axis(axis, plt_range: PlotRange) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
     """
     given an axis, returns this axis cropped according to the given range, converted and sorted
 

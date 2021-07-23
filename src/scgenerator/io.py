@@ -162,6 +162,36 @@ def load_config(path: os.PathLike) -> BareConfig:
     return BareConfig(**config)
 
 
+def load_config_sequence(*config_paths: os.PathLike) -> list[BareConfig]:
+    """Loads a sequence of
+
+    Parameters
+    ----------
+    config_paths : os.PathLike
+        either one path (the last config containing previous_config_file parameter)
+        or a list of config path in the order they have to be simulated
+
+    Returns
+    -------
+    list[BareConfig]
+        all loaded configs
+    """
+    if config_paths[0] is None:
+        return []
+    all_configs = [load_config(config_paths[0])]
+    if len(config_paths) == 1:
+        while True:
+            if all_configs[0].previous_config_file is not None:
+                all_configs.insert(0, load_config(all_configs[0].previous_config_file))
+            else:
+                break
+    else:
+        for i, path in enumerate(config_paths[1:]):
+            all_configs.append(load_config(path))
+            all_configs[i + 1].previous_config_file = config_paths[i]
+    return all_configs
+
+
 def load_material_dico(name: str) -> dict[str, Any]:
     """loads a material dictionary
     Parameters

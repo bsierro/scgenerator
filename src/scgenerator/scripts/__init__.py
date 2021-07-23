@@ -14,6 +14,7 @@ from ..initialize import ParamSequence
 from ..physics import units, fiber
 from ..spectra import Pulse
 from ..utils import pretty_format_value, pretty_format_from_file_name, auto_crop
+from ..plotting import plot_setup
 from .. import env, math
 
 
@@ -33,20 +34,22 @@ def plot_all(sim_dir: Path, limits: list[str], **opts):
     limits = [
         tuple(func(el) for func, el in zip([float, float, str], lim.split(","))) for lim in limits
     ]
-    print(limits)
     with tqdm(total=len(dir_list) * len(limits)) as bar:
         for p in dir_list:
             pulse = Pulse(p)
             for left, right, unit in limits:
+                path, fig, ax = plot_setup(
+                    pulse.path.parent / f"{pulse.path.name}_{left:.1f}_{right:.1f}_{unit}"
+                )
                 pulse.plot_2D(
                     left,
                     right,
                     unit,
-                    file_name=p.parent
-                    / f"{pretty_format_from_file_name(p.name)} {left} {right} {unit}",
+                    ax,
                     **opts,
                 )
                 bar.update()
+                fig.savefig(path, bbox_inches="tight")
             plt.close("all")
 
 
