@@ -133,13 +133,6 @@ class Params(BareParams):
             self.energy,
             self.field_0,
         ) = pulse.setup_custom_field(self)
-        if self.readjust_wavelength:
-            old_wl = self.wavelength
-            self.wavelength = pulse.correct_wavelength(self.wavelength, self.w_c, self.field_0)
-            logger.info(f"moved wavelength from {1e9*old_wl:.2f} to {1e9*self.wavelength:.2f}")
-            self.w_c, self.w0, self.w, self.w_power_fact = update_frequency_domain(
-                self.t, self.wavelength, self.interp_degree
-            )
 
         return did_set_custom_pulse
 
@@ -238,7 +231,6 @@ class Config(BareConfig):
             "upper_wavelength_interp_limit",
             "interp_degree",
             "ideal_gas",
-            "readjust_wavelength",
             "recovery_last_stored",
         ]:
             self.get(param)

@@ -286,7 +286,6 @@ valid_variable = {
     "tolerated_error",
     "step_size",
     "ideal_gas",
-    "readjust_wavelength",
 }
 
 hc_model_specific_parameters = dict(
@@ -379,7 +378,6 @@ class BareParams:
     upper_wavelength_interp_limit: float = Parameter(in_range_incl(200e-9, 5000e-9))
     interp_degree: int = Parameter(positive(int))
     prev_sim_dir: str = Parameter(string)
-    readjust_wavelength: bool = Parameter(boolean)
     recovery_last_stored: int = Parameter(non_negative(int))
     worker_num: int = Parameter(positive(int))
 

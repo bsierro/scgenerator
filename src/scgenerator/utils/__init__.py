@@ -4,9 +4,9 @@ scgenerator module but some function may be used in any python program
 
 """
 
-from argparse import ArgumentTypeError
 import itertools
 import multiprocessing
+import random
 import re
 import threading
 from collections import abc
@@ -14,12 +14,10 @@ from copy import deepcopy
 from dataclasses import asdict, replace
 from io import StringIO
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Tuple, TypeVar, Union
+from typing import Any, Iterable, Iterator, TypeVar, Union
 
 import numpy as np
-import random
 from tqdm import tqdm
-
 
 from .. import env
 from ..const import PARAM_SEPARATOR
@@ -168,7 +166,7 @@ def progress_worker(
     progress_queue : multiprocessing.Queue
         values are either
             Literal[0] : stop the worker and close the progress bars
-            Tuple[int, float] : worker id and relative progress between 0 and 1
+            tuple[int, float] : worker id and relative progress between 0 and 1
     """
     with PBars(
         num_steps, "Simulating " + name, num_workers, head_kwargs=dict(unit="step")
@@ -182,7 +180,7 @@ def progress_worker(
             pbars[0].update()
 
 
-def format_variable_list(l: List[Tuple[str, Any]]):
+def format_variable_list(l: list[tuple[str, Any]]):
     joints = 2 * PARAM_SEPARATOR
     str_list = []
     for p_name, p_value in l:
@@ -192,7 +190,7 @@ def format_variable_list(l: List[Tuple[str, Any]]):
     return joints[0].join(str_list)
 
 
-def branch_id(branch: Tuple[Path, ...]) -> str:
+def branch_id(branch: tuple[Path, ...]) -> str:
     return "".join("".join(re.sub(r"id\d+\S*num\d+", "", b.name).split()[2:-2]) for b in branch)
 
 
@@ -237,7 +235,7 @@ def pretty_format_from_sim_name(name: str) -> str:
     return PARAM_SEPARATOR.join(out)
 
 
-def variable_iterator(config: BareConfig) -> Iterator[Tuple[List[Tuple[str, Any]], dict[str, Any]]]:
+def variable_iterator(config: BareConfig) -> Iterator[tuple[list[tuple[str, Any]], dict[str, Any]]]:
     """given a config with "variable" parameters, iterates through every possible combination,
     yielding a a list of (parameter_name, value) tuples and a full config dictionary.
 
@@ -248,7 +246,7 @@ def variable_iterator(config: BareConfig) -> Iterator[Tuple[List[Tuple[str, Any]
 
     Yields
     -------
-    Iterator[Tuple[List[Tuple[str, Any]], dict[str, Any]]]
+    Iterator[tuple[list[tuple[str, Any]], dict[str, Any]]]
         variable_list : a list of (name, value) tuple of parameter name and value that are variable.
 
         params : a dict[str, Any] to be fed to Params
@@ -277,13 +275,13 @@ def variable_iterator(config: BareConfig) -> Iterator[Tuple[List[Tuple[str, Any]
 
 def required_simulations(
     *configs: BareConfig,
-) -> Iterator[Tuple[List[Tuple[str, Any]], BareParams]]:
+) -> Iterator[tuple[list[tuple[str, Any]], BareParams]]:
     """takes the output of `scgenerator.utils.variable_iterator` which is a new dict per different
     parameter set and iterates through every single necessary simulation
 
     Yields
     -------
-    Iterator[Tuple[List[Tuple[str, Any]], dict]]
+    Iterator[tuple[list[tuple[str, Any]], dict]]
         variable_ind : a list of (name, value) tuple of parameter name and value that are variable. The parameter
         "num" (how many times this specific parameter set has been yielded already) and "id" (how many parameter sets
         have been exhausted already) are added to the list to make sure every yielded list is unique.
@@ -322,9 +320,6 @@ def override_config(new: BareConfig, old: BareConfig = None) -> BareConfig:
         variable[k] = v
     for k in variable:
         new_dict[k] = None
-
-    new_dict["readjust_wavelength"] = False
-
     return replace(old, variable=variable, **new_dict)
 
 
