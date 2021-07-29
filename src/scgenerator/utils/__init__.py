@@ -208,15 +208,30 @@ def format_value(value) -> str:
 
 
 def pretty_format_value(name: str, value) -> str:
-    return getattr(BareParams, name).display(value)
+    try:
+        return getattr(BareParams, name).display(value)
+    except AttributeError:
+        return name + PARAM_SEPARATOR + str(value)
 
 
-def pretty_format_from_file_name(name: str) -> str:
+def pretty_format_from_sim_name(name: str) -> str:
+    """formats a pretty version of a simulation directory
+
+    Parameters
+    ----------
+    name : str
+        name of the simulation (directory name)
+
+    Returns
+    -------
+    str
+        prettier name
+    """
     s = name.split(PARAM_SEPARATOR)
     out = []
     for key, value in zip(s[::2], s[1::2]):
         try:
-            out.append(getattr(BareParams, key).display(float(value)))
+            out += [key.replace("_", " "), getattr(BareParams, key).display(float(value))]
         except (AttributeError, ValueError):
             out.append(key + PARAM_SEPARATOR + value)
     return PARAM_SEPARATOR.join(out)
@@ -307,6 +322,9 @@ def override_config(new: BareConfig, old: BareConfig = None) -> BareConfig:
         variable[k] = v
     for k in variable:
         new_dict[k] = None
+
+    new_dict["readjust_wavelength"] = False
+
     return replace(old, variable=variable, **new_dict)
 
 

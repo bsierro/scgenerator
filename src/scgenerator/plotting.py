@@ -13,6 +13,8 @@ from scipy.interpolate import UnivariateSpline
 from scipy.interpolate.interpolate import interp1d
 from tqdm import utils
 
+from scgenerator.const import PARAM_SEPARATOR
+
 from .logger import get_logger
 
 from . import io, math
@@ -65,7 +67,7 @@ def plot_setup(
 
     # ensure no overwrite
     ind = 0
-    while (full_path := (out_dir / (plot_name + f"_{ind}." + file_type))).exists():
+    while (full_path := (out_dir / (plot_name + f"{PARAM_SEPARATOR}{ind}." + file_type))).exists():
         ind += 1
 
     if mode == "default":
@@ -864,10 +866,11 @@ def uniform_axis(
     else:
         raise TypeError(f"Don't know how to interpret {new_axis_spec}")
     tmp_axis, ind, ext = units.sort_axis(axis, plt_range)
+    values = np.atleast_2d(values)
     if np.allclose((diff := np.diff(tmp_axis))[0], diff):
         new_axis = tmp_axis
+        values = values[:, ind]
     else:
-        values = np.atleast_2d(values)
         if plt_range.unit.type == "WL":
             values[:, ind] = np.apply_along_axis(units.to_WL, 1, values[:, ind], tmp_axis)
         new_axis = np.linspace(tmp_axis.min(), tmp_axis.max(), len(tmp_axis))

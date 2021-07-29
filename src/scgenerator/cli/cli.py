@@ -74,6 +74,9 @@ def create_parser():
         "One plot is made for each limit set provided. Example : 600,1200,nm or -2,2,ps",
     )
     plot_parser.add_argument("--options", "-o", default=None)
+    plot_parser.add_argument(
+        "--show", action="store_true", help="show the plots instead of saving them"
+    )
     plot_parser.set_defaults(func=plot_all)
 
     dispersion_parser = subparsers.add_parser(
@@ -186,7 +189,7 @@ def plot_all(args):
     if args.options is not None:
         opts |= dict([o.split("=")[:2] for o in re.split("[, ]", args.options)])
     root = Path(args.sim_dir).resolve()
-    scripts.plot_all(root, args.spectrum_limits, **opts)
+    scripts.plot_all(root, args.spectrum_limits, show=args.show, **opts)
 
 
 def plot_init_field_spec(args):

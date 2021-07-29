@@ -9,11 +9,12 @@ import numpy as np
 from tqdm import tqdm
 
 from ..utils.parameter import BareParams
+from ..const import PARAM_SEPARATOR
 
 from ..initialize import ParamSequence
 from ..physics import units, fiber
 from ..spectra import Pulse
-from ..utils import pretty_format_value, pretty_format_from_file_name, auto_crop
+from ..utils import pretty_format_value, pretty_format_from_sim_name, auto_crop
 from ..plotting import plot_setup
 from .. import env, math
 
@@ -24,7 +25,7 @@ def fingerprint(params: BareParams):
     return h1, h2
 
 
-def plot_all(sim_dir: Path, limits: list[str], **opts):
+def plot_all(sim_dir: Path, limits: list[str], show=False, **opts):
     for k, v in opts.items():
         if k in ["skip"]:
             opts[k] = int(v)
@@ -39,7 +40,12 @@ def plot_all(sim_dir: Path, limits: list[str], **opts):
             pulse = Pulse(p)
             for left, right, unit in limits:
                 path, fig, ax = plot_setup(
-                    pulse.path.parent / f"{pulse.path.name}_{left:.1f}_{right:.1f}_{unit}"
+                    pulse.path.parent
+                    / (
+                        pretty_format_from_sim_name(pulse.path.name)
+                        + PARAM_SEPARATOR
+                        + f"{left:.1f}{PARAM_SEPARATOR}{right:.1f}{PARAM_SEPARATOR}{unit}"
+                    )
                 )
                 pulse.plot_2D(
                     left,
@@ -49,8 +55,11 @@ def plot_all(sim_dir: Path, limits: list[str], **opts):
                     **opts,
                 )
                 bar.update()
-                fig.savefig(path, bbox_inches="tight")
-            plt.close("all")
+                if show:
+                    plt.show()
+                else:
+                    fig.savefig(path, bbox_inches="tight")
+                plt.close(fig)
 
 
 def plot_init_field_spec(

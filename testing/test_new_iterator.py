@@ -1,14 +1,12 @@
 import scgenerator as sc
 from pathlib import Path
+import os
 
-p = Path("/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/PCF Simulations/PPP")
+os.chdir("/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/PCF Simulations/")
 
-configs = [
-    sc.io.load_config(p / c)
-    for c in ("PM1550.toml", "PMHNLF_appended.toml", "PM2000_appended.toml")
-]
+root = Path("PM1550+PMHNLF+PM1550+PM2000")
 
-for variable, params in sc.utils.required_simulations(*configs):
-    print(variable)
+confs = sc.io.load_config_sequence(root / "4_PM2000.toml")
+final = sc.utils.final_config_from_sequence(*confs)
 
-# sc.initialize.ContinuationParamSequence(configs[-1])
+print(final)
