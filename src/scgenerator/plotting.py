@@ -269,6 +269,7 @@ def propagation_plot(
     vmin: float = None,
     vmax: float = None,
     transpose: bool = False,
+    skip: int = 1,
     cbar_label: Optional[str] = "normalized intensity (dB)",
     cmap: str = None,
 ) -> tuple[plt.Figure, plt.Axes, plt.Line2D, np.ndarray, np.ndarray]:
@@ -290,6 +291,8 @@ def propagation_plot(
         maximum value, by default None
     transpose : bool, optional
         whether to transpose the plot (rotate the plot 90° counterclockwise), by default False
+    skip : int, optional
+        only plot one every skip values along the x axis (y if transposed), by default 1
     cbar_label : Optional[str], optional
         label of the colorbar. No colorbar is drawn if this is set to None, by default "normalized intensity (dB)"
     cmap : str, optional
@@ -298,7 +301,7 @@ def propagation_plot(
         Axes obj on which to draw, by default None
 
     """
-    x_axis, y_axis, values = transform_2D_propagation(values, plt_range, params, log)
+    x_axis, y_axis, values = transform_2D_propagation(values, plt_range, params, log, skip)
     if log is not False:
         vmax = defaults["vmax"] if vmax is None else vmax
         vmin = defaults["vmin"] if vmin is None else vmin
@@ -417,6 +420,7 @@ def transform_2D_propagation(
     plt_range: Union[units.PlotRange, RangeType],
     params: BareParams,
     log: Union[int, float, bool, str] = "1D",
+    skip: int = 1,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
     if values.ndim != 2:
@@ -430,7 +434,7 @@ def transform_2D_propagation(
     x_axis, values = uniform_axis(x_axis, values, plt_range)
     y_axis, values.T[:] = uniform_axis(y_axis, values.T, None)
     values = apply_log(values, log)
-    return x_axis, y_axis, values
+    return x_axis[::skip], y_axis, values[:, ::skip]
 
 
 def mean_values_plot(

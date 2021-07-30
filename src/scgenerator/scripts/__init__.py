@@ -47,6 +47,7 @@ def plot_all(sim_dir: Path, limits: list[str], show=False, **opts):
                         + f"{left:.1f}{PARAM_SEPARATOR}{right:.1f}{PARAM_SEPARATOR}{unit}"
                     )
                 )
+                fig.suptitle(p.name)
                 pulse.plot_2D(
                     left,
                     right,
