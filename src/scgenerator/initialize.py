@@ -520,10 +520,11 @@ def validate_config_sequence(*configs: os.PathLike) -> tuple[str, int]:
     """
 
     previous = None
+    configs = io.load_config_sequence(*configs)
     for config in configs:
-        if (p := Path(config)).is_dir():
-            config = p / "initial_config.toml"
-        new_conf = io.load_config(config)
+        # if (p := Path(config)).is_dir():
+        #     config = p / "initial_config.toml"
+        new_conf = config
         previous = Config.from_bare(override_config(new_conf, previous))
     return previous.name, count_variations(*configs)
 
