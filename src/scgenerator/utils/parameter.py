@@ -251,6 +251,7 @@ class VariableParameter:
 valid_variable = {
     "dispersion_file",
     "field_file",
+    "loss_file",
     "beta",
     "gamma",
     "pitch",

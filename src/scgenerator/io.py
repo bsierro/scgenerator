@@ -454,12 +454,12 @@ def sim_dirs(path_trees: List[PathTree]) -> Generator[Path, None, None]:
         yield p[0].parent
 
 
-def get_sim_dir(task_id: int, name_if_new: str = "data") -> Path:
-    if name_if_new == "":
-        name_if_new = "data"
+def get_sim_dir(task_id: int, path_if_new: Path = None) -> Path:
+    if path_if_new is None:
+        path_if_new = Path("scgenerator data")
     tmp = env.data_folder(task_id)
     if tmp is None:
-        tmp = ensure_folder(Path("scgenerator" + PARAM_SEPARATOR + name_if_new))
+        tmp = ensure_folder(path_if_new)
         os.environ[TMP_FOLDER_KEY_BASE + str(task_id)] = str(tmp)
     tmp = Path(tmp).resolve()
     if not tmp.exists():

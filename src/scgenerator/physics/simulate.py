@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple, Type, Union
 import numpy as np
 
 from .. import env, initialize, io, utils
+from ..const import PARAM_SEPARATOR
 from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
 from . import pulse
@@ -438,7 +439,9 @@ class Simulations:
         self.update(param_seq)
 
         self.name = self.param_seq.name
-        self.sim_dir = io.get_sim_dir(self.id, name_if_new=self.name)
+        self.sim_dir = io.get_sim_dir(
+            self.id, path_if_new=Path(self.name + PARAM_SEPARATOR + "tmp")
+        )
         io.save_parameters(self.param_seq.config, self.sim_dir, file_name="initial_config.toml")
 
         self.sim_jobs_per_node = 1
@@ -690,7 +693,7 @@ def run_simulation_sequence(
 
     final_name = env.get(env.OUTPUT_PATH)
     if final_name is None:
-        final_name = path_trees[0][-1][0].parent.name + " merged"
+        final_name = config.name
 
     io.merge(final_name, path_trees)
 
