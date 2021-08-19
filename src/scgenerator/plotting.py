@@ -535,7 +535,7 @@ def transform_mean_values(
         if log is not True and isinstance(log, (int, float, np.integer, np.floating)):
             ref = log
         else:
-            ref = mean_values.max()
+            ref = float(mean_values.max())
         values = apply_log(values, ref)
         mean_values = apply_log(mean_values, ref)
     return new_axis, mean_values, values
@@ -875,7 +875,7 @@ def uniform_axis(
         new_axis = tmp_axis
         values = values[:, ind]
     else:
-        if plt_range.unit.type == "WL":
+        if plt_range.unit.type == "WL" and plt_range.conserved_quantity:
             values[:, ind] = np.apply_along_axis(units.to_WL, 1, values[:, ind], tmp_axis)
         new_axis = np.linspace(tmp_axis.min(), tmp_axis.max(), len(tmp_axis))
         values = np.array([interp1d(tmp_axis, v[ind])(new_axis) for v in values])

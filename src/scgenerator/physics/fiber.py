@@ -1,4 +1,4 @@
-from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union, TypeVar
 
 import numpy as np
 from numpy.ma import core
@@ -18,7 +18,9 @@ from . import materials as mat
 from . import units
 from .units import c, pi
 
+
 pipi = 2 * pi
+T = TypeVar("T")
 
 
 def lambda_for_dispersion(left: float, right: float) -> np.ndarray:
@@ -100,6 +102,14 @@ def beta2_to_D(beta2, λ):
 def D_to_beta2(D, λ):
     """returns the beta2 parameters corresponding to D(λ)"""
     return -(λ ** 2) / (pipi * c) * D
+
+
+def A_to_C(A: np.ndarray, A_eff_arr: np.ndarray) -> np.ndarray:
+    return (A_eff_arr / A_eff_arr[0]) ** (-1 / 4) * A
+
+
+def C_to_A(C: np.ndarray, A_eff_arr: np.ndarray) -> np.ndarray:
+    return (A_eff_arr / A_eff_arr[0]) ** (1 / 4) * C
 
 
 def plasma_dispersion(lambda_, number_density, simple=False):
@@ -559,8 +569,12 @@ def dynamic_HCPCF_dispersion(
     return beta2_func, gamma_func
 
 
-def gamma_parameter(n2, w0, A_eff):
-    return n2 * w0 / (A_eff * c)
+def gamma_parameter(n2: float, w0: float, A_eff: T) -> T:
+    if isinstance(A_eff, np.ndarray):
+        A_eff_term = np.sqrt(A_eff * A_eff[0])
+    else:
+        A_eff_term = A_eff
+    return n2 * w0 / (A_eff_term * c)
 
 
 @np_cache
@@ -656,6 +670,15 @@ def PCF_dispersion(lambda_, pitch, ratio_d, w0=None, n2=None, A_eff=None):
         return beta2, gamma
 
 
+def compute_custom_A_eff(params: BareParams) -> np.ndarray:
+    data = np.load(params.A_eff_file)
+    A_eff = data["A_eff"]
+    wl = data["wavelength"]
+    return interp1d(
+        wl, A_eff, fill_value=(A_eff[wl.argmin()], A_eff[wl.argmax()]), bounds_error=False
+    )(params.l)
+
+
 def compute_loss(params: BareParams) -> Optional[np.ndarray]:
     if params.loss_file is not None:
         loss_data = np.load(params.loss_file)
@@ -671,7 +694,7 @@ def compute_loss(params: BareParams) -> Optional[np.ndarray]:
     return None
 
 
-def compute_dispersion(params: BareParams):
+def compute_dispersion(params: BareParams) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
     """dispatch function depending on what type of fiber is used
 
     Parameters
@@ -762,12 +785,14 @@ def compute_dispersion(params: BareParams):
     )
 
     if gamma is None:
-        if params.A_eff is not None:
-            gamma = gamma_parameter(params.n2, params.w0, params.A_eff)
+        if params.A_eff_arr is not None:
+            gamma_arr = gamma_parameter(params.n2, params.w0, params.A_eff_arr)
         else:
-            gamma = 0
+            gamma_arr = np.zeros(params.t_num)
+    else:
+        gamma_arr = np.ones(params.t_num) * gamma
 
-    return beta2_coef, gamma, interp_range
+    return beta2_coef, gamma_arr, interp_range
 
 
 @np_cache
@@ -954,7 +979,7 @@ def create_non_linear_op(behaviors, w_c, w0, gamma, raman_type="stolen", f_r=0, 
 
     ss_part = w_c / w0 if "ss" in behaviors else 0
 
-    if isinstance(gamma, (float, int)):
+    if isinstance(gamma, (float, int, np.ndarray)):
 
         def N_func(spectrum: np.ndarray, r=0) -> np.ndarray:
             field = ifft(spectrum)

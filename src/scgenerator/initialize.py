@@ -97,8 +97,16 @@ class Params(BareParams):
         )
 
         temp_gamma = None
-        if self.effective_mode_diameter is not None:
-            self.A_eff = (self.effective_mode_diameter / 2) ** 2 * pi
+        if self.A_eff_file is not None:
+            self.A_eff_arr = fiber.compute_custom_A_eff(self)
+        elif self.A_eff is not None:
+            self.A_eff_arr = np.ones(self.t_num) * self.A_eff
+        elif self.effective_mode_diameter is not None:
+            self.A_eff_arr = np.ones(self.t_num) * (self.effective_mode_diameter / 2) ** 2 * pi
+        else:
+            self.A_eff_arr = np.ones(self.t_num) * self.n2 * self.w0 / (299792458.0 * self.gamma)
+        self.A_eff = self.A_eff_arr[0]
+
         if self.beta is not None:
             self.beta = np.array(self.beta)
             self.dynamic_dispersion = False
@@ -112,8 +120,11 @@ class Params(BareParams):
                 temp_gamma = temp_gamma(0)
 
         if self.gamma is None:
-            self.gamma = temp_gamma
+            self.gamma_arr = temp_gamma
+            self.gamma = temp_gamma[0]
             logger.info(f"using computed \u0263 = {self.gamma:.2e} W/m\u00B2")
+        else:
+            self.gamma_arr = np.ones(self.t_num) * self.gamma
 
         # Raman response
         if "raman" in self.behaviors:
@@ -155,14 +166,15 @@ class Config(BareConfig):
         self.simulation_consistency()
 
     def fiber_consistency(self):
-        if self.contains("beta"):
-            if not (self.contains("A_eff") or self.contains("effective_mode_diameter")):
-                self.get("gamma", specified_parameters=["beta"])
-            self.setdefault("model", "custom")
 
-        elif self.contains("dispersion_file"):
-            if not (self.contains("A_eff") or self.contains("effective_mode_diameter")):
-                self.get("gamma", specified_parameters=["dispersion_file"])
+        if self.contains("dispersion_file") or self.contains("beta"):
+            if not (
+                self.contains("A_eff")
+                or self.contains("A_eff_file")
+                or self.contains("effective_mode_diameter")
+            ):
+                self.get("gamma", specified_parameters=["custom fiber model"])
+                self.get("n2", specified_parameters=["custom fiber model"])
             self.setdefault("model", "custom")
 
         else:

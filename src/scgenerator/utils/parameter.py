@@ -252,6 +252,7 @@ valid_variable = {
     "dispersion_file",
     "field_file",
     "loss_file",
+    "A_eff_file",
     "beta",
     "gamma",
     "pitch",
@@ -325,6 +326,7 @@ class BareParams:
     loss_file: str = Parameter(string)
     effective_mode_diameter: float = Parameter(positive(float, int))
     A_eff: float = Parameter(non_negative(float, int))
+    A_eff_file: str = Parameter(string)
     pitch: float = Parameter(in_range_excl(0, 1e-3))
     pitch_ratio: float = Parameter(in_range_excl(0, 1))
     core_radius: float = Parameter(in_range_excl(0, 1e-3))
@@ -386,6 +388,8 @@ class BareParams:
     field_0: np.ndarray = Parameter(type_checker(np.ndarray))
     spec_0: np.ndarray = Parameter(type_checker(np.ndarray))
     alpha: np.ndarray = Parameter(type_checker(np.ndarray))
+    gamma_arr: np.ndarray = Parameter(type_checker(np.ndarray))
+    A_eff_arr: np.ndarray = Parameter(type_checker(np.ndarray))
     w: np.ndarray = Parameter(type_checker(np.ndarray))
     l: np.ndarray = Parameter(type_checker(np.ndarray))
     w_c: np.ndarray = Parameter(type_checker(np.ndarray))
@@ -434,6 +438,8 @@ class BareParams:
             "z_targets",
             "l",
             "alpha",
+            "gamma_arr",
+            "A_eff_arr",
         ]
         types = (np.ndarray, float, int, str, list, tuple, dict)
         out = {}

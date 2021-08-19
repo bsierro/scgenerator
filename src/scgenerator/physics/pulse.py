@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 from typing import Literal, Tuple, TypeVar
 from collections import namedtuple
+from dataclasses import dataclass, astuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -49,10 +50,54 @@ P0T0_to_E0_fac = dict(
 )
 """relates the total energy (amplitue^2) to the t0 parameter of the amplitude and the peak intensity (peak_amplitude^2)"""
 
-PulseProperties = namedtuple(
-    "PulseProperties",
-    "quality mean_coherence fwhm_noise mean_fwhm peak_rin energy_rin timing_jitter",
-)
+
+@dataclass
+class PulseProperties:
+    quality: float
+    mean_coherence: float
+    fwhm_noise: float
+    mean_fwhm: float
+    peak_rin: float
+    energy_rin: float
+    timing_jitter: float
+
+    @classmethod
+    def header(cls, delimiter: str = ",", quotechar: str = "") -> str:
+        return delimiter.join(
+            quotechar + f + quotechar
+            for f in [
+                "quality",
+                "mean_coherence",
+                "fwhm_noise",
+                "mean_fwhm",
+                "peak_rin",
+                "energy_rin",
+                "timing_jitter",
+            ]
+        )
+
+    @classmethod
+    def save_all(
+        cls,
+        destination: os.PathLike,
+        *props: "PulseProperties",
+        delimiter: str = ",",
+        quotechar: str = "",
+    ):
+        out = np.zeros((len(props), 7))
+        for i, p in enumerate(props):
+            out[i] = astuple(p)
+        np.savetxt(
+            destination,
+            out,
+            header=cls.header(delimiter=delimiter, quotechar=quotechar),
+            delimiter=delimiter,
+        )
+
+    @classmethod
+    def load(cls, path: os.PathLike, delimiter: str = ",") -> list["PulseProperties"]:
+        arr = np.loadtxt(path, delimiter=delimiter)
+        return [cls(*a) for a in arr]
 
 
 def initial_field(t, shape, t0, peak_power):
@@ -952,6 +997,25 @@ def measure_properties(spectra, t, compress=True, return_limits=False, debug="")
         return pp, all_lims
     else:
         return pp
+
+
+def rin_curve(spectra: np.ndarray) -> np.ndarray:
+    """computes the rin curve, i.e. the rin at every single point
+
+    Parameters
+    ----------
+    spectra : np.ndarray, shape (n, nt)
+        a collection of n spectra from which to compute the RIN
+
+    Returns
+    -------
+    rin_curve : np.ndarray
+        RIN curve
+    """
+    spec2 = abs2(spectra)
+    # return np.std(spec, axis=0) / np.mean(spec, axis=0)
+    m = np.mean(spec2, axis=0)
+    return np.sqrt(np.mean((spec2 - m) ** 2)) / m
 
 
 def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float]:

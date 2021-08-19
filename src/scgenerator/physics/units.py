@@ -2,14 +2,10 @@
 # For example, nm(X) means "I give the number X in nm, figure out the ang. freq."
 # to be used especially when giving plotting ranges : (400, 1400, nm), (-4, 8, ps), ...
 
-import re
-from threading import settrace
 from typing import Callable, TypeVar, Union
 from dataclasses import dataclass
-from matplotlib import pyplot as plt
 
-from numpy.lib.arraysetops import isin
-from ..utils.parameter import Parameter, type_checker
+from ..utils.parameter import Parameter, boolean, type_checker
 import numpy as np
 from numpy import pi
 
@@ -190,6 +186,7 @@ class PlotRange:
     left: float = Parameter(type_checker(int, float))
     right: float = Parameter(type_checker(int, float))
     unit: Callable[[float], float] = Parameter(is_unit, converter=get_unit)
+    conserved_quantity: bool = Parameter(boolean, default=True)
 
     def __str__(self):
         return f"{self.left:.1f}-{self.right:.1f} {self.unit.__name__}"

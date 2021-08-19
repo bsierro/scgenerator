@@ -8,6 +8,7 @@ default_parameters = dict(
     fit_parameters=(0.08, 200e-9),
     model="custom",
     length=1,
+    n2=2.2e-20,
     capillary_resonance_strengths=[],
     capillary_nested=0,
     gas_name="vacuum",

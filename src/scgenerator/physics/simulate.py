@@ -13,6 +13,7 @@ from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
 from . import pulse
 from .fiber import create_non_linear_op, fast_dispersion_op
+from scgenerator.physics import fiber
 
 try:
     import ray
@@ -72,7 +73,8 @@ class RK4IP:
         self.z_targets = params.z_targets
         self.z_final = params.length
         self.beta = params.beta_func if params.beta_func is not None else params.beta
-        self.gamma = params.gamma_func if params.gamma_func is not None else params.gamma
+        self.gamma = params.gamma_func if params.gamma_func is not None else params.gamma_arr
+        self.C_to_A_factor = (params.A_eff_arr / params.A_eff_arr[0]) ** (-1 / 4)
         self.behaviors = params.behaviors
         self.raman_type = params.raman_type
         self.hr_w = params.hr_w
@@ -135,7 +137,7 @@ class RK4IP:
         self.z = self.z_targets.pop(0)
 
         # Setup initial values for every physical quantity that we want to track
-        self.current_spectrum = self.spec_0.copy()
+        self.current_spectrum = self.spec_0.copy() / self.C_to_A_factor
         self.stored_spectra = self.starting_num * [None] + [self.current_spectrum.copy()]
         self.cons_qty = [
             self.conserved_quantity_func(self.current_spectrum, 0),
@@ -160,7 +162,7 @@ class RK4IP:
         num : int
             index of the z postition
         """
-        self._save_data(self.current_spectrum, f"spectrum_{num}")
+        self._save_data(self.C_to_A_factor * self.current_spectrum, f"spectrum_{num}")
         self._save_data(self.cons_qty, f"cons_qty")
         self.step_saved()
 
