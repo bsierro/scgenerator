@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator, TypeVar, Union
 
 import numpy as np
+from numpy.lib.arraysetops import isin
 from tqdm import tqdm
 
 from .. import env
@@ -185,7 +186,12 @@ def format_variable_list(l: list[tuple[str, Any]]):
     str_list = []
     for p_name, p_value in l:
         ps = p_name.replace("/", "").replace(joints[0], "").replace(joints[1], "")
-        vs = format_value(p_value).replace("/", "").replace(joints[0], "").replace(joints[1], "")
+        vs = (
+            format_value(p_name, p_value)
+            .replace("/", "")
+            .replace(joints[0], "")
+            .replace(joints[1], "")
+        )
         str_list.append(ps + joints[1] + vs)
     return joints[0].join(str_list)
 
@@ -194,15 +200,21 @@ def branch_id(branch: tuple[Path, ...]) -> str:
     return "".join("".join(re.sub(r"id\d+\S*num\d+", "", b.name).split()[2:-2]) for b in branch)
 
 
-def format_value(value) -> str:
-    if type(value) == type(False):
+def format_value(name: str, value) -> str:
+    if value is True or value is False:
         return str(value)
     elif isinstance(value, (float, int)):
-        return format(value, ".9g")
+        try:
+            return getattr(BareParams, name).display(value)
+        except AttributeError:
+            return format(value, ".9g")
     elif isinstance(value, (list, tuple, np.ndarray)):
         return "-".join([format_value(v) for v in value])
-    else:
-        return str(value)
+    elif isinstance(value, str):
+        p = Path(value)
+        if p.exists():
+            return p.stem
+    return str(value)
 
 
 def pretty_format_value(name: str, value) -> str:
