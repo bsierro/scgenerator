@@ -40,8 +40,10 @@ class PBars:
     ) -> "PBars":
 
         self.id = random.randint(100000, 999999)
-        self.width = os.get_terminal_size().columns
-
+        try:
+            self.width = os.get_terminal_size().columns
+        except OSError:
+            self.width = 80
         if isinstance(task, abc.Iterable):
             self.iterator: Iterable[T_] = iter(task)
             self.num_tot: int = len(task)
