@@ -241,7 +241,7 @@ class Config(BareConfig):
             "repeat",
             "lower_wavelength_interp_limit",
             "upper_wavelength_interp_limit",
-            "interp_degree",
+            "interpolation_degree",
             "ideal_gas",
             "recovery_last_stored",
         ]:
@@ -701,7 +701,7 @@ def build_sim_grid_in_place(params: BareParams):
         params.length,
         params.z_num,
         params.wavelength,
-        params.interp_degree,
+        params.interpolation_degree,
         params.time_window,
         params.t_num,
         params.dt,

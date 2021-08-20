@@ -282,11 +282,13 @@ valid_variable = {
     "wavelength",
     "intensity_noise",
     "width",
+    "t0",
     "soliton_num",
     "behaviors",
     "raman_type",
     "tolerated_error",
     "step_size",
+    "interpolation_degree",
     "ideal_gas",
 }
 
@@ -379,7 +381,7 @@ class BareParams:
     step_size: float = Parameter(positive(float, int))
     lower_wavelength_interp_limit: float = Parameter(in_range_incl(100e-9, 3000e-9))
     upper_wavelength_interp_limit: float = Parameter(in_range_incl(200e-9, 5000e-9))
-    interp_degree: int = Parameter(positive(int))
+    interpolation_degree: int = Parameter(positive(int))
     prev_sim_dir: str = Parameter(string)
     recovery_last_stored: int = Parameter(non_negative(int))
     worker_num: int = Parameter(positive(int))

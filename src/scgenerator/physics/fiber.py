@@ -674,9 +674,7 @@ def compute_custom_A_eff(params: BareParams) -> np.ndarray:
     data = np.load(params.A_eff_file)
     A_eff = data["A_eff"]
     wl = data["wavelength"]
-    return interp1d(
-        wl, A_eff, fill_value=(A_eff[wl.argmin()], A_eff[wl.argmax()]), bounds_error=False
-    )(params.l)
+    return interp1d(wl, A_eff, fill_value=1, bounds_error=False)(params.l)
 
 
 def compute_loss(params: BareParams) -> Optional[np.ndarray]:
@@ -750,7 +748,7 @@ def compute_dispersion(params: BareParams) -> tuple[np.ndarray, np.ndarray, tupl
                     params.w0,
                     params.interp_range,
                     material_dico,
-                    params.interp_degree,
+                    params.interpolation_degree,
                 )
             else:
                 beta2 = HCPCF_dispersion(
@@ -781,7 +779,7 @@ def compute_dispersion(params: BareParams) -> tuple[np.ndarray, np.ndarray, tupl
                 beta2 += plasma_dispersion(lambda_, params.plasma_density)
 
     beta2_coef = dispersion_coefficients(
-        lambda_, beta2, params.w0, params.interp_range, params.interp_degree
+        lambda_, beta2, params.w0, params.interp_range, params.interpolation_degree
     )
 
     if gamma is None:

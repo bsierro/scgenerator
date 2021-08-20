@@ -13,7 +13,6 @@ from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
 from . import pulse
 from .fiber import create_non_linear_op, fast_dispersion_op
-from scgenerator.physics import fiber
 
 try:
     import ray
@@ -105,22 +104,22 @@ class RK4IP:
             if "raman" in self.behaviors and self.alpha is not None:
                 self.logger.debug("Conserved quantity : photon number with loss")
                 self.conserved_quantity_func = lambda spectrum, h: pulse.photon_number_with_loss(
-                    spectrum, self.w, self.dw, self.gamma, self.alpha, h
+                    self.C_to_A_factor * spectrum, self.w, self.dw, self.gamma, self.alpha, h
                 )
             elif "raman" in self.behaviors:
                 self.logger.debug("Conserved quantity : photon number without loss")
                 self.conserved_quantity_func = lambda spectrum, h: pulse.photon_number(
-                    spectrum, self.w, self.dw, self.gamma
+                    self.C_to_A_factor * spectrum, self.w, self.dw, self.gamma
                 )
             elif self.alpha is not None:
                 self.logger.debug("Conserved quantity : energy with loss")
                 self.conserved_quantity_func = lambda spectrum, h: pulse.pulse_energy_with_loss(
-                    spectrum, self.dw, self.alpha, h
+                    self.C_to_A_factor * spectrum, self.dw, self.alpha, h
                 )
             else:
                 self.logger.debug("Conserved quantity : energy without loss")
                 self.conserved_quantity_func = lambda spectrum, h: pulse.pulse_energy(
-                    spectrum, self.dw
+                    self.C_to_A_factor * spectrum, self.dw
                 )
         else:
             self.conserved_quantity_func = lambda spectrum, h: 0.0

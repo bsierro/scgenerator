@@ -6,6 +6,7 @@ scgenerator module but some function may be used in any python program
 
 import itertools
 import multiprocessing
+import os
 import random
 import re
 import threading
@@ -39,6 +40,7 @@ class PBars:
     ) -> "PBars":
 
         self.id = random.randint(100000, 999999)
+        self.width = os.get_terminal_size().columns
 
         if isinstance(task, abc.Iterable):
             self.iterator: Iterable[T_] = iter(task)
@@ -58,13 +60,14 @@ class PBars:
             )
         if "print" not in env.pbar_policy():
             head_kwargs["file"] = worker_kwargs["file"] = StringIO()
+            self.width = 80
         head_kwargs["desc"] = desc
-        self.pbars = [tqdm(total=self.num_tot, ncols=100, ascii=False, **head_kwargs)]
+        self.pbars = [tqdm(total=self.num_tot, ncols=self.width, ascii=False, **head_kwargs)]
         for i in range(1, num_sub_bars + 1):
             kwargs = {k: v for k, v in worker_kwargs.items()}
             if "desc" in kwargs:
                 kwargs["desc"] = kwargs["desc"].format(worker_id=i)
-            self.append(tqdm(position=i, ncols=100, ascii=False, **kwargs))
+            self.append(tqdm(position=i, ncols=self.width, ascii=False, **kwargs))
         self.print_path = Path(f"progress {self.pbars[0].desc} {self.id}").resolve()
         self.close_ev = threading.Event()
         if "file" in self.policy:

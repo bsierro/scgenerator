@@ -249,5 +249,5 @@ upper_wavelength_interp_limit: float
     sets the lowest end of this range. If the set value is higher than the higher end of the
     wavelength window, it is lowered down to that point. default : 1900e-9
 
-interp_degree: int
+interpolation_degree: int
     max degree of the Taylor polynomial fitting the dispersion data
