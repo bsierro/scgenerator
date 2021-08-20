@@ -137,7 +137,9 @@ def main():
 
         args.nodes, args.cpus_per_node = distribute(sim_num, args.nodes, args.cpus_per_node)
 
-    submit_path = Path("submit " + final_name + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh")
+    submit_path = Path(
+        "submit " + final_name.replace("/") + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh"
+    )
     tmp_path = Path("submit tmp.sh")
 
     job_name = f"supercontinuum {final_name}"
