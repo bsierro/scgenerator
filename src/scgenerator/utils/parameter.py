@@ -2,12 +2,15 @@ import datetime as datetime_module
 from copy import copy
 from dataclasses import asdict, dataclass
 from functools import lru_cache
-from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Tuple, Union, TypeVar
 
 import numpy as np
-from numpy.lib.function_base import disp
 
 from ..const import __version__
+
+T = TypeVar("T")
+
+# Validator
 
 
 @lru_cache
@@ -156,6 +159,31 @@ def num_list(name, l):
 def func_validator(name, n):
     if not callable(n):
         raise TypeError(f"{name!r} must be callable")
+
+
+# other
+
+
+def translate(p_name: str, p_value: T) -> tuple[str, T]:
+    """translates old parameters
+
+    Parameters
+    ----------
+    p_name : str
+        parameter name
+    p_value : T
+        parameter value
+
+    Returns
+    -------
+    tuple[str, T]
+        translated pair
+    """
+    old_names = dict(interp_degree="interpolation_degree")
+    return old_names.get(p_name, p_name), p_value
+
+
+# classes
 
 
 class Parameter:

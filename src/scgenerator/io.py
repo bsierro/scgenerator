@@ -7,7 +7,6 @@ from typing import Any, Callable, Dict, Generator, List, Sequence, Tuple
 import numpy as np
 import pkg_resources as pkg
 import toml
-from send2trash import send2trash
 
 from . import env, utils
 from .const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, SPECN_FN, Z_FN, __version__
@@ -15,7 +14,7 @@ from .env import TMP_FOLDER_KEY_BASE
 
 from .errors import IncompleteDataFolderError
 from .logger import get_logger
-from .utils.parameter import BareConfig, BareParams
+from .utils.parameter import BareConfig, BareParams, translate
 
 PathTree = List[Tuple[Path, ...]]
 
@@ -142,7 +141,10 @@ def load_params(path: os.PathLike) -> BareParams:
         params obj
     """
     params = load_toml(path)
-    return BareParams(**params)
+    try:
+        return BareParams(**params)
+    except TypeError:
+        return BareParams(**dict(translate(p, v) for p, v in params.items()))
 
 
 def load_config(path: os.PathLike) -> BareConfig:
@@ -425,7 +427,7 @@ def merge_spectra(
             yield z, np.atleast_2d(spectra)
 
 
-def merge(destination: os.PathLike, path_trees: List[PathTree] = None, delete_tmp: bool = True):
+def merge(destination: os.PathLike, path_trees: List[PathTree] = None):
 
     destination = ensure_folder(Path(destination))
 
@@ -448,13 +450,6 @@ def merge(destination: os.PathLike, path_trees: List[PathTree] = None, delete_tm
         pbars.reset(1)
         iden = PARAM_SEPARATOR.join(path_tree[-1][0].name.split()[2:-2])
         merge_path_tree(path_tree, destination / iden, z_callback=lambda i: pbars.update(1))
-        if delete_tmp:
-            for branch in path_tree:
-                for path in branch:
-                    try:
-                        send2trash(path.parent)
-                    except OSError:
-                        continue
 
 
 def sim_dirs(path_trees: List[PathTree]) -> Generator[Path, None, None]:
