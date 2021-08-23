@@ -338,12 +338,12 @@ def correct_wavelength(init_wavelength: float, w_c: np.ndarray, field_0: np.ndar
     return units.m.inv(units.m(init_wavelength) - delta_w)
 
 
-def E0_to_P0(E0, t0, shape="gaussian"):
+def E0_to_P0(E0, t0, shape):
     """convert an initial total pulse energy to a pulse peak peak_power"""
     return E0 / (t0 * P0T0_to_E0_fac[shape])
 
 
-def P0_to_E0(P0, t0, shape="gaussian"):
+def P0_to_E0(P0, t0, shape):
     """converts initial peak peak_power to pulse energy"""
     return P0 * t0 * P0T0_to_E0_fac[shape]
 
