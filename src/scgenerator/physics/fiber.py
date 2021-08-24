@@ -291,6 +291,27 @@ def A_eff_hasan(core_radius, capillary_num, capillary_spacing):
     return M_f * core_radius ** 2 * np.exp((capillary_spacing / 22e-6) ** 2.5)
 
 
+def A_eff_marcuse(wl: T, core_radius: float, numerical_aperture: float) -> T:
+    """According to Marcuse1978
+
+    Parameters
+    ----------
+    wl : T
+        wavelength
+    core_radius : float
+        in m
+    numerical_aperture : float
+        NA
+
+    Returns
+    -------
+    T
+        A_eff as function of wl
+    """
+    V = 2 * pi * core_radius * numerical_aperture / wl
+    w_eff = core_radius * (0.65 + 1.619 / V ** 1.5 + 2.879 / V ** 6)
+
+
 def HCPCF_find_with_given_ZDW(
     variable: Literal["pressure", "temperature"],
     target: float,
@@ -779,7 +800,7 @@ def compute_dispersion(params: BareParams) -> tuple[np.ndarray, np.ndarray, tupl
                 beta2 += plasma_dispersion(lambda_, params.plasma_density)
 
     beta2_coef = dispersion_coefficients(
-        lambda_, beta2, params.w0, params.interp_range, params.interpolation_degree
+        lambda_, beta2, params.w0, interp_range, params.interpolation_degree
     )
 
     if gamma is None:
@@ -824,9 +845,10 @@ def dispersion_coefficients(
         # 2 discrete gradients are computed before getting to
         # beta2, so we need to make sure coefficients are not affected
         # by edge effects
-        r = (lambda_ > max(lambda_[2], interp_range[0])) & (
-            lambda_ < min(lambda_[-2], interp_range[1])
-        )
+        # r = (lambda_ >= max(lambda_[2], interp_range[0])) & (
+        #     lambda_ <= min(lambda_[-2], interp_range[1])
+        # )
+        r = slice(None, None)
     logger.debug(
         f"interpolating dispersion between {lambda_[r].min()*1e9:.1f}nm and {lambda_[r].max()*1e9:.1f}nm"
     )
