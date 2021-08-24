@@ -216,7 +216,7 @@ def format_value(name: str, value) -> str:
         except AttributeError:
             return format(value, ".9g")
     elif isinstance(value, (list, tuple, np.ndarray)):
-        return "-".join([format_value(v) for v in value])
+        return "-".join([str(v) for v in value])
     elif isinstance(value, str):
         p = Path(value)
         if p.exists():

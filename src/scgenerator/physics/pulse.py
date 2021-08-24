@@ -126,7 +126,7 @@ def initial_field(t, shape, t0, peak_power):
         raised when shape is not recognized
     """
     if shape == "gaussian":
-        return gauss_pulse(t, t0, peak_power)
+        return gaussian_pulse(t, t0, peak_power)
     elif shape == "sech":
         return sech_pulse(t, t0, peak_power)
     else:
@@ -352,7 +352,7 @@ def sech_pulse(t, t0, P0, offset=0):
     return np.sqrt(P0) / np.cosh((t - offset) / t0)
 
 
-def gauss_pulse(t, t0, P0, offset=0):
+def gaussian_pulse(t, t0, P0, offset=0):
     return np.sqrt(P0) * np.exp(-(((t - offset) / t0) ** 2))
 
 
@@ -774,16 +774,16 @@ def find_lobe_limits(x_axis, values, debug="", already_sorted=True):
         )
 
         good_roots, left_lim, right_lim = _select_roots(d_spline, d_roots, dd_roots, fwhm_pos)
-
-        ax.scatter(
-            [left_lim, right_lim],
-            spline_4([left_lim, right_lim]),
-            marker="|",
-            label="lobe pos",
-            c=color[5],
-        )
-        ax.legend()
-        fig.savefig(out_path, bbox_inches="tight")
+        if debug != "":
+            ax.scatter(
+                [left_lim, right_lim],
+                spline_4([left_lim, right_lim]),
+                marker="|",
+                label="lobe pos",
+                c=color[5],
+            )
+            ax.legend()
+            fig.savefig(out_path, bbox_inches="tight")
         plt.close()
 
     else:
@@ -885,19 +885,24 @@ def _detailed_find_lobe_limits(
     # if measurement of the peak is not straightforward, we plot the situation to see
     # if the final measurement is good or not
 
-    out_path, fig, ax = plot_setup(out_path=f"measurement_errors_plots/it_{iterations}_{debug}")
+    out_path, fig, ax = (
+        plot_setup(out_path=f"measurement_errors_plots/it_{iterations}_{debug}")
+        if debug != ""
+        else (None, None, None)
+    )
 
     new_fwhm_pos = np.array([np.max(left_pos), np.min(right_pos)])
 
     # PLOT
 
-    newx = np.linspace(*span(x_axis[l_ind : r_ind + 1]), 1000)
     color = default_plotting["color_cycle"]
-    ax.plot(x_axis[l_ind - 5 : r_ind + 6], values[l_ind - 5 : r_ind + 6], c=color[0])
-    ax.plot(newx, spline_5(newx), c=color[1])
-    ax.scatter(fwhm_pos, spline_4(fwhm_pos), marker="+", label="all fwhm", c=color[2])
-    ax.scatter(peak_pos, spline_4(peak_pos), marker=".", label="peak pos", c=color[3])
-    ax.scatter(new_fwhm_pos, spline_4(new_fwhm_pos), marker="_", label="2 chosen", c=color[4])
+    if debug != "":
+        newx = np.linspace(*span(x_axis[l_ind : r_ind + 1]), 1000)
+        ax.plot(x_axis[l_ind - 5 : r_ind + 6], values[l_ind - 5 : r_ind + 6], c=color[0])
+        ax.plot(newx, spline_5(newx), c=color[1])
+        ax.scatter(fwhm_pos, spline_4(fwhm_pos), marker="+", label="all fwhm", c=color[2])
+        ax.scatter(peak_pos, spline_4(peak_pos), marker=".", label="peak pos", c=color[3])
+        ax.scatter(new_fwhm_pos, spline_4(new_fwhm_pos), marker="_", label="2 chosen", c=color[4])
 
     fwhm_pos = new_fwhm_pos
     return (

@@ -422,6 +422,35 @@ def transform_2D_propagation(
     log: Union[int, float, bool, str] = "1D",
     skip: int = 1,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """transforms raws values into plottable values
+
+    Parameters
+    ----------
+    values : np.ndarray, shape (n, nt)
+        values to transform
+    plt_range : Union[units.PlotRange, RangeType]
+        range
+    params : BareParams
+        parameters of the simulation
+    log : Union[int, float, bool, str], optional
+        see apply_log, by default "1D"
+    skip : int, optional
+        take one every skip values, by default 1
+
+    Returns
+    -------
+    np.ndarray
+        x_axis
+    np.ndarray
+        y_axis
+    np.ndarray
+        values
+
+    Raises
+    ------
+    ValueError
+        incorrect shape
+    """
 
     if values.ndim != 2:
         raise ValueError(f"shape was {values.shape}. Can only plot 2D array")
