@@ -8,6 +8,9 @@ import numpy as np
 
 from ..const import __version__
 
+# from .evaluator import Rule, Evaluator
+# from ..physics import pulse, fiber, materials
+
 T = TypeVar("T")
 
 # Validator
@@ -187,7 +190,7 @@ def translate(p_name: str, p_value: T) -> tuple[str, T]:
 
 
 class Parameter:
-    def __init__(self, validator, converter=None, default=None, display_info=None):
+    def __init__(self, validator, converter=None, default=None, display_info=None, rules=None):
         """Single parameter
 
         Parameters
@@ -208,6 +211,10 @@ class Parameter:
         self.converter = converter
         self.default = default
         self.display_info = display_info
+        if rules is None:
+            self.rules = []
+        else:
+            self.rules = rules
 
     def __set_name__(self, owner, name):
         self.name = name
@@ -344,14 +351,14 @@ class BareParams:
     """
 
     # root
-    name: str = Parameter(string)
+    name: str = Parameter(string, default="no name")
     prev_data_dir: str = Parameter(string)
     previous_config_file: str = Parameter(string)
 
     # # fiber
-    input_transmission: float = Parameter(in_range_incl(0, 1))
+    input_transmission: float = Parameter(in_range_incl(0, 1), default=1.0)
     gamma: float = Parameter(non_negative(float, int))
-    n2: float = Parameter(non_negative(float, int))
+    n2: float = Parameter(non_negative(float, int), default=2.2e-20)
     loss: str = Parameter(literal("capillary"))
     loss_file: str = Parameter(string)
     effective_mode_diameter: float = Parameter(positive(float, int))
@@ -360,58 +367,66 @@ class BareParams:
     pitch: float = Parameter(in_range_excl(0, 1e-3))
     pitch_ratio: float = Parameter(in_range_excl(0, 1))
     core_radius: float = Parameter(in_range_excl(0, 1e-3))
-    he_mode: Tuple[int, int] = Parameter(int_pair)
-    fit_parameters: Tuple[int, int] = Parameter(int_pair)
+    he_mode: Tuple[int, int] = Parameter(int_pair, default=(1, 1))
+    fit_parameters: Tuple[int, int] = Parameter(int_pair, default=(0.08, 200e-9))
     beta: Iterable[float] = Parameter(num_list)
     dispersion_file: str = Parameter(string)
-    model: str = Parameter(literal("pcf", "marcatili", "marcatili_adjusted", "hasan", "custom"))
-    length: float = Parameter(non_negative(float, int))
+    model: str = Parameter(
+        literal("pcf", "marcatili", "marcatili_adjusted", "hasan", "custom"), default="custom"
+    )
+    length: float = Parameter(non_negative(float, int), default=1.0)
     capillary_num: int = Parameter(positive(int))
     capillary_outer_d: float = Parameter(in_range_excl(0, 1e-3))
     capillary_thickness: float = Parameter(in_range_excl(0, 1e-3))
     capillary_spacing: float = Parameter(in_range_excl(0, 1e-3))
-    capillary_resonance_strengths: Iterable[float] = Parameter(num_list)
-    capillary_nested: int = Parameter(non_negative(int))
+    capillary_resonance_strengths: Iterable[float] = Parameter(num_list, default=[])
+    capillary_nested: int = Parameter(non_negative(int), default=0)
 
     # gas
-    gas_name: str = Parameter(string, converter=str.lower)
+    gas_name: str = Parameter(string, converter=str.lower, default="vacuum")
     pressure: Union[float, Iterable[float]] = Parameter(
-        validator_or(non_negative(float, int), num_list), display_info=(1e-5, "bar")
+        validator_or(non_negative(float, int), num_list), display_info=(1e-5, "bar"), default=1e5
     )
-    temperature: float = Parameter(positive(float, int), display_info=(1, "K"))
-    plasma_density: float = Parameter(non_negative(float, int))
+    temperature: float = Parameter(positive(float, int), display_info=(1, "K"), default=300)
+    plasma_density: float = Parameter(non_negative(float, int), default=0)
 
     # pulse
     field_file: str = Parameter(string)
-    repetition_rate: float = Parameter(non_negative(float, int), display_info=(1e-6, "MHz"))
+    repetition_rate: float = Parameter(
+        non_negative(float, int), display_info=(1e-6, "MHz"), default=40e6
+    )
     peak_power: float = Parameter(positive(float, int), display_info=(1e-3, "kW"))
     mean_power: float = Parameter(positive(float, int), display_info=(1e3, "mW"))
     energy: float = Parameter(positive(float, int), display_info=(1e6, "μJ"))
     soliton_num: float = Parameter(non_negative(float, int))
-    quantum_noise: bool = Parameter(boolean)
-    shape: str = Parameter(literal("gaussian", "sech"))
+    quantum_noise: bool = Parameter(boolean, default=False)
+    shape: str = Parameter(literal("gaussian", "sech"), default="gaussian")
     wavelength: float = Parameter(in_range_incl(100e-9, 3000e-9), display_info=(1e9, "nm"))
-    intensity_noise: float = Parameter(in_range_incl(0, 1), display_info=(1e2, "%"))
+    intensity_noise: float = Parameter(in_range_incl(0, 1), display_info=(1e2, "%"), default=0)
     width: float = Parameter(in_range_excl(0, 1e-9), display_info=(1e15, "fs"))
     t0: float = Parameter(in_range_excl(0, 1e-9), display_info=(1e15, "fs"))
 
     # simulation
-    behaviors: str = Parameter(validator_list(literal("spm", "raman", "ss")))
-    parallel: bool = Parameter(boolean)
-    raman_type: str = Parameter(literal("measured", "agrawal", "stolen"), converter=str.lower)
-    ideal_gas: bool = Parameter(boolean)
-    repeat: int = Parameter(positive(int))
+    behaviors: str = Parameter(validator_list(literal("spm", "raman", "ss")), default=["spm", "ss"])
+    parallel: bool = Parameter(boolean, default=True)
+    raman_type: str = Parameter(
+        literal("measured", "agrawal", "stolen"), converter=str.lower, default="agrawal"
+    )
+    ideal_gas: bool = Parameter(boolean, default=False)
+    repeat: int = Parameter(positive(int), default=1)
     t_num: int = Parameter(positive(int))
     z_num: int = Parameter(positive(int))
     time_window: float = Parameter(positive(float, int))
     dt: float = Parameter(in_range_excl(0, 5e-15))
-    tolerated_error: float = Parameter(in_range_excl(1e-15, 1e-3))
+    tolerated_error: float = Parameter(in_range_excl(1e-15, 1e-3), default=1e-11)
     step_size: float = Parameter(positive(float, int))
-    lower_wavelength_interp_limit: float = Parameter(in_range_incl(100e-9, 3000e-9))
-    upper_wavelength_interp_limit: float = Parameter(in_range_incl(200e-9, 5000e-9))
-    interpolation_degree: int = Parameter(positive(int))
+    lower_wavelength_interp_limit: float = Parameter(in_range_incl(100e-9, 3000e-9), default=100e-9)
+    upper_wavelength_interp_limit: float = Parameter(
+        in_range_incl(200e-9, 5000e-9), default=2000e-9
+    )
+    interpolation_degree: int = Parameter(positive(int), default=8)
     prev_sim_dir: str = Parameter(string)
-    recovery_last_stored: int = Parameter(non_negative(int))
+    recovery_last_stored: int = Parameter(non_negative(int), default=0)
     worker_num: int = Parameter(positive(int))
 
     # computed

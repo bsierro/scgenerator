@@ -3,8 +3,6 @@ import numpy as np
 import scipy.special
 from scipy.integrate import cumulative_trapezoid
 
-from scgenerator import math
-
 from ..logger import get_logger
 from . import units
 from .units import NA, c, kB, me, e, hbar

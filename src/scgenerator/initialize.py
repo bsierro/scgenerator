@@ -14,8 +14,10 @@ from .errors import *
 from .logger import get_logger
 from .math import power_fact
 from .physics import fiber, pulse, units
-from .utils import override_config, required_simulations
+from .utils import override_config, required_simulations, evaluator
 from .utils.parameter import BareConfig, BareParams, hc_model_specific_parameters
+
+global_evaluator = evaluator.Evaluator()
 
 
 @dataclass
@@ -541,65 +543,65 @@ def validate_config_sequence(*configs: os.PathLike) -> tuple[str, int]:
     return previous.name, count_variations(*configs)
 
 
-def wspace(t, t_num=0):
-    """frequency array such that x(t) <-> np.fft(x)(w)
-    Parameters
-    ----------
-        t : float or array
-            float : total width of the time window
-            array : time array
-        t_num : int-
-            if t is a float, specifies the number of points
-    Returns
-    ----------
-        w : array
-            linspace of frencies corresponding to t
-    """
-    if isinstance(t, (np.ndarray, list, tuple)):
-        dt = t[1] - t[0]
-        t_num = len(t)
-        t = t[-1] - t[0] + dt
-    else:
-        dt = t / t_num
-    w = 2 * pi * np.arange(t_num) / t
-    w = np.where(w >= pi / dt, w - 2 * pi / dt, w)
-    return w
+# def wspace(t, t_num=0):
+#     """frequency array such that x(t) <-> np.fft(x)(w)
+#     Parameters
+#     ----------
+#         t : float or array
+#             float : total width of the time window
+#             array : time array
+#         t_num : int-
+#             if t is a float, specifies the number of points
+#     Returns
+#     ----------
+#         w : array
+#             linspace of frencies corresponding to t
+#     """
+#     if isinstance(t, (np.ndarray, list, tuple)):
+#         dt = t[1] - t[0]
+#         t_num = len(t)
+#         t = t[-1] - t[0] + dt
+#     else:
+#         dt = t / t_num
+#     w = 2 * pi * np.arange(t_num) / t
+#     w = np.where(w >= pi / dt, w - 2 * pi / dt, w)
+#     return w
 
 
-def tspace(time_window=None, t_num=None, dt=None):
-    """returns a time array centered on 0
-    Parameters
-    ----------
-        time_window : float
-            total time spanned
-        t_num : int
-            number of points
-        dt : float
-            time resolution
+# def tspace(time_window=None, t_num=None, dt=None):
+#     """returns a time array centered on 0
+#     Parameters
+#     ----------
+#         time_window : float
+#             total time spanned
+#         t_num : int
+#             number of points
+#         dt : float
+#             time resolution
 
-        at least 2 arguments must be given. They are prioritize as such
-        t_num > time_window > dt
+#         at least 2 arguments must be given. They are prioritize as such
+#         t_num > time_window > dt
 
-    Returns
-    -------
-        t : array
-            a linearily spaced time array
-    Raises
-    ------
-        TypeError
-            missing at least 1 argument
-    """
-    if t_num is not None:
-        if isinstance(time_window, (float, int)):
-            return np.linspace(-time_window / 2, time_window / 2, int(t_num))
-        elif isinstance(dt, (float, int)):
-            time_window = (t_num - 1) * dt
-            return np.linspace(-time_window / 2, time_window / 2, t_num)
-    elif isinstance(time_window, (float, int)) and isinstance(dt, (float, int)):
-        t_num = int(time_window / dt) + 1
-        return np.linspace(-time_window / 2, time_window / 2, t_num)
-    else:
-        raise TypeError("not enough parameter to determine time vector")
+#     Returns
+#     -------
+#         t : array
+#             a linearily spaced time array
+#     Raises
+#     ------
+#         TypeError
+#             missing at least 1 argument
+#     """
+#     if t_num is not None:
+#         if isinstance(time_window, (float, int)):
+#             return np.linspace(-time_window / 2, time_window / 2, int(t_num))
+#         elif isinstance(dt, (float, int)):
+#             time_window = (t_num - 1) * dt
+#             return np.linspace(-time_window / 2, time_window / 2, t_num)
+#     elif isinstance(time_window, (float, int)) and isinstance(dt, (float, int)):
+#         t_num = int(time_window / dt) + 1
+#         return np.linspace(-time_window / 2, time_window / 2, t_num)
+#     else:
+#         raise TypeError("not enough parameter to determine time vector")
 
 
 def recover_params(params: BareParams, data_folder: Path) -> Params:
@@ -620,115 +622,115 @@ def recover_params(params: BareParams, data_folder: Path) -> Params:
     return params
 
 
-def build_sim_grid(
-    length: float,
-    z_num: int,
-    wavelength: float,
-    deg: int,
-    time_window: float = None,
-    t_num: int = None,
-    dt: float = None,
-) -> tuple[
-    np.ndarray, np.ndarray, float, int, float, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray
-]:
-    """computes a bunch of values that relate to the simulation grid
+# def build_sim_grid(
+#     length: float,
+#     z_num: int,
+#     wavelength: float,
+#     deg: int,
+#     time_window: float = None,
+#     t_num: int = None,
+#     dt: float = None,
+# ) -> tuple[
+#     np.ndarray, np.ndarray, float, int, float, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray
+# ]:
+#     """computes a bunch of values that relate to the simulation grid
 
-    Parameters
-    ----------
-    length : float
-        length of the fiber in m
-    z_num : int
-        number of spatial points
-    wavelength : float
-        pump wavelength in m
-    deg : int
-        dispersion interpolation degree
-    time_window : float, optional
-        total width of the temporal grid in s, by default None
-    t_num : int, optional
-        number of temporal grid points, by default None
-    dt : float, optional
-        spacing of the temporal grid in s, by default None
+#     Parameters
+#     ----------
+#     length : float
+#         length of the fiber in m
+#     z_num : int
+#         number of spatial points
+#     wavelength : float
+#         pump wavelength in m
+#     deg : int
+#         dispersion interpolation degree
+#     time_window : float, optional
+#         total width of the temporal grid in s, by default None
+#     t_num : int, optional
+#         number of temporal grid points, by default None
+#     dt : float, optional
+#         spacing of the temporal grid in s, by default None
 
-    Returns
-    -------
-    z_targets : np.ndarray, shape (z_num, )
-        spatial points in m
-    t : np.ndarray, shape (t_num, )
-        temporal points in s
-    time_window : float
-        total width of the temporal grid in s, by default None
-    t_num : int
-        number of temporal grid points, by default None
-    dt : float
-        spacing of the temporal grid in s, by default None
-    w_c : np.ndarray, shape (t_num, )
-        centered angular frequencies in rad/s where 0 is the pump frequency
-    w0 : float
-        pump angular frequency
-    w : np.ndarray, shape (t_num, )
-        actual angualr frequency grid in rad/s
-    w_power_fact : np.ndarray, shape (deg, t_num)
-        set of all the necessaray powers of w_c
-    l : np.ndarray, shape (t_num)
-        wavelengths in m
-    """
-    t = tspace(time_window, t_num, dt)
+#     Returns
+#     -------
+#     z_targets : np.ndarray, shape (z_num, )
+#         spatial points in m
+#     t : np.ndarray, shape (t_num, )
+#         temporal points in s
+#     time_window : float
+#         total width of the temporal grid in s, by default None
+#     t_num : int
+#         number of temporal grid points, by default None
+#     dt : float
+#         spacing of the temporal grid in s, by default None
+#     w_c : np.ndarray, shape (t_num, )
+#         centered angular frequencies in rad/s where 0 is the pump frequency
+#     w0 : float
+#         pump angular frequency
+#     w : np.ndarray, shape (t_num, )
+#         actual angualr frequency grid in rad/s
+#     w_power_fact : np.ndarray, shape (deg, t_num)
+#         set of all the necessaray powers of w_c
+#     l : np.ndarray, shape (t_num)
+#         wavelengths in m
+#     """
+#     t = tspace(time_window, t_num, dt)
 
-    time_window = t.max() - t.min()
-    dt = t[1] - t[0]
-    t_num = len(t)
-    z_targets = np.linspace(0, length, z_num)
-    w_c, w0, w, w_power_fact = update_frequency_domain(t, wavelength, deg)
-    l = units.To.m(w)
-    return z_targets, t, time_window, t_num, dt, w_c, w0, w, w_power_fact, l
-
-
-def build_sim_grid_in_place(params: BareParams):
-    """similar to calling build_sim_grid, but sets the attributes in place"""
-    (
-        params.z_targets,
-        params.t,
-        params.time_window,
-        params.t_num,
-        params.dt,
-        params.w_c,
-        params.w0,
-        params.w,
-        params.w_power_fact,
-        params.l,
-    ) = build_sim_grid(
-        params.length,
-        params.z_num,
-        params.wavelength,
-        params.interpolation_degree,
-        params.time_window,
-        params.t_num,
-        params.dt,
-    )
+#     time_window = t.max() - t.min()
+#     dt = t[1] - t[0]
+#     t_num = len(t)
+#     z_targets = np.linspace(0, length, z_num)
+#     w_c, w0, w, w_power_fact = update_frequency_domain(t, wavelength, deg)
+#     l = units.To.m(w)
+#     return z_targets, t, time_window, t_num, dt, w_c, w0, w, w_power_fact, l
 
 
-def update_frequency_domain(
-    t: np.ndarray, wavelength: float, deg: int
-) -> Tuple[np.ndarray, float, np.ndarray, np.ndarray]:
-    """updates the frequency grid
+# def build_sim_grid_in_place(params: BareParams):
+#     """similar to calling build_sim_grid, but sets the attributes in place"""
+#     (
+#         params.z_targets,
+#         params.t,
+#         params.time_window,
+#         params.t_num,
+#         params.dt,
+#         params.w_c,
+#         params.w0,
+#         params.w,
+#         params.w_power_fact,
+#         params.l,
+#     ) = build_sim_grid(
+#         params.length,
+#         params.z_num,
+#         params.wavelength,
+#         params.interpolation_degree,
+#         params.time_window,
+#         params.t_num,
+#         params.dt,
+#     )
 
-    Parameters
-    ----------
-    t : np.ndarray
-        time array
-    wavelength : float
-        wavelength
-    deg : int
-        interpolation degree of the dispersion
 
-    Returns
-    -------
-    Tuple[np.ndarray, float, np.ndarray, np.ndarray]
-        w_c, w0, w, w_power_fact
-    """
-    w_c = wspace(t)
-    w0 = units.m(wavelength)
-    w = w_c + w0
-    w_power_fact = np.array([power_fact(w_c, k) for k in range(2, deg + 3)])
-    return w_c, w0, w, w_power_fact
+# def update_frequency_domain(
+#     t: np.ndarray, wavelength: float, deg: int
+# ) -> Tuple[np.ndarray, float, np.ndarray, np.ndarray]:
+#     """updates the frequency grid
+
+#     Parameters
+#     ----------
+#     t : np.ndarray
+#         time array
+#     wavelength : float
+#         wavelength
+#     deg : int
+#         interpolation degree of the dispersion
+
+#     Returns
+#     -------
+#     Tuple[np.ndarray, float, np.ndarray, np.ndarray]
+#         w_c, w0, w, w_power_fact
+#     """
+#     w_c = wspace(t)
+#     w0 = units.m(wavelength)
+#     w = w_c + w0
+#     w_power_fact = np.array([power_fact(w_c, k) for k in range(2, deg + 3)])
+#     return w_c, w0, w, w_power_fact
