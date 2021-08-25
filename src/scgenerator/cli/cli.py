@@ -6,7 +6,7 @@ import re
 
 import numpy as np
 
-from .. import env, io, scripts
+from .. import env, io, scripts, const
 from ..logger import get_logger
 from ..physics.fiber import dispersion_coefficients
 from ..physics.simulate import SequencialSimulations, resume_simulations, run_simulation_sequence
@@ -37,6 +37,7 @@ def create_parser():
         parser.add_argument(
             *names, **{k: v for k, v in args.items() if k not in {"short_name", "type"}}
         )
+    parser.add_argument("--version", action="version", version=const.__version__)
 
     run_parser = subparsers.add_parser("run", help="run a simulation from a config file")
     run_parser.add_argument("configs", help="path(s) to the toml configuration file(s)", nargs="+")
