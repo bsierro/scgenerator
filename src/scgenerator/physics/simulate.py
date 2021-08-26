@@ -114,12 +114,12 @@ class RK4IP:
             elif self.alpha is not None:
                 self.logger.debug("Conserved quantity : energy with loss")
                 self.conserved_quantity_func = lambda spectrum, h: pulse.pulse_energy_with_loss(
-                    spectrum, self.dw, self.alpha, h
+                    self.C_to_A_factor * spectrum, self.dw, self.alpha, h
                 )
             else:
                 self.logger.debug("Conserved quantity : energy without loss")
                 self.conserved_quantity_func = lambda spectrum, h: pulse.pulse_energy(
-                    spectrum, self.dw
+                    self.C_to_A_factor * spectrum, self.dw
                 )
         else:
             self.conserved_quantity_func = lambda spectrum, h: 0.0
