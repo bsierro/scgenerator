@@ -3,7 +3,7 @@
 name = "test config"
 
 # fiber
-beta = [1, 2, 3]
+beta2_coefficients = [1, 2, 3]
 gamma = 0.018
 length = 1
 

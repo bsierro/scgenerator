@@ -68,10 +68,12 @@ class RK4IP:
         self.w0 = params.w0
         self.w_power_fact = params.w_power_fact
         self.alpha = params.alpha
-        self.spec_0 = params.spec_0
+        self.spec_0 = np.sqrt(params.input_transmission) * params.spec_0
         self.z_targets = params.z_targets
         self.z_final = params.length
-        self.beta = params.beta_func if params.beta_func is not None else params.beta
+        self.beta2_coefficients = (
+            params.beta_func if params.beta_func is not None else params.beta2_coefficients
+        )
         self.gamma = params.gamma_func if params.gamma_func is not None else params.gamma_arr
         self.C_to_A_factor = (params.A_eff_arr / params.A_eff_arr[0]) ** (1 / 4)
         self.behaviors = params.behaviors
@@ -92,11 +94,11 @@ class RK4IP:
 
         if self.dynamic_dispersion:
             self.disp = lambda r: fast_dispersion_op(
-                self.w_c, self.beta(r), self.w_power_fact, alpha=self.alpha
+                self.w_c, self.beta2_coefficients(r), self.w_power_fact, alpha=self.alpha
             )
         else:
             self.disp = lambda r: fast_dispersion_op(
-                self.w_c, self.beta, self.w_power_fact, alpha=self.alpha
+                self.w_c, self.beta2_coefficients, self.w_power_fact, alpha=self.alpha
             )
 
         # Set up which quantity is conserved for adaptive step size

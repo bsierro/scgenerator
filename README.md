@@ -48,7 +48,7 @@ note : internally, another structure with a flattened dictionary is used
 ## Fiber parameters
 If you already know the Taylor coefficients corresponding to the expansion of the beta2 profile, you can specify them and skip to "Other fiber parameters":
 
-beta: list-like
+beta2_coefficients: list-like
     list of Taylor coefficients for the beta_2 function
 
 If you already have a dispersion curve, you can convert it to a npz file with the wavelength (key : 'wavelength') in m and the D parameter (key : 'dispersion') in s/m/m. You the refer to this file as
@@ -239,15 +239,8 @@ parallel: bool
 repeat: int
     how many simulations to run per parameter set. default : 1
 
-lower_wavelength_interp_limit: float
-    dispersion coefficients are computed over a certain wavelength range. This parameter
-    sets the lowest end of this range. If the set value is lower than the lower end of the
-    wavelength window, it is raised up to that point. default : 0
-
-upper_wavelength_interp_limit: float
-    dispersion coefficients are computed over a certain wavelength range. This parameter
-    sets the lowest end of this range. If the set value is higher than the higher end of the
-    wavelength window, it is lowered down to that point. default : 1900e-9
+interpolation_range : tuple[float, float]
+    range over which dispersion is computed and interpolated in m. ex: (500e-9, 2000e-9)
 
 interpolation_degree: int
     max degree of the Taylor polynomial fitting the dispersion data

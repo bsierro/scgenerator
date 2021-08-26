@@ -192,10 +192,10 @@ class PlotRange:
         return f"{self.left:.1f}-{self.right:.1f} {self.unit.__name__}"
 
 
-def beta2_coef(beta):
+def beta2_coef(beta2_coefficients):
     fac = 1e27
-    out = np.zeros_like(beta)
-    for i, b in enumerate(beta):
+    out = np.zeros_like(beta2_coefficients)
+    for i, b in enumerate(beta2_coefficients):
         out[i] = fac * b
         fac *= 1e12
     return out

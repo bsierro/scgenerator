@@ -143,20 +143,6 @@ class TestInitializeMethods(unittest.TestCase):
             init.Config(**conf("good5")).__dict__.items(),
         )
 
-        self.assertLessEqual(
-            dict(
-                t_num=16384,
-                time_window=37e-12,
-                lower_wavelength_interp_limit=defaults.default_parameters[
-                    "lower_wavelength_interp_limit"
-                ],
-                upper_wavelength_interp_limit=defaults.default_parameters[
-                    "upper_wavelength_interp_limit"
-                ],
-            ).items(),
-            init.Config(**conf("good6")).__dict__.items(),
-        )
-
     def setup_conf_custom_field(self, path) -> BareParams:
 
         conf = load_conf(path)

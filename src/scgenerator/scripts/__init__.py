@@ -21,7 +21,7 @@ from .. import env, math
 
 def fingerprint(params: BareParams):
     h1 = hash(params.field_0.tobytes())
-    h2 = tuple(params.beta)
+    h2 = tuple(params.beta2_coefficients)
     return h1, h2
 
 
@@ -93,7 +93,7 @@ def plot_dispersion(config_path: Path, lim: tuple[float, float] = None):
     for style, lbl, params in plot_helper(config_path):
         if params.alpha is not None and loss_ax is None:
             loss_ax = right.twinx()
-        if (bbb := tuple(params.beta)) not in already_plotted:
+        if (bbb := tuple(params.beta2_coefficients)) not in already_plotted:
             already_plotted.add(bbb)
         else:
             continue
@@ -163,7 +163,7 @@ def plot_1_dispersion(
     params: BareParams,
     loss: plt.Axes = None,
 ):
-    beta_arr = fiber.dispersion_from_coefficients(params.w_c, params.beta)
+    beta_arr = fiber.dispersion_from_coefficients(params.w_c, params.beta2_coefficients)
     wl = units.m.inv(params.w)
     D = fiber.beta2_to_D(beta_arr, wl) * 1e6
 
@@ -176,13 +176,13 @@ def plot_1_dispersion(
 
     m = np.ones_like(wl, dtype=bool)
     if lim is None:
-        lim = params.interp_range
+        lim = params.interpolation_range
     m &= wl >= (lim[0] if lim[0] < 1 else lim[0] * 1e-9)
     m &= wl <= (lim[1] if lim[1] < 1 else lim[1] * 1e-9)
 
     info_str = (
         rf"$\lambda_{{\mathrm{{min}}}}={np.min(params.l[params.l>0])*1e9:.1f}$ nm"
-        + f"\nlower interpolation limit : {params.interp_range[0]*1e9:.1f} nm\n"
+        + f"\nlower interpolation limit : {params.interpolation_range[0]*1e9:.1f} nm\n"
         + f"max time delay : {params.t.max()*1e12:.1f} ps"
     )
 
@@ -207,7 +207,7 @@ def plot_1_dispersion(
     right.plot(1e9 * wl[m], D[m], label=" ", **style)
     right.set_ylabel(units.D_ps_nm_km.label)
 
-    # plot beta
+    # plot beta2
     left.plot(units.To.nm(params.w[m]), units.beta2_fs_cm.inv(beta_arr[m]), label=" ", **style)
     left.set_ylabel(units.beta2_fs_cm.label)
 

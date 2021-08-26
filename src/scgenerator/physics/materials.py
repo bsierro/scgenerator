@@ -5,7 +5,24 @@ from scipy.integrate import cumulative_trapezoid
 
 from ..logger import get_logger
 from . import units
+from .. import io
 from .units import NA, c, kB, me, e, hbar
+
+
+def n_gas_2(
+    wl_for_disp: np.ndarray, gas: str, pressure: float, temperature: float, ideal_gas: bool
+):
+    material_dico = io.load_material_dico(gas)
+
+    if ideal_gas:
+        n_gas_2 = sellmeier(wl_for_disp, material_dico, pressure, temperature) + 1
+    else:
+        N_1 = number_density_van_der_waals(
+            pressure=pressure, temperature=temperature, material_dico=material_dico
+        )
+        N_0 = number_density_van_der_waals(material_dico=material_dico)
+        n_gas_2 = sellmeier(wl_for_disp, material_dico) * N_1 / N_0 + 1
+    return n_gas_2
 
 
 def pressure_from_gradient(ratio, p0, p1):

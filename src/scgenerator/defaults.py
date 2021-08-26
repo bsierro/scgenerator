@@ -24,9 +24,8 @@ default_parameters = dict(
     parallel=True,
     repeat=1,
     tolerated_error=1e-11,
-    lower_wavelength_interp_limit=100e-9,
-    upper_wavelength_interp_limit=2000e-9,
     interpolation_degree=8,
+    interpolation_range=(200e-9, 3000e-9),
     ideal_gas=False,
     recovery_last_stored=0,
 )

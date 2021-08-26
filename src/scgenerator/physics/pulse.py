@@ -100,7 +100,7 @@ class PulseProperties:
         return [cls(*a) for a in arr]
 
 
-def initial_field(t, shape, t0, peak_power):
+def initial_field(t: np.ndarray, shape: str, t0: float, peak_power: float) -> np.ndarray:
     """returns the initial field
 
     Parameters
@@ -139,6 +139,7 @@ def modify_field_ratio(
     target_power: float = None,
     target_energy: float = None,
     intensity_noise: float = None,
+    noise_correlation: float = 0,
 ) -> float:
     """multiply a field by this number to get the desired effects
 
@@ -165,7 +166,7 @@ def modify_field_ratio(
         ratio *= np.sqrt(target_power / abs2(field).max())
 
     if intensity_noise is not None:
-        d_int, _ = technical_noise(intensity_noise)
+        d_int, _ = technical_noise(intensity_noise, noise_correlation)
         ratio *= np.sqrt(d_int)
     return ratio
 
@@ -279,6 +280,67 @@ def conform_pulse_params(
         if soliton_num is None:
             soliton_num = np.sqrt(peak_power * gamma * t0 ** 2 / abs(beta2))
         return width, t0, peak_power, energy, soliton_num
+
+
+def t0_to_width(t0: float, shape: str):
+    return t0 / fwhm_to_T0_fac[shape]
+
+
+def width_to_t0(width: float, shape: str):
+    return width * fwhm_to_T0_fac[shape]
+
+
+def mean_power_to_energy(mean_power: float, repetition_rate: float) -> float:
+    return mean_power / repetition_rate
+
+
+def soliton_num_to_peak_power(soliton_num, beta2, gamma, t0):
+    return soliton_num ** 2 * abs(beta2) / (gamma * t0 ** 2)
+
+
+def soliton_num_to_t0(soliton_num, beta2, gamma, peak_power):
+    return np.sqrt(soliton_num ** 2 * abs(beta2) / (peak_power * gamma))
+
+
+def soliton_num(L_D, L_NL):
+    return np.sqrt(L_D / L_NL)
+
+
+def L_D(t0, beta2):
+    return t0 ** 2 / abs(beta2)
+
+
+def L_NL(peak_power, gamma):
+    return 1 / (gamma * peak_power)
+
+
+def L_sol(L_D):
+    return pi / 2 * L_D
+
+
+def load_previous_spectrum(prev_data_dir: str) -> np.ndarray:
+    return io.load_last_spectrum(Path(prev_data_dir))[1]
+
+
+def load_field_file(
+    field_file: str,
+    t: np.ndarray,
+    peak_power: float,
+    energy: float,
+    intensity_noise: float,
+    noise_correlation: float,
+) -> np.ndarray:
+    field_data = np.load(field_file)
+    field_interp = interp1d(
+        field_data["time"], field_data["field"], bounds_error=False, fill_value=(0, 0)
+    )
+    field_0 = field_interp(t)
+
+    field_0 = field_0 * modify_field_ratio(
+        t, field_0, peak_power, energy, intensity_noise, noise_correlation
+    )
+    width, peak_power, energy = measure_field(t, field_0)
+    return field_0, peak_power, energy, width
 
 
 def setup_custom_field(params: BareParams) -> bool:

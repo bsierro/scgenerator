@@ -23,14 +23,14 @@ pipi = 2 * pi
 T = TypeVar("T")
 
 
-def lambda_for_dispersion(left: float, right: float) -> np.ndarray:
+def lambda_for_dispersion(interpolation_range: tuple[float, float]) -> np.ndarray:
     """Returns a wl vector for dispersion calculation
 
     Returns
     -------
     array of wl values
     """
-    return np.arange(left - 2e-9, right + 3e-9, 1e-9)
+    return np.arange(interpolation_range[0] - 2e-9, interpolation_range[1] + 3e-9, 1e-9)
 
 
 def is_dynamic_dispersion(pressure=None):
@@ -73,7 +73,7 @@ def HCARF_gap(core_radius: float, capillary_num: int, capillary_outer_d: float):
     ) - capillary_outer_d
 
 
-def dispersion_parameter(n_eff: np.ndarray, lambda_: np.ndarray):
+def gvd_from_n_eff(n_eff: np.ndarray, wl_for_disp: np.ndarray):
     """computes the dispersion parameter D from an effective index of refraction n_eff
     Since computing gradients/derivatives of discrete arrays is not well defined on the boundary, it is
     advised to chop off the two values on either end of the returned array
@@ -82,26 +82,26 @@ def dispersion_parameter(n_eff: np.ndarray, lambda_: np.ndarray):
     ----------
     n_eff : 1D array
         a wl-dependent index of refraction
-    lambda_ : 1D array
+    wl_for_disp : 1D array
         the wavelength array (len must match n_eff)
 
     Returns
     -------
     D : 1D array
-        wl-dependent dispersion parameter as function of lambda_
+        wl-dependent dispersion parameter as function of wl_for_disp
     """
 
-    return -lambda_ / c * (np.gradient(np.gradient(n_eff, lambda_), lambda_))
+    return -wl_for_disp / c * (np.gradient(np.gradient(n_eff, wl_for_disp), wl_for_disp))
 
 
-def beta2_to_D(beta2, λ):
-    """returns the D parameter corresponding to beta2(λ)"""
-    return -(pipi * c) / (λ ** 2) * beta2
+def beta2_to_D(beta2, wl_for_disp):
+    """returns the D parameter corresponding to beta2(wl_for_disp)"""
+    return -(pipi * c) / (wl_for_disp ** 2) * beta2
 
 
-def D_to_beta2(D, λ):
-    """returns the beta2 parameters corresponding to D(λ)"""
-    return -(λ ** 2) / (pipi * c) * D
+def D_to_beta2(D, wl_for_disp):
+    """returns the beta2 parameters corresponding to D(wl_for_disp)"""
+    return -(wl_for_disp ** 2) / (pipi * c) * D
 
 
 def A_to_C(A: np.ndarray, A_eff_arr: np.ndarray) -> np.ndarray:
@@ -112,12 +112,12 @@ def C_to_A(C: np.ndarray, A_eff_arr: np.ndarray) -> np.ndarray:
     return (A_eff_arr / A_eff_arr[0]) ** (1 / 4) * C
 
 
-def plasma_dispersion(lambda_, number_density, simple=False):
+def plasma_dispersion(wl_for_disp, number_density, simple=False):
     """computes dispersion (beta2) for constant plasma
 
     Parameters
     ----------
-    lambda_ : array-like
+    wl_for_disp : array-like
         wavelengths over which to calculate the dispersion
     number_density : number of ionized atoms /m^3
 
@@ -128,7 +128,7 @@ def plasma_dispersion(lambda_, number_density, simple=False):
     """
 
     e2_me_e0 = 3182.60735  # e^2 /(m_e * epsilon_0)
-    w = units.m(lambda_)
+    w = units.m(wl_for_disp)
     if simple:
         w_pl = number_density * e2_me_e0
         return -(w_pl ** 2) / (c * w ** 2)
@@ -138,15 +138,15 @@ def plasma_dispersion(lambda_, number_density, simple=False):
     return beta2
 
 
-def n_eff_marcatili(lambda_, n_gas_2, core_radius, he_mode=(1, 1)):
+def n_eff_marcatili(wl_for_disp, n_gas_2, core_radius, he_mode=(1, 1)):
     """computes the effective refractive index according to the Marcatili model of a capillary
 
     Parameters
     ----------
-    lambda_ : ndarray, shape (n, )
+    wl_for_disp : ndarray, shape (n, )
         wavelengths array (m)
     n_gas_2 : ndarray, shape (n, )
-        square of the refractive index of the gas as function of lambda_
+        square of the refractive index of the gas as function of wl_for_disp
     core_radius : float
         inner radius of the capillary (m)
     he_mode : tuple, shape (2, ), optional
@@ -162,18 +162,18 @@ def n_eff_marcatili(lambda_, n_gas_2, core_radius, he_mode=(1, 1)):
     """
     u = u_nm(*he_mode)
 
-    return np.sqrt(n_gas_2 - (lambda_ * u / (pipi * core_radius)) ** 2)
+    return np.sqrt(n_gas_2 - (wl_for_disp * u / (pipi * core_radius)) ** 2)
 
 
-def n_eff_marcatili_adjusted(lambda_, n_gas_2, core_radius, he_mode=(1, 1), fit_parameters=()):
+def n_eff_marcatili_adjusted(wl_for_disp, n_gas_2, core_radius, he_mode=(1, 1), fit_parameters=()):
     """computes the effective refractive index according to the Marcatili model of a capillary but adjusted at longer wavelengths
 
     Parameters
     ----------
-    lambda_ : ndarray, shape (n, )
+    wl_for_disp : ndarray, shape (n, )
         wavelengths array (m)
     n_gas_2 : ndarray, shape (n, )
-        refractive index of the gas as function of lambda_
+        refractive index of the gas as function of wl_for_disp
     core_radius : float
         inner radius of the capillary (m)
     he_mode : tuple, shape (2, ), optional
@@ -191,45 +191,42 @@ def n_eff_marcatili_adjusted(lambda_, n_gas_2, core_radius, he_mode=(1, 1), fit_
     """
     u = u_nm(*he_mode)
 
-    corrected_radius = effective_core_radius(lambda_, core_radius, *fit_parameters)
+    corrected_radius = effective_core_radius(wl_for_disp, core_radius, *fit_parameters)
 
-    return np.sqrt(n_gas_2 - (lambda_ * u / (pipi * corrected_radius)) ** 2)
+    return np.sqrt(n_gas_2 - (wl_for_disp * u / (pipi * corrected_radius)) ** 2)
 
 
 @np_cache
 def n_eff_hasan(
-    lambda_: np.ndarray,
+    wl_for_disp: np.ndarray,
     n_gas_2: np.ndarray,
     core_radius: float,
     capillary_num: int,
+    capillary_nested: int,
     capillary_thickness: float,
-    capillary_outer_d: float = None,
-    capillary_spacing: float = None,
-    capillary_resonance_strengths: list[float] = [],
-    capillary_nested: int = 0,
+    capillary_spacing: float,
+    capillary_resonance_strengths: list[float],
 ) -> np.ndarray:
     """computes the effective refractive index of the fundamental mode according to the Hasan model for a anti-resonance fiber
 
     Parameters
     ----------
-    lambda_
+    wl_for_disp
         wavelenghs array (m)
     n_gas_2 : ndarray, shape (n, )
-        squared refractive index of the gas as a function of lambda_
+        squared refractive index of the gas as a function of wl_for_disp
     core_radius : float
         radius of the core (m) (from cented to edge of a capillary)
     capillary_num : int
         number of capillaries
-    capillary_thickness : float
-        thickness of the capillaries (m)
-    capillary_outer_d : float, optional if capillary_spacing is given
-        diameter of the capillaries including the wall thickness(m). The core together with the microstructure has a diameter of 2R + 2d
-    capillary_spacing : float, optional if capillary_outer_d is given
-        spacing between capillaries (m)
-    capillary_resonance_strengths : list or tuple, optional
-        strengths of the resonance lines. default : []
     capillary_nested : int, optional
         number of levels of nested capillaries. default : 0
+    capillary_thickness : float
+        thickness of the capillaries (m)
+    capillary_spacing : float
+        spacing between capillaries (m)
+    capillary_resonance_strengths : list or tuple
+        strengths of the resonance lines. may be empty
 
     Returns
     -------
@@ -241,12 +238,7 @@ def n_eff_hasan(
     Hasan, Md Imran, Nail Akhmediev, and Wonkeun Chang. "Empirical formulae for dispersion and effective mode area in hollow-core antiresonant fibers." Journal of Lightwave Technology 36.18 (2018): 4060-4065.
     """
     u = u_nm(1, 1)
-    if capillary_spacing is None:
-        capillary_spacing = HCARF_gap(core_radius, capillary_num, capillary_outer_d)
-    elif capillary_outer_d is None:
-        capillary_outer_d = (2 * core_radius * np.sin(pi / capillary_num) - capillary_spacing) / (
-            1 - np.sin(pi / capillary_num)
-        )
+
     Rg = core_radius / capillary_spacing
 
     f1 = 1.095 * np.exp(0.097041 / Rg)
@@ -254,18 +246,18 @@ def n_eff_hasan(
     if capillary_nested > 0:
         f2 += 0.0045 * np.exp(-4.1589 / (capillary_nested * Rg))
 
-    R_eff = f1 * core_radius * (1 - f2 * lambda_ ** 2 / (core_radius * capillary_thickness))
+    R_eff = f1 * core_radius * (1 - f2 * wl_for_disp ** 2 / (core_radius * capillary_thickness))
 
-    n_eff_2 = n_gas_2 - (u * lambda_ / (pipi * R_eff)) ** 2
+    n_eff_2 = n_gas_2 - (u * wl_for_disp / (pipi * R_eff)) ** 2
 
-    chi_sil = mat.sellmeier(lambda_, io.load_material_dico("silica"))
+    chi_sil = mat.sellmeier(wl_for_disp, io.load_material_dico("silica"))
 
     with np.errstate(divide="ignore", invalid="ignore"):
         for m, strength in enumerate(capillary_resonance_strengths):
             n_eff_2 += (
                 strength
-                * lambda_ ** 2
-                / (lambda_ ** 2 - chi_sil * (2 * capillary_thickness / (m + 1)) ** 2)
+                * wl_for_disp ** 2
+                / (wl_for_disp ** 2 - chi_sil * (2 * capillary_thickness / (m + 1)) ** 2)
             )
 
     return np.sqrt(n_eff_2)
@@ -291,7 +283,44 @@ def A_eff_hasan(core_radius, capillary_num, capillary_spacing):
     return M_f * core_radius ** 2 * np.exp((capillary_spacing / 22e-6) ** 2.5)
 
 
-def A_eff_marcuse(wl: T, core_radius: float, numerical_aperture: float) -> T:
+def V_eff_marcuse(l: T, core_radius: float, numerical_aperture: float) -> T:
+    return 2 * pi * core_radius * numerical_aperture / l
+
+
+def V_parameter_koshiba(l: np.ndarray, pitch: float, pitch_ratio: float) -> float:
+    """returns the V parameter according to Koshiba2004
+
+    Parameters
+    ----------
+    l : np.ndarray, shape (n,)
+        wavelength
+    pitch : float
+        distance between air holes in m
+    pitch_ratio : float
+        ratio diameter of holes / distance
+    w0 : float
+        pump angular frequency
+
+    Returns
+    -------
+    float
+        effective mode field area
+    """
+    ratio_l = l / pitch
+    n_co = 1.45
+    a_eff = pitch / np.sqrt(3)
+    pi2a = pipi * a_eff
+    A, B = saitoh_paramters(pitch_ratio)
+
+    V = A[0] + A[1] / (1 + A[2] * np.exp(A[3] * ratio_l))
+
+    n_FSM2 = 1.45 ** 2 - (l * V / (pi2a)) ** 2
+    V_eff = pi2a / l * np.sqrt(n_co ** 2 - n_FSM2)
+
+    return V_eff
+
+
+def A_eff_from_V(core_radius: float, V_eff: T) -> T:
     """According to Marcuse1978
 
     Parameters
@@ -308,8 +337,7 @@ def A_eff_marcuse(wl: T, core_radius: float, numerical_aperture: float) -> T:
     T
         A_eff as function of wl
     """
-    V = 2 * pi * core_radius * numerical_aperture / wl
-    w_eff = core_radius * (0.65 + 1.619 / V ** 1.5 + 2.879 / V ** 6)
+    return core_radius * (0.65 + 1.619 / V_eff ** 1.5 + 2.879 / V_eff ** 6)
 
 
 def HCPCF_find_with_given_ZDW(
@@ -449,7 +477,7 @@ def HCPF_ZDW(
     return l[zdw_ind]
 
 
-def beta2(w: np.ndarray, n_eff: np.ndarray) -> np.ndarray:
+def beta2(w_for_disp: np.ndarray, n_eff: np.ndarray) -> np.ndarray:
     """computes the dispersion parameter beta2 according to the effective refractive index of the fiber and the frequency range
 
     Parameters
@@ -463,11 +491,11 @@ def beta2(w: np.ndarray, n_eff: np.ndarray) -> np.ndarray:
     -------
     beta2 : ndarray, shape (n, )
     """
-    return np.gradient(np.gradient(n_eff * w / c, w), w)
+    return np.gradient(np.gradient(n_eff * w_for_disp / c, w_for_disp), w_for_disp)
 
 
 def HCPCF_dispersion(
-    lambda_,
+    wl_for_disp,
     material_dico=None,
     model="marcatili",
     model_params={},
@@ -479,7 +507,7 @@ def HCPCF_dispersion(
 
     Parameters
     ----------
-    lambda_ : ndarray, shape (n, )
+    wl_for_disp : ndarray, shape (n, )
         wavelengths over which to calculate the dispersion
     material_dico : dict
         material dictionary respecting standard format explained in FIXME
@@ -487,7 +515,7 @@ def HCPCF_dispersion(
         which model of effective refractive index to use
     model_params : tuple
         to be cast to the function in charge of computing the effective index of the fiber. Every n_eff_* function has a signature
-        n_eff_(lambda_, n_gas_2, radius, *args) and model_params corresponds to args
+        n_eff_(wl_for_disp, n_gas_2, radius, *args) and model_params corresponds to args
     temperature : float
         Temperature of the material
     pressure : float
@@ -499,29 +527,29 @@ def HCPCF_dispersion(
         beta2 as function of wavelength
     """
 
-    w = units.m(lambda_)
+    w = units.m(wl_for_disp)
     if material_dico is None:
-        n_gas_2 = np.ones_like(lambda_)
+        n_gas_2 = np.ones_like(wl_for_disp)
     else:
         if ideal:
-            n_gas_2 = mat.sellmeier(lambda_, material_dico, pressure, temperature) + 1
+            n_gas_2 = mat.sellmeier(wl_for_disp, material_dico, pressure, temperature) + 1
         else:
             N_1 = mat.number_density_van_der_waals(
                 pressure=pressure, temperature=temperature, material_dico=material_dico
             )
             N_0 = mat.number_density_van_der_waals(material_dico=material_dico)
-            n_gas_2 = mat.sellmeier(lambda_, material_dico) * N_1 / N_0 + 1
+            n_gas_2 = mat.sellmeier(wl_for_disp, material_dico) * N_1 / N_0 + 1
 
     n_eff_func = dict(
         marcatili=n_eff_marcatili, marcatili_adjusted=n_eff_marcatili_adjusted, hasan=n_eff_hasan
     )[model]
-    n_eff = n_eff_func(lambda_, n_gas_2, **model_params)
+    n_eff = n_eff_func(wl_for_disp, n_gas_2, **model_params)
 
     return beta2(w, n_eff)
 
 
 def dynamic_HCPCF_dispersion(
-    lambda_: np.ndarray,
+    wl_for_disp: np.ndarray,
     pressure_values: List[float],
     core_radius: float,
     fiber_model: str,
@@ -537,7 +565,7 @@ def dynamic_HCPCF_dispersion(
 
     Parameters
     ----------
-    lambda_ : wavelength array
+    wl_for_disp : wavelength array
     params : dict
         flattened parameter dictionary
     material_dico : dict
@@ -558,7 +586,7 @@ def dynamic_HCPCF_dispersion(
     # defining function instead of storing every possilble value
     pressure = lambda r: mat.pressure_from_gradient(r, *pressure_values)
     beta2 = lambda r: HCPCF_dispersion(
-        lambda_,
+        wl_for_disp,
         core_radius,
         material_dico,
         fiber_model,
@@ -575,7 +603,7 @@ def dynamic_HCPCF_dispersion(
     gamma_interp = interp1d(ratio_range, gamma_grid)
 
     beta2_grid = np.array(
-        [dispersion_coefficients(lambda_, beta2(r), w0, interp_range, deg) for r in ratio_range]
+        [dispersion_coefficients(wl_for_disp, beta2(r), w0, interp_range, deg) for r in ratio_range]
     )
     beta2_interp = [
         interp1d(ratio_range, beta2_grid[:, i], assume_sorted=True) for i in range(deg + 1)
@@ -598,28 +626,28 @@ def gamma_parameter(n2: float, w0: float, A_eff: T) -> T:
     return n2 * w0 / (A_eff_term * c)
 
 
+def constant_A_eff_arr(l: np.ndarray, A_eff: float) -> np.ndarray:
+    return np.ones_like(l) * A_eff
+
+
 @np_cache
-def PCF_dispersion(lambda_, pitch, ratio_d, w0=None, n2=None, A_eff=None):
+def n_eff_pcf(wl_for_disp: np.ndarray, pitch: float, pitch_ratio: float) -> np.ndarray:
     """
     semi-analytical computation of the dispersion profile of a triangular Index-guiding PCF
 
     Parameters
     ----------
-    lambda_ : 1D array-like
+    wl_for_disp : np.ndarray, shape (n,)
         wavelengths over which to calculate the dispersion
     pitch : float
         distance between air holes in m
-    ratio_d : float
+    pitch_ratio : float
         ratio diameter of hole / pitch
-    w0 : float, optional
-        pump angular frequency. If given, the gamma value is also returned in adition to the GVD. default : None
 
     Returns
     -------
-    beta2 : 1D array
-        Dispersion parameter as function of wavelength
-    gamma : float
-        non-linear coefficient
+    n_eff : np.ndarray, shape (n,)
+        effective index of refraction
 
     Reference
     ---------
@@ -627,15 +655,38 @@ def PCF_dispersion(lambda_, pitch, ratio_d, w0=None, n2=None, A_eff=None):
 
     """
     # Check validity
-    if ratio_d < 0.2 or ratio_d > 0.8:
+    if pitch_ratio < 0.2 or pitch_ratio > 0.8:
         print("WARNING : Fitted formula valid only for pitch ratio between 0.2 and 0.8")
 
     n_co = 1.45
     a_eff = pitch / np.sqrt(3)
     pi2a = pipi * a_eff
 
-    ratio_l = lambda_ / pitch
+    ratio_l = wl_for_disp / pitch
 
+    A, B = saitoh_paramters(pitch_ratio)
+
+    V = A[0] + A[1] / (1 + A[2] * np.exp(A[3] * ratio_l))
+    W = B[0] + B[1] / (1 + B[2] * np.exp(B[3] * ratio_l))
+
+    n_FSM2 = 1.45 ** 2 - (wl_for_disp * V / (pi2a)) ** 2
+    n_eff2 = (wl_for_disp * W / (pi2a)) ** 2 + n_FSM2
+    n_eff = np.sqrt(n_eff2)
+
+    material_dico = io.load_material_dico("silica")
+    chi_mat = mat.sellmeier(wl_for_disp, material_dico)
+    return n_eff + np.sqrt(chi_mat + 1)
+
+
+def A_eff_from_diam(effective_mode_diameter: float) -> float:
+    return pi * (effective_mode_diameter / 2) ** 2
+
+
+def A_eff_from_gamma(gamma: float, n2: float, w0: float):
+    return n2 * w0 / (c * gamma)
+
+
+def saitoh_paramters(pitch_ratio: float) -> tuple[float, float]:
     # Table 1 and 2 in Saitoh2005
     ai0 = np.array([0.54808, 0.71041, 0.16904, -1.52736])
     ai1 = np.array([5.00401, 9.73491, 1.85765, 1.06745])
@@ -652,185 +703,96 @@ def PCF_dispersion(lambda_, pitch, ratio_d, w0=None, n2=None, A_eff=None):
     di2 = np.array([9, 6.58, 10, 0.41])
     di3 = np.array([10, 24.8, 15, 6])
 
-    A = ai0 + ai1 * ratio_d ** bi1 + ai2 * ratio_d ** bi2 + ai3 * ratio_d ** bi3
-    B = ci0 + ci1 * ratio_d ** di1 + ci2 * ratio_d ** di2 + ci3 * ratio_d ** di3
-
-    V = A[0] + A[1] / (1 + A[2] * np.exp(A[3] * ratio_l))
-    W = B[0] + B[1] / (1 + B[2] * np.exp(B[3] * ratio_l))
-
-    n_FSM2 = 1.45 ** 2 - (lambda_ * V / (pi2a)) ** 2
-    n_eff2 = (lambda_ * W / (pi2a)) ** 2 + n_FSM2
-    n_eff = np.sqrt(n_eff2)
-
-    D_wave_guide = dispersion_parameter(n_eff, lambda_)
-
-    material_dico = io.load_material_dico("silica")
-    chi_mat = mat.sellmeier(lambda_, material_dico)
-    D_mat = dispersion_parameter(np.sqrt(chi_mat + 1), lambda_)
-
-    # material index of refraction (Sellmeier formula)
-
-    D = D_wave_guide + D_mat
-
-    beta2 = D_to_beta2(D, lambda_)
-
-    if w0 is None:
-        return beta2
-
-    else:
-        # effective mode field area (koshiba2004)
-        if A_eff is None:
-            V_eff = pi2a / lambda_ * np.sqrt(n_co ** 2 - n_FSM2)
-            w_eff = a_eff * (0.65 + 1.619 / V_eff ** 1.5 + 2.879 / V_eff ** 6)
-            A_eff = interp1d(lambda_, w_eff, kind="linear")(units.m.inv(w0)) ** 2 * pi
-
-        if n2 is None:
-            n2 = 2.6e-20
-        gamma = gamma_parameter(n2, w0, A_eff)
-
-        return beta2, gamma
+    A = ai0 + ai1 * pitch_ratio ** bi1 + ai2 * pitch_ratio ** bi2 + ai3 * pitch_ratio ** bi3
+    B = ci0 + ci1 * pitch_ratio ** di1 + ci2 * pitch_ratio ** di2 + ci3 * pitch_ratio ** di3
+    return A, B
 
 
-def compute_custom_A_eff(params: BareParams) -> np.ndarray:
-    data = np.load(params.A_eff_file)
-    A_eff = data["A_eff"]
-    wl = data["wavelength"]
-    return interp1d(wl, A_eff, fill_value=1, bounds_error=False)(params.l)
-
-
-def compute_loss(params: BareParams) -> Optional[np.ndarray]:
-    if params.loss_file is not None:
-        loss_data = np.load(params.loss_file)
-        wl = loss_data["wavelength"]
-        loss = loss_data["loss"]
-        return interp1d(wl, loss, fill_value=0, bounds_error=False)(params.l)
-    elif params.loss == "capillary":
-        mask = params.l < params.upper_wavelength_interp_limit
-        alpha = capillary_loss(params.l[mask], params.he_mode, params.core_radius)
-        out = np.zeros_like(params.l)
-        out[mask] = alpha
-        return out
-    return None
-
-
-def compute_dispersion(params: BareParams) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
-    """dispatch function depending on what type of fiber is used
+def load_custom_A_eff(A_eff_file: str, l: np.ndarray) -> np.ndarray:
+    """loads custom effective area file
 
     Parameters
     ----------
-    fiber_model : str {"PCF", "HCPCF"}
-        describes the type of fiber
-        - PCF : triangular Index-guiding photonic crystal fiber
-        - HCPCF : hollow core fiber (filled with gas, or not)
-    params : dict
-        parameter dictionary as in `parameters.toml`
+    A_eff_file : str
+        relative or absolute path to the file
+    l : np.ndarray, shape (n,)
+        wavelength array of the simulation
 
     Returns
     -------
-    beta2_coef : 1D array of size deg
-        beta coefficients to be used in disp_op
-    gamma : float
-        nonlinear parameter
+    np.ndarray, shape (n,)
+        wl-dependent effective mode field area
     """
+    data = np.load(A_eff_file)
+    A_eff = data["A_eff"]
+    wl = data["wavelength"]
+    return interp1d(wl, A_eff, fill_value=1, bounds_error=False)(l)
 
-    if params.dispersion_file is not None:
-        disp_file = np.load(params.dispersion_file)
-        lambda_ = disp_file["wavelength"]
-        interp_range = (np.min(lambda_), np.max(lambda_))
-        D = disp_file["dispersion"]
-        beta2 = D_to_beta2(D, lambda_)
-        gamma = None
-    else:
-        interp_range = params.interp_range
-        lambda_ = lambda_for_dispersion(*interp_range)
-        beta2 = np.zeros_like(lambda_)
 
-        if params.model == "pcf":
-            beta2, gamma = PCF_dispersion(
-                lambda_,
-                params.pitch,
-                params.pitch_ratio,
-                w0=params.w0,
-                n2=params.n2,
-                A_eff=params.A_eff,
-            )
+def load_custom_dispersion(dispersion_file: str) -> tuple[np.ndarray, np.ndarray]:
+    disp_file = np.load(dispersion_file)
+    wl_for_disp = disp_file["wavelength"]
+    interp_range = (np.min(wl_for_disp), np.max(wl_for_disp))
+    D = disp_file["dispersion"]
+    beta2 = D_to_beta2(D, wl_for_disp)
+    return wl_for_disp, beta2, interp_range
 
-        else:
-            material_dico = io.load_material_dico(params.gas_name)
-            if params.dynamic_dispersion:
-                return dynamic_HCPCF_dispersion(
-                    lambda_,
-                    params.pressure,
-                    params.core_radius,
-                    params.model,
-                    {k: getattr(params, k) for k in hc_model_specific_parameters[params.model]},
-                    params.temperature,
-                    params.ideal_gas,
-                    params.w0,
-                    params.interp_range,
-                    material_dico,
-                    params.interpolation_degree,
-                )
-            else:
-                beta2 = HCPCF_dispersion(
-                    lambda_,
-                    material_dico,
-                    params.model,
-                    {k: getattr(params, k) for k in hc_model_specific_parameters[params.model]},
-                    params.pressure,
-                    params.temperature,
-                    params.ideal_gas,
-                )
 
-                if material_dico is not None:
+def load_custom_loss(l: np.ndarray, loss_file: str) -> np.ndarray:
+    """loads a npz loss file that contains a wavelength and a loss entry
 
-                    A_eff = 1.5 * params.core_radius ** 2 if params.A_eff is None else params.A_eff
-                    if params.n2 is None:
-                        n2 = mat.non_linear_refractive_index(
-                            material_dico, params.pressure, params.temperature
-                        )
-                    else:
-                        n2 = params.n2
-                    gamma = gamma_parameter(n2, params.w0, A_eff)
-                else:
-                    gamma = None
+    Parameters
+    ----------
+    l : np.ndarray, shape (n,)
+        wavelength array of the simulation
+    loss_file : str
+        relative or absolute path to the loss file
 
-            # add plasma if wanted
-            if params.plasma_density > 0:
-                beta2 += plasma_dispersion(lambda_, params.plasma_density)
+    Returns
+    -------
+    np.ndarray, shape (n,)
+        loss in 1/m units
+    """
+    loss_data = np.load(loss_file)
+    wl = loss_data["wavelength"]
+    loss = loss_data["loss"]
+    return interp1d(wl, loss, fill_value=0, bounds_error=False)(l)
 
-    beta2_coef = dispersion_coefficients(
-        lambda_, beta2, params.w0, interp_range, params.interpolation_degree
-    )
 
-    if gamma is None:
-        if params.A_eff_arr is not None:
-            gamma_arr = gamma_parameter(params.n2, params.w0, params.A_eff_arr)
-        else:
-            gamma_arr = np.zeros(params.t_num)
-    else:
-        gamma_arr = np.ones(params.t_num) * gamma
-
-    return beta2_coef, gamma_arr, interp_range
+def compute_capillary_loss(
+    l: np.ndarray,
+    core_radius: float,
+    interpolation_range: tuple[float, float],
+    he_mode: tuple[int, int],
+) -> np.ndarray:
+    mask = l < interpolation_range[1]
+    alpha = capillary_loss(l[mask], he_mode, core_radius)
+    out = np.zeros_like(l)
+    out[mask] = alpha
+    return out
 
 
 @np_cache
 def dispersion_coefficients(
-    lambda_: np.ndarray, beta2: np.ndarray, w0: float, interp_range=None, deg=8
+    wl_for_disp: np.ndarray,
+    beta2_arr: np.ndarray,
+    w0: float,
+    interpolation_range=None,
+    interpolation_degree=8,
 ):
     """Computes the taylor expansion of beta2 to be used in dispersion_op
 
     Parameters
     ----------
-    lambda_ : 1D array
+    wl_for_disp : 1D array
         wavelength
     beta2 : 1D array
-        beta2 as function of lambda_
+        beta2 as function of wl_for_disp
     w0 : float
         pump angular frequency
-    interp_range : slice-like
+    interpolation_range : slice-like
         index-style specifying wl range over which to fit to get beta2 coefficients
-    deg : int
+    interpolation_degree : int
         degree of polynomial fit. Will return deg+1 coefficients
 
     Returns
@@ -839,23 +801,20 @@ def dispersion_coefficients(
             Taylor coefficients in decreasing order
     """
     logger = get_logger()
-    if interp_range is None:
+    if interpolation_range is None:
         r = slice(2, -2)
     else:
         # 2 discrete gradients are computed before getting to
         # beta2, so we need to make sure coefficients are not affected
         # by edge effects
-        # r = (lambda_ >= max(lambda_[2], interp_range[0])) & (
-        #     lambda_ <= min(lambda_[-2], interp_range[1])
-        # )
-        r = slice(None, None)
+        r = (wl_for_disp >= interpolation_range[0]) & (wl_for_disp <= interpolation_range[1])
     logger.debug(
-        f"interpolating dispersion between {lambda_[r].min()*1e9:.1f}nm and {lambda_[r].max()*1e9:.1f}nm"
+        f"interpolating dispersion between {wl_for_disp[r].min()*1e9:.1f}nm and {wl_for_disp[r].max()*1e9:.1f}nm"
     )
 
     # we get the beta2 Taylor coeffiecients by making a fit around w0
-    w_c = units.m(lambda_) - w0
-    interp = interp1d(w_c[r], beta2[r])
+    w_c = units.m(wl_for_disp) - w0
+    interp = interp1d(w_c[r], beta2_arr[r])
     w_c = np.linspace(w_c[r].min(), w_c[r].max(), len(w_c[r]))
 
     # import matplotlib.pyplot as plt
@@ -863,15 +822,15 @@ def dispersion_coefficients(
     # ax = plt.gca()
     # ax.plot(w_c, interp(w_c) * 1e28)
 
-    fit = Chebyshev.fit(w_c, interp(w_c), deg)
+    fit = Chebyshev.fit(w_c, interp(w_c), interpolation_degree)
     poly_coef = cheb2poly(fit.convert().coef)
-    beta2_coef = poly_coef * np.cumprod([1] + list(range(1, deg + 1)))
+    beta2_coef = poly_coef * np.cumprod([1] + list(range(1, interpolation_degree + 1)))
 
     return beta2_coef
 
 
 def dispersion_from_coefficients(
-    w_c: np.ndarray, beta: Union[list[float], np.ndarray]
+    w_c: np.ndarray, beta2_coefficients: Iterable[float]
 ) -> np.ndarray:
     """computes the dispersion profile (beta2) from the beta coefficients
 
@@ -879,7 +838,7 @@ def dispersion_from_coefficients(
     ----------
     w_c : np.ndarray, shape (n, )
         centered angular frequency (0 <=> pump frequency)
-    beta : Iterable[float]
+    beta2_coefficients : Iterable[float]
         beta coefficients
 
     Returns
@@ -888,14 +847,14 @@ def dispersion_from_coefficients(
         beta2 as function of w_c
     """
 
-    coef = np.array(beta) / np.cumprod([1] + list(range(1, len(beta))))
+    coef = np.array(beta2_coefficients) / np.cumprod([1] + list(range(1, len(beta2_coefficients))))
     beta_arr = np.zeros_like(w_c)
     for k, b in reversed(list(enumerate(coef))):
         beta_arr = beta_arr + b * w_c ** k
     return beta_arr
 
 
-def delayed_raman_t(t, raman_type="stolen"):
+def delayed_raman_t(t: np.ndarray, raman_type: str) -> np.ndarray:
     """
     computes the unnormalized temporal Raman response function applied to the array t
 
@@ -905,7 +864,6 @@ def delayed_raman_t(t, raman_type="stolen"):
         time in the co-moving frame of reference
     raman_type : str {"stolen", "agrawal", "measured"}
         indicates what type of Raman effect modelization to use
-        default : "stolen"
 
     Returns
     -------
@@ -944,7 +902,7 @@ def delayed_raman_t(t, raman_type="stolen"):
     return hr_arr
 
 
-def delayed_raman_w(t, dt, raman_type="stolen"):
+def delayed_raman_w(t: np.ndarray, dt: float, raman_type: str) -> np.ndarray:
     """returns the delayed raman response function as function of w
     see delayed_raman_t for detailes"""
     return fft(delayed_raman_t(t, raman_type)) * dt
@@ -1053,7 +1011,7 @@ def _fast_disp_loop(dispersion: np.ndarray, beta_arr, power_fact_arr):
     return dispersion
 
 
-def dispersion_op(w_c, beta_arr, where=None):
+def dispersion_op(w_c, beta2_coefficients, where=None):
     """
     dispersive operator
 
@@ -1061,7 +1019,7 @@ def dispersion_op(w_c, beta_arr, where=None):
     ----------
     w_c : 1d array
         angular frequencies centered around 0
-    beta_arr : 1d array
+    beta2_coefficients : 1d array
         beta coefficients returned by scgenerator.physics.fiber.dispersion_coefficients
     where : indices over which to apply the operatory, otherwise 0
 
@@ -1072,7 +1030,7 @@ def dispersion_op(w_c, beta_arr, where=None):
 
     dispersion = np.zeros_like(w_c)
 
-    for k, beta in reversed(list(enumerate(beta_arr))):
+    for k, beta in reversed(list(enumerate(beta2_coefficients))):
         dispersion = dispersion + beta * power_fact(w_c, k + 2)
 
     out = np.zeros_like(dispersion)
@@ -1081,19 +1039,19 @@ def dispersion_op(w_c, beta_arr, where=None):
     return -1j * out
 
 
-def _get_radius(radius_param, lambda_=None):
-    if isinstance(radius_param, tuple) and lambda_ is not None:
-        return effective_core_radius(lambda_, *radius_param)
+def _get_radius(radius_param, wl_for_disp=None):
+    if isinstance(radius_param, tuple) and wl_for_disp is not None:
+        return effective_core_radius(wl_for_disp, *radius_param)
     else:
         return radius_param
 
 
-def effective_core_radius(lambda_, core_radius, s=0.08, h=200e-9):
+def effective_core_radius(wl_for_disp, core_radius, s=0.08, h=200e-9):
     """return the variable core radius according to Eq. S2.2 from Köttig2017
 
     Parameters
     ----------
-    lambda_ : ndarray, shape (n, )
+    wl_for_disp : ndarray, shape (n, )
         array of wl over which to calculate the effective core radius
     core_radius : float
         physical core radius in m
@@ -1106,20 +1064,22 @@ def effective_core_radius(lambda_, core_radius, s=0.08, h=200e-9):
     -------
         effective_core_radius : ndarray, shape (n, )
     """
-    return core_radius / (1 + s * lambda_ ** 2 / (core_radius * h))
+    return core_radius / (1 + s * wl_for_disp ** 2 / (core_radius * h))
 
 
-def effective_radius_HCARF(core_radius, t, f1, f2, lambda_):
+def effective_radius_HCARF(core_radius, t, f1, f2, wl_for_disp):
     """eq. 3 in Hasan 2018"""
-    return f1 * core_radius * (1 - f2 * lambda_ ** 2 / (core_radius * t))
+    return f1 * core_radius * (1 - f2 * wl_for_disp ** 2 / (core_radius * t))
 
 
-def capillary_loss(lambda_: np.ndarray, he_mode: tuple[int, int], core_radius: float) -> np.ndarray:
+def capillary_loss(
+    wl_for_disp: np.ndarray, he_mode: tuple[int, int], core_radius: float
+) -> np.ndarray:
     """computes the wavelenth dependent capillary loss according to Marcatili
 
     Parameters
     ----------
-    lambda_ : np.ndarray, shape (n, )
+    wl_for_disp : np.ndarray, shape (n, )
         wavelength array
     he_mode : tuple[int, int]
         tuple of mode (n, m)
@@ -1131,11 +1091,11 @@ def capillary_loss(lambda_: np.ndarray, he_mode: tuple[int, int], core_radius: f
     np.ndarray
         loss in 1/m
     """
-    alpha = np.zeros_like(lambda_)
-    mask = lambda_ > 0
-    chi_silica = mat.sellmeier(lambda_[mask], io.load_material_dico("silica"))
+    alpha = np.zeros_like(wl_for_disp)
+    mask = wl_for_disp > 0
+    chi_silica = mat.sellmeier(wl_for_disp[mask], io.load_material_dico("silica"))
     nu_n = 0.5 * (chi_silica + 2) / np.sqrt(chi_silica)
-    alpha[mask] = nu_n * (u_nm(*he_mode) * lambda_[mask] / pipi) ** 2 * core_radius ** -3
+    alpha[mask] = nu_n * (u_nm(*he_mode) * wl_for_disp[mask] / pipi) ** 2 * core_radius ** -3
     return alpha
 
 

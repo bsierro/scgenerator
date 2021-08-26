@@ -288,7 +288,7 @@ valid_variable = {
     "field_file",
     "loss_file",
     "A_eff_file",
-    "beta",
+    "beta2_coefficients",
     "gamma",
     "pitch",
     "pitch_ratio",
@@ -369,7 +369,7 @@ class BareParams:
     core_radius: float = Parameter(in_range_excl(0, 1e-3))
     he_mode: Tuple[int, int] = Parameter(int_pair, default=(1, 1))
     fit_parameters: Tuple[int, int] = Parameter(int_pair, default=(0.08, 200e-9))
-    beta: Iterable[float] = Parameter(num_list)
+    beta2_coefficients: Iterable[float] = Parameter(num_list)
     dispersion_file: str = Parameter(string)
     model: str = Parameter(
         literal("pcf", "marcatili", "marcatili_adjusted", "hasan", "custom"), default="custom"
@@ -420,10 +420,7 @@ class BareParams:
     dt: float = Parameter(in_range_excl(0, 5e-15))
     tolerated_error: float = Parameter(in_range_excl(1e-15, 1e-3), default=1e-11)
     step_size: float = Parameter(positive(float, int))
-    lower_wavelength_interp_limit: float = Parameter(in_range_incl(100e-9, 3000e-9), default=100e-9)
-    upper_wavelength_interp_limit: float = Parameter(
-        in_range_incl(200e-9, 5000e-9), default=2000e-9
-    )
+    interpolation_range: Tuple[float, float] = Parameter(float_pair)
     interpolation_degree: int = Parameter(positive(int), default=8)
     prev_sim_dir: str = Parameter(string)
     recovery_last_stored: int = Parameter(non_negative(int), default=0)
@@ -432,11 +429,13 @@ class BareParams:
     # computed
     field_0: np.ndarray = Parameter(type_checker(np.ndarray))
     spec_0: np.ndarray = Parameter(type_checker(np.ndarray))
+    beta2: float = Parameter(type_checker(int, float))
     alpha: np.ndarray = Parameter(type_checker(np.ndarray))
     gamma_arr: np.ndarray = Parameter(type_checker(np.ndarray))
     A_eff_arr: np.ndarray = Parameter(type_checker(np.ndarray))
     w: np.ndarray = Parameter(type_checker(np.ndarray))
     l: np.ndarray = Parameter(type_checker(np.ndarray))
+    # wl_for_disp: np.ndarray = Parameter(type_checker(np.ndarray))
     w_c: np.ndarray = Parameter(type_checker(np.ndarray))
     w0: float = Parameter(positive(float))
     w_power_fact: np.ndarray = Parameter(validator_list(type_checker(np.ndarray)))
@@ -452,7 +451,6 @@ class BareParams:
     const_qty: np.ndarray = Parameter(type_checker(np.ndarray))
     beta_func: Callable[[float], List[float]] = Parameter(func_validator)
     gamma_func: Callable[[float], float] = Parameter(func_validator)
-    interp_range: Tuple[float, float] = Parameter(float_pair)
     datetime: datetime_module.datetime = Parameter(type_checker(datetime_module.datetime))
     version: str = Parameter(string)
 
@@ -482,6 +480,7 @@ class BareParams:
             "t",
             "z_targets",
             "l",
+            "wl_for_disp",
             "alpha",
             "gamma_arr",
             "A_eff_arr",

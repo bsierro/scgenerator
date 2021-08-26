@@ -1,7 +1,7 @@
 name = "full anomalous"
 
 # fiber
-beta = [
+beta2_coefficients = [
   -1.183e-26,
   8.1038e-41,
   -9.5205e-56,

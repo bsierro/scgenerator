@@ -32,123 +32,6 @@ class Params(BareParams):
     def compute(self):
         logger = get_logger(__name__)
 
-        self.__build_sim_grid()
-        did_set_custom_pulse = self.__compute_custom_pulse()
-        self.__compute_fiber()
-        if not did_set_custom_pulse:
-            logger.info(f"using generic input pulse of {self.shape.title()} shape")
-            self.__compute_generic_pulse()
-
-        if self.quantum_noise and self.prev_sim_dir is None:
-            self.field_0 = self.field_0 + pulse.shot_noise(
-                self.w_c, self.w0, self.time_window, self.dt
-            )
-            logger.info("added some quantum noise")
-
-        if self.step_size is not None:
-            self.error_ok = self.step_size
-            self.adapt_step_size = False
-        else:
-            self.error_ok = self.tolerated_error
-            self.adapt_step_size = True
-
-        self.spec_0 = np.fft.fft(self.field_0)
-
-    def __build_sim_grid(self):
-        build_sim_grid_in_place(self)
-
-    def __compute_generic_pulse(self):
-        (
-            self.width,
-            self.t0,
-            self.peak_power,
-            self.energy,
-            self.soliton_num,
-        ) = pulse.conform_pulse_params(
-            self.shape,
-            self.width,
-            self.t0,
-            self.peak_power,
-            self.energy,
-            self.soliton_num,
-            self.gamma,
-            self.beta[0],
-        )
-        logger = get_logger(__name__)
-        logger.info(f"computed initial N = {self.soliton_num:.3g}")
-
-        self.L_D = self.t0 ** 2 / abs(self.beta[0])
-        self.L_NL = 1 / (self.gamma * self.peak_power) if self.gamma else np.inf
-        self.L_sol = pi / 2 * self.L_D
-
-        # Technical noise
-        if self.intensity_noise is not None and self.intensity_noise > 0:
-            delta_int, delta_T0 = pulse.technical_noise(self.intensity_noise)
-            self.peak_power *= delta_int
-            self.t0 *= delta_T0
-            self.width *= delta_T0
-
-        self.field_0 = pulse.initial_field(self.t, self.shape, self.t0, self.peak_power)
-
-    def __compute_fiber(self):
-        logger = get_logger(__name__)
-
-        self.interp_range = (
-            max(self.lower_wavelength_interp_limit, self.l[self.l > 0].min()),
-            min(self.upper_wavelength_interp_limit, self.l[self.l > 0].max()),
-        )
-
-        temp_gamma = None
-        if self.A_eff_file is not None:
-            self.A_eff_arr = fiber.compute_custom_A_eff(self)
-        elif self.A_eff is not None:
-            self.A_eff_arr = np.ones(self.t_num) * self.A_eff
-        elif self.effective_mode_diameter is not None:
-            self.A_eff_arr = np.ones(self.t_num) * (self.effective_mode_diameter / 2) ** 2 * pi
-        else:
-            self.A_eff_arr = np.ones(self.t_num) * self.n2 * self.w0 / (299792458.0 * self.gamma)
-        self.A_eff = self.A_eff_arr[0]
-
-        if self.beta is not None:
-            self.beta = np.array(self.beta)
-            self.dynamic_dispersion = False
-        else:
-            self.dynamic_dispersion = fiber.is_dynamic_dispersion(self.pressure)
-            self.beta, temp_gamma, self.interp_range = fiber.compute_dispersion(self)
-            if self.dynamic_dispersion:
-                self.gamma_func = temp_gamma
-                self.beta_func = self.beta
-                self.beta = self.beta_func(0)
-                temp_gamma = temp_gamma(0)
-
-        if self.gamma is None:
-            self.gamma_arr = temp_gamma
-            self.gamma = temp_gamma[0]
-            logger.info(f"using computed \u0263 = {self.gamma:.2e} W/m\u00B2")
-        else:
-            self.gamma_arr = np.ones(self.t_num) * self.gamma
-
-        # Raman response
-        if "raman" in self.behaviors:
-            self.hr_w = fiber.delayed_raman_w(self.t, self.dt, self.raman_type)
-
-        self.alpha = fiber.compute_loss(self)
-
-    def __compute_custom_pulse(self):
-        logger = get_logger(__name__)
-
-        if self.mean_power is not None:
-            self.energy = self.mean_power / self.repetition_rate
-        (
-            did_set_custom_pulse,
-            self.width,
-            self.peak_power,
-            self.energy,
-            self.field_0,
-        ) = pulse.setup_custom_field(self)
-
-        return did_set_custom_pulse
-
 
 @dataclass
 class Config(BareConfig):
@@ -169,7 +52,7 @@ class Config(BareConfig):
 
     def fiber_consistency(self):
 
-        if self.contains("dispersion_file") or self.contains("beta"):
+        if self.contains("dispersion_file") or self.contains("beta2_coefficients"):
             if not (
                 self.contains("A_eff")
                 or self.contains("A_eff_file")
@@ -241,8 +124,7 @@ class Config(BareConfig):
             "tolerated_error",
             "parallel",
             "repeat",
-            "lower_wavelength_interp_limit",
-            "upper_wavelength_interp_limit",
+            "interpolation_range",
             "interpolation_degree",
             "ideal_gas",
             "recovery_last_stored",
