@@ -392,6 +392,7 @@ class BareParams:
     shape: str = Parameter(literal("gaussian", "sech"))
     wavelength: float = Parameter(in_range_incl(100e-9, 3000e-9), display_info=(1e9, "nm"))
     intensity_noise: float = Parameter(in_range_incl(0, 1), display_info=(1e2, "%"))
+    noise_correlation: float = Parameter(in_range_incl(-10, 10))
     width: float = Parameter(in_range_excl(0, 1e-9), display_info=(1e15, "fs"))
     t0: float = Parameter(in_range_excl(0, 1e-9), display_info=(1e15, "fs"))
 

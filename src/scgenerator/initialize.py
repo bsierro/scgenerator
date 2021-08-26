@@ -81,7 +81,9 @@ class Params(BareParams):
 
         # Technical noise
         if self.intensity_noise is not None and self.intensity_noise > 0:
-            delta_int, delta_T0 = pulse.technical_noise(self.intensity_noise)
+            delta_int, delta_T0 = pulse.technical_noise(
+                self.intensity_noise, self.noise_correlation
+            )
             self.peak_power *= delta_int
             self.t0 *= delta_T0
             self.width *= delta_T0
@@ -203,7 +205,7 @@ class Config(BareConfig):
             if self.loss == "capillary":
                 for param in ["core_radius", "he_mode"]:
                     self.get_fiber(param)
-        for param in ["length", "input_transmission"]:
+        for param in ["length", "input_transmission", "n2"]:
             self.get(param)
 
     def gas_consistency(self):
@@ -244,6 +246,7 @@ class Config(BareConfig):
             "interpolation_degree",
             "ideal_gas",
             "recovery_last_stored",
+            "noise_correlation",
         ]:
             self.get(param)
 

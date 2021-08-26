@@ -20,6 +20,7 @@ default_parameters = dict(
     shape="gaussian",
     frep=40e6,
     behaviors=["spm", "ss"],
+    noise_correlation=0,
     raman_type="agrawal",
     parallel=True,
     repeat=1,

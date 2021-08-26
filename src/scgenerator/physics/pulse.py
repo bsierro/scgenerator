@@ -139,6 +139,7 @@ def modify_field_ratio(
     target_power: float = None,
     target_energy: float = None,
     intensity_noise: float = None,
+    noise_correlation: float = None,
 ) -> float:
     """multiply a field by this number to get the desired effects
 
@@ -165,7 +166,7 @@ def modify_field_ratio(
         ratio *= np.sqrt(target_power / abs2(field).max())
 
     if intensity_noise is not None:
-        d_int, _ = technical_noise(intensity_noise)
+        d_int, _ = technical_noise(intensity_noise, noise_correlation)
         ratio *= np.sqrt(d_int)
     return ratio
 
@@ -318,6 +319,7 @@ def setup_custom_field(params: BareParams) -> bool:
             params.peak_power,
             params.energy,
             params.intensity_noise,
+            params.noise_correlation,
         )
         width, peak_power, energy = measure_field(params.t, field_0)
     else:
@@ -374,7 +376,7 @@ def pulse_energy_with_loss(spectrum, dw, alpha, h) -> float:
     return np.sum(spec2 * dw) - h * np.sum(alpha * spec2 * dw)
 
 
-def technical_noise(rms_noise, relative_factor=0.4):
+def technical_noise(rms_noise, noise_correlation=-0.4):
     """
     To implement technical noise as described in Grenier2019, we need to know the
     noise properties of the laser, summarized into the RMS amplitude noise
@@ -391,7 +393,7 @@ def technical_noise(rms_noise, relative_factor=0.4):
         delta_T0 : float
     """
     psy = np.random.normal(1, rms_noise)
-    return psy, 1 - relative_factor * (psy - 1)
+    return psy, 1 + noise_correlation * (psy - 1)
 
 
 def shot_noise(w_c, w0, T, dt):
