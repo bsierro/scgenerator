@@ -3,7 +3,8 @@ import os
 from collections import ChainMap
 from pathlib import Path
 import re
-
+import sys
+import subprocess
 import numpy as np
 
 from .. import env, io, scripts, const
@@ -148,6 +149,16 @@ def run_sim(args):
 
     method = prep_ray()
     run_simulation_sequence(*args.configs, method=method)
+    if sys.platform == "darwin" and sys.stdout.isatty():
+        subprocess.run(
+            [
+                "osascript",
+                "-e",
+                'tell app "System Events" to display dialog "simulation finished !"',
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
 
 def merge(args):
