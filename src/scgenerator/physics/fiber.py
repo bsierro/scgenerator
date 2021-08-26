@@ -310,6 +310,7 @@ def A_eff_marcuse(wl: T, core_radius: float, numerical_aperture: float) -> T:
     """
     V = 2 * pi * core_radius * numerical_aperture / wl
     w_eff = core_radius * (0.65 + 1.619 / V ** 1.5 + 2.879 / V ** 6)
+    return np.pi * w_eff ** 2
 
 
 def HCPCF_find_with_given_ZDW(
