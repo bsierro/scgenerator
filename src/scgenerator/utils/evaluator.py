@@ -97,6 +97,12 @@ class EvalStat:
 
 
 class Evaluator:
+    @classmethod
+    def default(cls) -> "Evaluator":
+        evaluator = cls()
+        evaluator.append(*default_rules)
+        return evaluator
+
     def __init__(self):
         self.rules: dict[str, list[Rule]] = defaultdict(list)
         self.params = {}
@@ -111,7 +117,7 @@ class Evaluator:
                     self.rules[t].append(r)
                     self.rules[t].sort(key=lambda el: el.targets[t], reverse=True)
 
-    def update(self, **params: Any):
+    def set(self, **params: Any):
         self.params.update(params)
         for k in params:
             self.eval_stats[k].priority = np.inf
@@ -256,9 +262,29 @@ default_rules: list[Rule] = [
     Rule("field_0", np.fft.ifft, ["spec_0"]),
     Rule("spec_0", pulse.load_previous_spectrum, priorities=3),
     Rule(
-        ["field_0", "peak_power", "energy", "width"], pulse.load_field_file, priorities=[2, 1, 1, 1]
+        ["pre_field_0", "peak_power", "energy", "width"],
+        pulse.load_field_file,
+        [
+            "field_file",
+            "t",
+            "peak_power",
+            "energy",
+            "intensity_noise",
+            "noise_correlation",
+            "quantum_noise",
+            "w_c",
+            "w0",
+            "time_window",
+            "dt",
+        ],
+        priorities=[2, 1, 1, 1],
     ),
-    Rule("field_0", pulse.initial_field, priorities=1),
+    Rule("pre_field_0", pulse.initial_field, priorities=1),
+    Rule(
+        "field_0",
+        pulse.add_shot_noise,
+        ["pre_field_0", "quantum_noise", "w_c", "w0", "time_window", "dt"],
+    ),
     Rule("peak_power", pulse.E0_to_P0, ["energy", "t0", "shape"]),
     Rule("peak_power", pulse.soliton_num_to_peak_power),
     Rule("energy", pulse.P0_to_E0, ["peak_power", "t0", "shape"]),
@@ -329,7 +355,7 @@ def main():
 
     evalor = Evaluator()
     evalor.append(*default_rules)
-    evalor.update(
+    evalor.set(
         **{
             "length": 1,
             "z_num": 128,
@@ -343,8 +369,9 @@ def main():
             "width": 30e-15,
             "mean_power": 100e-3,
             "n2": 2.4e-20,
-            "A_eff_file": "/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/PCF Simulations/PM2000D/PM2000D_A_eff_max.npz",
+            "A_eff_file": "/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/PCF Simulations/PM2000D/PM2000D_A_eff_marcuse.npz",
             "model": "pcf",
+            "quantum_noise": True,
             "pitch": 1.2e-6,
             "pitch_ratio": 0.5,
         }
@@ -354,6 +381,7 @@ def main():
     print(evalor.params["l"][evalor.params["l"] > 0].min())
     evalor.compute("spec_0")
     plt.plot(evalor.params["l"], abs(evalor.params["spec_0"]) ** 2)
+    plt.yscale("log")
     plt.show()
     print(evalor.compute("gamma"))
     print(evalor.compute("beta2"))

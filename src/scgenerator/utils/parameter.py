@@ -342,6 +342,27 @@ hc_model_specific_parameters = dict(
 )
 """dependecy map only includes actual fiber parameters and exclude gas parameters"""
 
+mandatory_parameters = [
+    "name",
+    "w_c",
+    "w",
+    "w0",
+    "w_power_fact",
+    "alpha",
+    "spec_0",
+    "z_targets",
+    "length",
+    "beta2_coefficients",
+    "gamma_arr",
+    "behaviors",
+    "raman_type",
+    "hr_w",
+    "adapt_step_size",
+    "tollerated_error",
+    "dynamic_dispersion",
+    "recovery_last_stored",
+]
+
 
 @dataclass
 class BareParams:
@@ -445,7 +466,6 @@ class BareParams:
     L_sol: float = Parameter(non_negative(float, int))
     dynamic_dispersion: bool = Parameter(boolean)
     adapt_step_size: bool = Parameter(boolean)
-    error_ok: float = Parameter(positive(float))
     hr_w: np.ndarray = Parameter(type_checker(np.ndarray))
     z_targets: np.ndarray = Parameter(type_checker(np.ndarray))
     const_qty: np.ndarray = Parameter(type_checker(np.ndarray))

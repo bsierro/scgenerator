@@ -80,7 +80,7 @@ class RK4IP:
         self.raman_type = params.raman_type
         self.hr_w = params.hr_w
         self.adapt_step_size = params.adapt_step_size
-        self.error_ok = params.error_ok
+        self.error_ok = params.tolerated_error
         self.dynamic_dispersion = params.dynamic_dispersion
         self.starting_num = params.recovery_last_stored
 

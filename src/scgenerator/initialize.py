@@ -6,31 +6,32 @@ from typing import Any, Dict, Iterator, List, Tuple, Union
 from collections import defaultdict
 
 import numpy as np
-from numpy import pi
 
 from . import io, utils
 from .defaults import default_parameters
 from .errors import *
 from .logger import get_logger
-from .math import power_fact
-from .physics import fiber, pulse, units
-from .utils import override_config, required_simulations, evaluator
-from .utils.parameter import BareConfig, BareParams, hc_model_specific_parameters
-
-global_evaluator = evaluator.Evaluator()
+from .utils import override_config, required_simulations
+from .utils.evaluator import Evaluator
+from .utils.parameter import (
+    BareConfig,
+    BareParams,
+    hc_model_specific_parameters,
+    mandatory_parameters,
+)
 
 
 @dataclass
 class Params(BareParams):
     @classmethod
     def from_bare(cls, bare: BareParams):
-        return cls(**asdict(bare))
-
-    def __post_init__(self):
-        self.compute()
-
-    def compute(self):
-        logger = get_logger(__name__)
+        param_dict = {k: v for k, v in asdict(bare).items() if v is not None}
+        evaluator = Evaluator.default()
+        evaluator.set(**param_dict)
+        for p_name in mandatory_parameters:
+            evaluator.compute(p_name)
+        new_param_dict = {k: v for k, v in evaluator.params.items() if k in param_dict}
+        return cls(**new_param_dict)
 
 
 @dataclass

@@ -12,7 +12,6 @@ from ..logger import get_logger
 
 from .. import io
 from ..math import abs2, argclosest, power_fact, u_nm
-from ..utils.parameter import BareConfig, BareParams, hc_model_specific_parameters
 from ..utils.cache import np_cache
 from . import materials as mat
 from . import units

@@ -30,7 +30,6 @@ from ..defaults import default_plotting
 from ..logger import get_logger
 from ..math import *
 from ..plotting import plot_setup
-from ..utils.parameter import BareParams
 from . import units
 
 c = 299792458.0
@@ -343,54 +342,6 @@ def load_field_file(
     return field_0, peak_power, energy, width
 
 
-def setup_custom_field(params: BareParams) -> bool:
-    """sets up a custom field function if necessary and returns
-    True if it did so, False otherwise
-
-    Parameters
-    ----------
-    params : Dict[str, Any]
-        params dictionary
-
-    Returns
-    -------
-    bool
-        True if the field has been modified
-    """
-    field_0 = params.field_0
-    width = params.width
-    peak_power = params.peak_power
-    energy = params.energy
-
-    did_set = True
-
-    if params.prev_data_dir is not None:
-        spec = io.load_last_spectrum(Path(params.prev_data_dir))[1]
-        field_0 = np.fft.ifft(spec)
-    elif params.field_file is not None:
-        field_data = np.load(params.field_file)
-        field_interp = interp1d(
-            field_data["time"], field_data["field"], bounds_error=False, fill_value=(0, 0)
-        )
-        field_0 = field_interp(params.t)
-
-        field_0 = field_0 * modify_field_ratio(
-            params.t,
-            field_0,
-            params.peak_power,
-            params.energy,
-            params.intensity_noise,
-        )
-        width, peak_power, energy = measure_field(params.t, field_0)
-    else:
-        did_set = False
-
-    if did_set:
-        field_0 = field_0 * np.sqrt(params.input_transmission)
-
-    return did_set, width, peak_power, energy, field_0
-
-
 def correct_wavelength(init_wavelength: float, w_c: np.ndarray, field_0: np.ndarray) -> float:
     """
     finds a new wavelength parameter such that the maximum of the spectrum corresponding
@@ -479,6 +430,14 @@ def shot_noise(w_c, w0, T, dt):
     A_oppm = np.sqrt(hbar * (np.abs(w_c + w0)) * T) * np.exp(-1j * rand_phase)
     out = ifft(A_oppm / dt * np.sqrt(2 * pi))
     return out
+
+
+def add_shot_noise(
+    field_0: np.ndarray, quantum_noise: bool, w_c: bool, w0: float, time_window: float, dt: float
+) -> np.ndarray:
+    if quantum_noise:
+        field_0 = field_0 + shot_noise(w_c, w0, time_window, dt)
+    return field_0
 
 
 def mean_phase(spectra):
