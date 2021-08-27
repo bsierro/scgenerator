@@ -8,8 +8,7 @@ from typing import TypeVar
 import numpy as np
 from scipy.optimize import minimize_scalar
 
-from ..io import load_material_dico
-from .. import math
+from .. import math, io
 from . import fiber, materials, units, pulse
 
 T = TypeVar("T")
@@ -54,7 +53,7 @@ def material_dispersion(
 
     order = np.argsort(w)
 
-    material_dico = load_material_dico(material)
+    material_dico = io.load_material_dico(material)
     if ideal:
         n_gas_2 = materials.sellmeier(wavelengths, material_dico, pressure, temperature) + 1
     else:

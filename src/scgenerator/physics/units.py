@@ -5,7 +5,7 @@
 from typing import Callable, TypeVar, Union
 from dataclasses import dataclass
 
-from ..utils.parameter import Parameter, boolean, type_checker
+from ..utils import parameter
 import numpy as np
 from numpy import pi
 
@@ -183,10 +183,10 @@ def is_unit(name, value):
 
 @dataclass
 class PlotRange:
-    left: float = Parameter(type_checker(int, float))
-    right: float = Parameter(type_checker(int, float))
-    unit: Callable[[float], float] = Parameter(is_unit, converter=get_unit)
-    conserved_quantity: bool = Parameter(boolean, default=True)
+    left: float = parameter.Parameter(parameter.type_checker(int, float))
+    right: float = parameter.Parameter(parameter.type_checker(int, float))
+    unit: Callable[[float], float] = parameter.Parameter(is_unit, converter=get_unit)
+    conserved_quantity: bool = parameter.Parameter(parameter.boolean, default=True)
 
     def __str__(self):
         return f"{self.left:.1f}-{self.right:.1f} {self.unit.__name__}"

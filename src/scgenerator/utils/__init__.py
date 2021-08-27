@@ -16,15 +16,17 @@ from dataclasses import asdict, replace
 from io import StringIO
 from pathlib import Path
 from typing import Any, Iterable, Iterator, TypeVar, Union
+from ..errors import IncompleteDataFolderError
 
 import numpy as np
 from numpy.lib.arraysetops import isin
 from tqdm import tqdm
 
 from .. import env
-from ..const import PARAM_SEPARATOR
+from ..const import PARAM_SEPARATOR, SPEC1_FN
 from ..math import *
-from .parameter import BareConfig, BareParams
+from .. import io
+from .parameter import BareConfig, Parameters
 
 T_ = TypeVar("T_")
 
@@ -212,7 +214,7 @@ def format_value(name: str, value) -> str:
         return str(value)
     elif isinstance(value, (float, int)):
         try:
-            return getattr(BareParams, name).display(value)
+            return getattr(Parameters, name).display(value)
         except AttributeError:
             return format(value, ".9g")
     elif isinstance(value, (list, tuple, np.ndarray)):
@@ -226,7 +228,7 @@ def format_value(name: str, value) -> str:
 
 def pretty_format_value(name: str, value) -> str:
     try:
-        return getattr(BareParams, name).display(value)
+        return getattr(Parameters, name).display(value)
     except AttributeError:
         return name + PARAM_SEPARATOR + str(value)
 
@@ -248,10 +250,72 @@ def pretty_format_from_sim_name(name: str) -> str:
     out = []
     for key, value in zip(s[::2], s[1::2]):
         try:
-            out += [key.replace("_", " "), getattr(BareParams, key).display(float(value))]
+            out += [key.replace("_", " "), getattr(Parameters, key).display(float(value))]
         except (AttributeError, ValueError):
             out.append(key + PARAM_SEPARATOR + value)
     return PARAM_SEPARATOR.join(out)
+
+
+def check_data_integrity(sub_folders: list[Path], init_z_num: int):
+    """checks the integrity and completeness of a simulation data folder
+
+    Parameters
+    ----------
+    path : str
+        path to the data folder
+    init_z_num : int
+        z_num as specified by the initial configuration file
+
+    Raises
+    ------
+    IncompleteDataFolderError
+        raised if not all spectra are present in any folder
+    """
+
+    for sub_folder in PBars(sub_folders, "Checking integrity"):
+        if num_left_to_propagate(sub_folder, init_z_num) != 0:
+            raise IncompleteDataFolderError(
+                f"not enough spectra of the specified {init_z_num} found in {sub_folder}"
+            )
+
+
+def num_left_to_propagate(sub_folder: Path, init_z_num: int) -> int:
+    """checks if a propagation has completed
+
+    Parameters
+    ----------
+    sub_folder : Path
+        path to the sub folder containing the spectra
+    init_z_num : int
+        number of z position to store as specified in the master config file
+
+    Returns
+    -------
+    bool
+        True if the propagation has completed
+
+    Raises
+    ------
+    IncompleteDataFolderError
+        raised if init_z_num doesn't match that specified in the individual parameter file
+    """
+    z_num = io.load_toml(sub_folder / "params.toml")["z_num"]
+    num_spectra = find_last_spectrum_num(sub_folder) + 1  # because of zero-indexing
+
+    if z_num != init_z_num:
+        raise IncompleteDataFolderError(
+            f"initial config specifies {init_z_num} spectra per"
+            + f" but the parameter file in {sub_folder} specifies {z_num}"
+        )
+
+    return z_num - num_spectra
+
+
+def find_last_spectrum_num(data_dir: Path):
+    for num in itertools.count(1):
+        p_to_test = data_dir / SPEC1_FN.format(num)
+        if not p_to_test.is_file() or os.path.getsize(p_to_test) == 0:
+            return num - 1
 
 
 def variable_iterator(config: BareConfig) -> Iterator[tuple[list[tuple[str, Any]], dict[str, Any]]]:
@@ -268,7 +332,7 @@ def variable_iterator(config: BareConfig) -> Iterator[tuple[list[tuple[str, Any]
     Iterator[tuple[list[tuple[str, Any]], dict[str, Any]]]
         variable_list : a list of (name, value) tuple of parameter name and value that are variable.
 
-        params : a dict[str, Any] to be fed to Params
+        params : a dict[str, Any] to be fed to Parameters
     """
     possible_keys = []
     possible_ranges = []
@@ -294,7 +358,7 @@ def variable_iterator(config: BareConfig) -> Iterator[tuple[list[tuple[str, Any]
 
 def required_simulations(
     *configs: BareConfig,
-) -> Iterator[tuple[list[tuple[str, Any]], BareParams]]:
+) -> Iterator[tuple[list[tuple[str, Any]], Parameters]]:
     """takes the output of `scgenerator.utils.variable_iterator` which is a new dict per different
     parameter set and iterates through every single necessary simulation
 
@@ -317,7 +381,7 @@ def required_simulations(
         for j in range(configs[0].repeat or 1):
             variable_ind = [("id", i)] + variable_only + [("num", j)]
             i += 1
-            yield variable_ind, BareParams(**params_dict)
+            yield variable_ind, Parameters(**params_dict)
 
 
 def reduce_all_variable(all_variable: list[list[tuple[str, Any]]]) -> list[tuple[str, Any]]:

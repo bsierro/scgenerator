@@ -7,7 +7,7 @@ import toml
 from scgenerator import defaults, utils, math
 from scgenerator.errors import *
 from scgenerator.physics import pulse, units
-from scgenerator.utils.parameter import BareConfig, BareParams
+from scgenerator.utils.parameter import BareConfig, Parameters
 
 
 def load_conf(name):
@@ -143,10 +143,10 @@ class TestInitializeMethods(unittest.TestCase):
             init.Config(**conf("good5")).__dict__.items(),
         )
 
-    def setup_conf_custom_field(self, path) -> BareParams:
+    def setup_conf_custom_field(self, path) -> Parameters:
 
         conf = load_conf(path)
-        conf = BareParams(**conf)
+        conf = Parameters(**conf)
         init.build_sim_grid_in_place(conf)
         return conf
 
@@ -192,12 +192,12 @@ class TestInitializeMethods(unittest.TestCase):
         self.assertTrue(result)
 
         conf = self.setup_conf_custom_field("custom_field/wavelength_shift1")
-        result = init.Params.from_bare(conf)
+        result = Parameters(**conf)
         self.assertAlmostEqual(units.m.inv(result.w)[np.argmax(math.abs2(result.spec_0))], 1050e-9)
 
         conf = self.setup_conf_custom_field("custom_field/wavelength_shift1")
         conf.wavelength = 1593e-9
-        result = init.Params.from_bare(conf)
+        result = Parameters(**conf)
 
         conf = load_conf("custom_field/wavelength_shift2")
         conf = init.Config(**conf)

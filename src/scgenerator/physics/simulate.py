@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple, Type, Union
 import numpy as np
 
 from .. import env, initialize, io, utils
+from ..utils import Parameters, BareConfig
 from ..const import PARAM_SEPARATOR
 from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
@@ -23,29 +24,29 @@ except ModuleNotFoundError:
 class RK4IP:
     def __init__(
         self,
-        params: initialize.Params,
+        params: Parameters,
         save_data=False,
         job_identifier="",
         task_id=0,
     ):
         """A 1D solver using 4th order Runge-Kutta in the interaction picture
 
+                Parameters
+                ----------
         Parameters
-        ----------
-        params : Params
-            parameters of the simulation
-        save_data : bool, optional
-            save calculated spectra to disk, by default False
-        job_identifier : str, optional
-            string  identifying the parameter set, by default ""
-        task_id : int, optional
-            unique identifier of the session, by default 0
+                    parameters of the simulation
+                save_data : bool, optional
+                    save calculated spectra to disk, by default False
+                job_identifier : str, optional
+                    string  identifying the parameter set, by default ""
+                task_id : int, optional
+                    unique identifier of the session, by default 0
         """
         self.set(params, save_data, job_identifier, task_id)
 
     def set(
         self,
-        params: initialize.Params,
+        params: Parameters,
         save_data=False,
         job_identifier="",
         task_id=0,
@@ -306,7 +307,7 @@ class RK4IP:
 class SequentialRK4IP(RK4IP):
     def __init__(
         self,
-        params: initialize.Params,
+        params: Parameters,
         pbars: utils.PBars,
         save_data=False,
         job_identifier="",
@@ -327,7 +328,7 @@ class SequentialRK4IP(RK4IP):
 class MutliProcRK4IP(RK4IP):
     def __init__(
         self,
-        params: initialize.Params,
+        params: Parameters,
         p_queue: multiprocessing.Queue,
         worker_id: int,
         save_data=False,
@@ -353,7 +354,7 @@ class RayRK4IP(RK4IP):
 
     def set(
         self,
-        params: initialize.Params,
+        params: Parameters,
         p_actor,
         worker_id: int,
         save_data=False,
@@ -445,7 +446,9 @@ class Simulations:
         self.sim_dir = io.get_sim_dir(
             self.id, path_if_new=Path(self.name + PARAM_SEPARATOR + "tmp")
         )
-        io.save_parameters(self.param_seq.config, self.sim_dir, file_name="initial_config.toml")
+        io.save_parameters(
+            self.param_seq.config.prepare_for_dump(), self.sim_dir, file_name="initial_config.toml"
+        )
 
         self.sim_jobs_per_node = 1
 
@@ -467,19 +470,19 @@ class Simulations:
     def _run_available(self):
         for variable, params in self.param_seq:
             v_list_str = utils.format_variable_list(variable)
-            io.save_parameters(params, self.sim_dir / v_list_str)
+            io.save_parameters(params.prepare_for_dump(), self.sim_dir / v_list_str)
 
             self.new_sim(v_list_str, params)
         self.finish()
 
-    def new_sim(self, v_list_str: str, params: initialize.Params):
+    def new_sim(self, v_list_str: str, params: Parameters):
         """responsible to launch a new simulation
 
         Parameters
         ----------
         v_list_str : str
             string that uniquely identifies the simulation as returned by utils.format_variable_list
-        params : initialize.Params
+        params : Parameters
             computed parameters
         """
         raise NotImplementedError()
@@ -507,7 +510,7 @@ class SequencialSimulations(Simulations, priority=0):
         super().__init__(param_seq, task_id=task_id)
         self.pbars = utils.PBars(self.param_seq.num_steps, "Simulating " + self.param_seq.name, 1)
 
-    def new_sim(self, v_list_str: str, params: initialize.Params):
+    def new_sim(self, v_list_str: str, params: Parameters):
         self.logger.info(f"{self.param_seq.name} : launching simulation with {v_list_str}")
         SequentialRK4IP(
             params, self.pbars, save_data=True, job_identifier=v_list_str, task_id=self.id
@@ -556,7 +559,7 @@ class MultiProcSimulations(Simulations, priority=1):
             worker.start()
         super().run()
 
-    def new_sim(self, v_list_str: str, params: initialize.Params):
+    def new_sim(self, v_list_str: str, params: Parameters):
         self.queue.put((v_list_str, params), block=True, timeout=None)
 
     def finish(self):
@@ -579,7 +582,7 @@ class MultiProcSimulations(Simulations, priority=1):
         p_queue: multiprocessing.Queue,
     ):
         while True:
-            raw_data: Tuple[List[tuple], initialize.Params] = queue.get()
+            raw_data: Tuple[List[tuple], Parameters] = queue.get()
             if raw_data == 0:
                 queue.task_done()
                 return
@@ -635,7 +638,7 @@ class RaySimulations(Simulations, priority=2):
             .remote(self.param_seq.name, self.sim_jobs_total, self.param_seq.num_steps)
         )
 
-    def new_sim(self, v_list_str: str, params: initialize.Params):
+    def new_sim(self, v_list_str: str, params: Parameters):
         while self.num_submitted >= self.sim_jobs_total:
             self.collect_1_job()
 
@@ -685,7 +688,7 @@ def run_simulation_sequence(
     method=None,
     prev_sim_dir: os.PathLike = None,
 ):
-    configs = io.load_config_sequence(*config_files)
+    configs = BareConfig.load_sequence(*config_files)
 
     prev = prev_sim_dir
     for config in configs:

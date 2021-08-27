@@ -1,20 +1,22 @@
+from __future__ import annotations
+
 import itertools
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator, List, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Sequence, Tuple
 
 import numpy as np
 import pkg_resources as pkg
 import toml
+from tqdm.std import Bar
 
-from . import env, utils
+from scgenerator.utils.parameter import BareConfig
+
+from . import env
 from .const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, SPECN_FN, Z_FN, __version__
 from .env import TMP_FOLDER_KEY_BASE
-
-from .errors import IncompleteDataFolderError
 from .logger import get_logger
-from .utils.parameter import BareConfig, BareParams, translate
 
 PathTree = List[Tuple[Path, ...]]
 
@@ -98,7 +100,9 @@ def save_toml(path: os.PathLike, dico):
     return dico
 
 
-def save_parameters(params: BareParams, destination_dir: Path, file_name="params.toml") -> Path:
+def save_parameters(
+    params: dict[str, Any], destination_dir: Path, file_name: str = "params.toml"
+) -> Path:
     """saves a parameter dictionary. Note that is does remove some entries, particularly
     those that take a lot of space ("t", "w", ...)
 
@@ -114,85 +118,15 @@ def save_parameters(params: BareParams, destination_dir: Path, file_name="params
     Path
         path to newly created the paramter file
     """
-    param = params.prepare_for_dump()
     file_path = destination_dir / file_name
 
     file_path.parent.mkdir(exist_ok=True)
 
     # save toml of the simulation
     with open(file_path, "w") as file:
-        toml.dump(param, file, encoder=toml.TomlNumpyEncoder())
+        toml.dump(params, file, encoder=toml.TomlNumpyEncoder())
 
     return file_path
-
-
-def load_params(path: os.PathLike) -> BareParams:
-    """loads a parameters toml files and converts data to appropriate type
-    It is advised to run initialize.build_sim_grid to recover some parameters that are not saved.
-
-    Parameters
-    ----------
-    path : PathLike
-        path to the toml
-
-    Returns
-    ----------
-    BareParams
-        params obj
-    """
-    params = load_toml(path)
-    try:
-        return BareParams(**params)
-    except TypeError:
-        return BareParams(**dict(translate(p, v) for p, v in params.items()))
-
-
-def load_config(path: os.PathLike) -> BareConfig:
-    """loads a parameters toml files and converts data to appropriate type
-    It is advised to run initialize.build_sim_grid to recover some parameters that are not saved.
-
-    Parameters
-    ----------
-    path : PathLike
-        path to the toml
-
-    Returns
-    ----------
-    BareParams
-        config obj
-    """
-    config = load_toml(path)
-    return BareConfig(**config)
-
-
-def load_config_sequence(*config_paths: os.PathLike) -> list[BareConfig]:
-    """Loads a sequence of
-
-    Parameters
-    ----------
-    config_paths : os.PathLike
-        either one path (the last config containing previous_config_file parameter)
-        or a list of config path in the order they have to be simulated
-
-    Returns
-    -------
-    list[BareConfig]
-        all loaded configs
-    """
-    if config_paths[0] is None:
-        return []
-    all_configs = [load_config(config_paths[0])]
-    if len(config_paths) == 1:
-        while True:
-            if all_configs[0].previous_config_file is not None:
-                all_configs.insert(0, load_config(all_configs[0].previous_config_file))
-            else:
-                break
-    else:
-        for i, path in enumerate(config_paths[1:]):
-            all_configs.append(load_config(path))
-            all_configs[i + 1].previous_config_file = config_paths[i]
-    return all_configs
 
 
 def load_material_dico(name: str) -> dict[str, Any]:
@@ -226,74 +160,6 @@ def get_data_dirs(sim_dir: Path) -> List[Path]:
     """
 
     return [p.resolve() for p in sim_dir.glob("*") if p.is_dir()]
-
-
-def check_data_integrity(sub_folders: List[Path], init_z_num: int):
-    """checks the integrity and completeness of a simulation data folder
-
-    Parameters
-    ----------
-    path : str
-        path to the data folder
-    init_z_num : int
-        z_num as specified by the initial configuration file
-
-    Raises
-    ------
-    IncompleteDataFolderError
-        raised if not all spectra are present in any folder
-    """
-
-    for sub_folder in utils.PBars(sub_folders, "Checking integrity"):
-        if num_left_to_propagate(sub_folder, init_z_num) != 0:
-            raise IncompleteDataFolderError(
-                f"not enough spectra of the specified {init_z_num} found in {sub_folder}"
-            )
-
-
-def num_left_to_propagate(sub_folder: Path, init_z_num: int) -> int:
-    """checks if a propagation has completed
-
-    Parameters
-    ----------
-    sub_folder : Path
-        path to the sub folder containing the spectra
-    init_z_num : int
-        number of z position to store as specified in the master config file
-
-    Returns
-    -------
-    bool
-        True if the propagation has completed
-
-    Raises
-    ------
-    IncompleteDataFolderError
-        raised if init_z_num doesn't match that specified in the individual parameter file
-    """
-    z_num = load_toml(sub_folder / "params.toml")["z_num"]
-    num_spectra = find_last_spectrum_num(sub_folder) + 1  # because of zero-indexing
-
-    if z_num != init_z_num:
-        raise IncompleteDataFolderError(
-            f"initial config specifies {init_z_num} spectra per"
-            + f" but the parameter file in {sub_folder} specifies {z_num}"
-        )
-
-    return z_num - num_spectra
-
-
-def find_last_spectrum_num(data_dir: Path):
-    for num in itertools.count(1):
-        p_to_test = data_dir / SPEC1_FN.format(num)
-        if not p_to_test.is_file() or os.path.getsize(p_to_test) == 0:
-            return num - 1
-
-
-def load_last_spectrum(data_dir: Path) -> Tuple[int, np.ndarray]:
-    """return the last spectrum stored in path as well as its id"""
-    num = find_last_spectrum_num(data_dir)
-    return num, np.load(data_dir / SPEC1_FN.format(num))
 
 
 def update_appended_params(source: Path, destination: Path, z: Sequence):

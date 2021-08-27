@@ -2,10 +2,8 @@ from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union, T
 
 import numpy as np
 from numpy.ma import core
-import toml
 from numpy.fft import fft, ifft
 from numpy.polynomial.chebyshev import Chebyshev, cheb2poly
-from numpy.polynomial.polynomial import Polynomial
 from scipy.interpolate import interp1d
 
 from ..logger import get_logger

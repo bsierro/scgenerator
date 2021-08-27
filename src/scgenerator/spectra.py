@@ -11,13 +11,13 @@ from .const import SPECN_FN
 from .logger import get_logger
 from .physics import pulse, units
 from .plotting import mean_values_plot, propagation_plot, single_position_plot
-from .utils.parameter import BareParams
+from .utils.parameter import Parameters
 
 
 class Spectrum(np.ndarray):
-    params: BareParams
+    params: Parameters
 
-    def __new__(cls, input_array, params: BareParams):
+    def __new__(cls, input_array, params: Parameters):
         # Input array is an already formed ndarray instance
         # We first cast to be our class type
         obj = np.asarray(input_array).view(cls)
@@ -144,7 +144,7 @@ class Pulse(Sequence):
         if not self.path.is_dir():
             raise FileNotFoundError(f"Folder {self.path} does not exist")
 
-        self.params = io.load_params(self.path / "params.toml")
+        self.params = Parameters.load(self.path / "params.toml")
 
         initialize.build_sim_grid_in_place(self.params)
 

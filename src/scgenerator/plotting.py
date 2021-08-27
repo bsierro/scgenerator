@@ -21,7 +21,7 @@ from . import io, math
 from .defaults import default_plotting as defaults
 from .math import abs2, make_uniform_1D, span
 from .physics import pulse, units
-from .utils.parameter import BareConfig, BareParams
+from .utils.parameter import BareConfig, Parameters
 
 RangeType = Tuple[float, float, Union[str, Callable]]
 NO_LIM = object()
@@ -263,7 +263,7 @@ def corner_annotation(text, ax, position="tl", rel_x_offset=0.05, rel_y_offset=0
 def propagation_plot(
     values: np.ndarray,
     plt_range: Union[units.PlotRange, RangeType],
-    params: BareParams,
+    params: Parameters,
     ax: plt.Axes,
     log: Union[int, float, bool, str] = "1D",
     vmin: float = None,
@@ -281,7 +281,7 @@ def propagation_plot(
         raw values, either complex fields or complex spectra
     plt_range : Union[units.PlotRange, RangeType]
         time, wavelength or frequency range
-    params : BareParams
+    params : Parameters
         parameters of the simulation
     log : Union[int, float, bool, str], optional
         what kind of log to apply, see apply_log for details. by default "1D"
@@ -418,7 +418,7 @@ def plot_2D(
 def transform_2D_propagation(
     values: np.ndarray,
     plt_range: Union[units.PlotRange, RangeType],
-    params: BareParams,
+    params: Parameters,
     log: Union[int, float, bool, str] = "1D",
     skip: int = 1,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -430,7 +430,7 @@ def transform_2D_propagation(
         values to transform
     plt_range : Union[units.PlotRange, RangeType]
         range
-    params : BareParams
+    params : Parameters
         parameters of the simulation
     log : Union[int, float, bool, str], optional
         see apply_log, by default "1D"
@@ -469,7 +469,7 @@ def transform_2D_propagation(
 def mean_values_plot(
     values: np.ndarray,
     plt_range: Union[units.PlotRange, RangeType],
-    params: BareParams,
+    params: Parameters,
     ax: plt.Axes,
     log: Union[float, int, str, bool] = False,
     vmin: float = None,
@@ -511,7 +511,7 @@ def mean_values_plot(
 def transform_mean_values(
     values: np.ndarray,
     plt_range: Union[units.PlotRange, RangeType],
-    params: BareParams,
+    params: Parameters,
     log: Union[bool, int, float] = False,
     spacing: Union[int, float] = 1,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -523,7 +523,7 @@ def transform_mean_values(
         values to transform
     plt_range : Union[units.PlotRange, RangeType]
         x axis specifications
-    params : BareParams
+    params : Parameters
         parameters of the simulation
     log : Union[bool, int, float], optional
         see transform_1D_values for details, by default False
@@ -637,7 +637,7 @@ def plot_mean(
 def single_position_plot(
     values: np.ndarray,
     plt_range: Union[units.PlotRange, RangeType],
-    params: BareParams,
+    params: Parameters,
     ax: plt.Axes,
     log: Union[str, int, float, bool] = False,
     vmin: float = None,
@@ -712,7 +712,7 @@ def plot_1D(
 def transform_1D_values(
     values: np.ndarray,
     plt_range: Union[units.PlotRange, RangeType],
-    params: BareParams,
+    params: Parameters,
     log: Union[int, float, bool] = False,
     spacing: Union[int, float] = 1,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -724,7 +724,7 @@ def transform_1D_values(
         values to plot, may be complex
     plt_range : Union[units.PlotRange, RangeType]
         plot range specification, either (min, max, unit) or a PlotRange obj
-    params : BareParams
+    params : Parameters
         parameters of the simulations
     log : Union[int, float, bool], optional
         if True, will convert to dB relative to max. If a float or int, whill
@@ -767,7 +767,7 @@ def plot_spectrogram(
     values: np.ndarray,
     x_range: RangeType,
     y_range: RangeType,
-    params: BareParams,
+    params: Parameters,
     t_res: int = None,
     gate_width: float = None,
     log: bool = "2D",
@@ -790,7 +790,7 @@ def plot_spectrogram(
         units : function to convert from the desired units to rad/s or to time.
                 common functions are already defined in scgenerator.physics.units
                 look there for more details
-    params : BareParams
+    params : Parameters
         parameters of the simulations
     log : bool, optional
         whether to compute the logarithm of the spectrogram
@@ -954,7 +954,7 @@ def apply_log(values: np.ndarray, log: Union[str, bool, float, int]) -> np.ndarr
 
 
 def prep_plot_axis(
-    values: np.ndarray, plt_range: Union[units.PlotRange, RangeType], params: BareParams
+    values: np.ndarray, plt_range: Union[units.PlotRange, RangeType], params: Parameters
 ) -> tuple[bool, np.ndarray, units.PlotRange]:
     is_spectrum = values.dtype == "complex"
     if not isinstance(plt_range, units.PlotRange):

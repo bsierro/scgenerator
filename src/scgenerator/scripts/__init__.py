@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
-from ..utils.parameter import BareParams
+from ..utils.parameter import Parameters
 from ..const import PARAM_SEPARATOR
 
 from ..initialize import ParamSequence
@@ -19,7 +19,7 @@ from ..plotting import plot_setup
 from .. import env, math
 
 
-def fingerprint(params: BareParams):
+def fingerprint(params: Parameters):
     h1 = hash(params.field_0.tobytes())
     h2 = tuple(params.beta2_coefficients)
     return h1, h2
@@ -160,7 +160,7 @@ def plot_1_dispersion(
     right: plt.Axes,
     style: dict[str, Any],
     lbl: list[str],
-    params: BareParams,
+    params: Parameters,
     loss: plt.Axes = None,
 ):
     beta_arr = fiber.dispersion_from_coefficients(params.w_c, params.beta2_coefficients)
@@ -253,7 +253,7 @@ def finish_plot(fig, legend_axes, all_labels, params):
         plt.show()
 
 
-def plot_helper(config_path: Path) -> Iterable[tuple[dict, list[str], BareParams]]:
+def plot_helper(config_path: Path) -> Iterable[tuple[dict, list[str], Parameters]]:
     cc = cycler(color=[f"C{i}" for i in range(10)]) * cycler(ls=["-", "--"])
     pseq = ParamSequence(config_path)
     for style, (variables, params) in zip(cc, pseq):

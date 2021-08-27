@@ -318,7 +318,8 @@ def L_sol(L_D):
 
 
 def load_previous_spectrum(prev_data_dir: str) -> np.ndarray:
-    return io.load_last_spectrum(Path(prev_data_dir))[1]
+    num = utils.find_last_spectrum_num(data_dir)
+    return np.load(data_dir / SPEC1_FN.format(num))
 
 
 def load_field_file(

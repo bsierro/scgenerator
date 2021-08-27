@@ -15,23 +15,10 @@ from .utils import override_config, required_simulations
 from .utils.evaluator import Evaluator
 from .utils.parameter import (
     BareConfig,
-    BareParams,
+    Parameters,
     hc_model_specific_parameters,
     mandatory_parameters,
 )
-
-
-@dataclass
-class Params(BareParams):
-    @classmethod
-    def from_bare(cls, bare: BareParams):
-        param_dict = {k: v for k, v in asdict(bare).items() if v is not None}
-        evaluator = Evaluator.default()
-        evaluator.set(**param_dict)
-        for p_name in mandatory_parameters:
-            evaluator.compute(p_name)
-        new_param_dict = {k: v for k, v in evaluator.params.items() if k in param_dict}
-        return cls(**new_param_dict)
 
 
 @dataclass
@@ -222,11 +209,11 @@ class ParamSequence:
 
         self.update_num_sim()
 
-    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Params]]:
+    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Parameters]]:
         """iterates through all possible parameters, yielding a config as well as a flattened
         computed parameters set each time"""
-        for variable_list, bare_params in required_simulations(self.config):
-            yield variable_list, Params.from_bare(bare_params)
+        for variable_list, params in required_simulations(self.config):
+            yield variable_list, params
 
     def __len__(self):
         return self.num_sim
@@ -259,19 +246,19 @@ class ContinuationParamSequence(ParamSequence):
             new config
         """
         self.prev_sim_dir = Path(prev_sim_dir)
-        self.bare_configs = io.load_config_sequence(new_config.previous_config_file)
+        self.bare_configs = BareConfig.load_sequence(new_config.previous_config_file)
         self.bare_configs.append(new_config)
         self.bare_configs[0] = Config.from_bare(self.bare_configs[0])
         final_config = utils.final_config_from_sequence(*self.bare_configs)
         super().__init__(final_config)
 
-    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Params]]:
+    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Parameters]]:
         """iterates through all possible parameters, yielding a config as well as a flattened
         computed parameters set each time"""
-        for variable_list, bare_params in required_simulations(*self.bare_configs):
+        for variable_list, params in required_simulations(*self.bare_configs):
             prev_data_dir = self.find_prev_data_dirs(variable_list)[0]
-            bare_params.prev_data_dir = str(prev_data_dir.resolve())
-            yield variable_list, Params.from_bare(bare_params)
+            params.prev_data_dir = str(prev_data_dir.resolve())
+            yield variable_list, params
 
     def find_prev_data_dirs(self, new_variable_list: List[Tuple[str, Any]]) -> List[Path]:
         """finds the previous simulation data that this new config should start from
@@ -324,7 +311,7 @@ class RecoveryParamSequence(ParamSequence):
         self.prev_sim_dir = None
         if self.config.prev_sim_dir is not None:
             self.prev_sim_dir = Path(self.config.prev_sim_dir)
-            init_config = io.load_config(self.prev_sim_dir / "initial_config.toml")
+            init_config = BareConfig.load(self.prev_sim_dir / "initial_config.toml")
             self.prev_variable_lists = [
                 (
                     set(variable_list[1:]),
@@ -357,17 +344,17 @@ class RecoveryParamSequence(ParamSequence):
         self.num_steps += not_started * self.config.z_num
         self.single_sim = self.num_sim == 1
 
-    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Params]]:
-        for variable_list, bare_params in required_simulations(self.config):
+    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Parameters]]:
+        for variable_list, params in required_simulations(self.config):
 
             data_dir = io.get_sim_dir(self.id) / utils.format_variable_list(variable_list)
 
             if not data_dir.is_dir() or io.find_last_spectrum_num(data_dir) == 0:
                 if (prev_data_dir := self.find_prev_data_dir(variable_list)) is not None:
-                    bare_params.prev_data_dir = str(prev_data_dir)
-                yield variable_list, Params.from_bare(bare_params)
+                    params.prev_data_dir = str(prev_data_dir)
+                yield variable_list, params
             elif io.num_left_to_propagate(data_dir, self.config.z_num) != 0:
-                yield variable_list, recover_params(bare_params, data_dir)
+                yield variable_list, params + "Needs to rethink recovery procedure"
             else:
                 continue
 
@@ -417,7 +404,7 @@ def validate_config_sequence(*configs: os.PathLike) -> tuple[str, int]:
     """
 
     previous = None
-    configs = io.load_config_sequence(*configs)
+    configs = BareConfig.load_sequence(*configs)
     for config in configs:
         # if (p := Path(config)).is_dir():
         #     config = p / "initial_config.toml"
@@ -487,22 +474,20 @@ def validate_config_sequence(*configs: os.PathLike) -> tuple[str, int]:
 #         raise TypeError("not enough parameter to determine time vector")
 
 
-def recover_params(params: BareParams, data_folder: Path) -> Params:
-    params = Params.from_bare(params)
-    try:
-        prev = io.load_params(data_folder / "params.toml")
-        build_sim_grid_in_place(prev)
-    except FileNotFoundError:
-        prev = BareParams()
-    for k, v in filter(lambda el: el[1] is not None, vars(prev).items()):
-        if getattr(params, k) is None:
-            setattr(params, k, v)
-    num, last_spectrum = io.load_last_spectrum(data_folder)
-    params.spec_0 = last_spectrum
-    params.field_0 = np.fft.ifft(last_spectrum)
-    params.recovery_last_stored = num
-    params.cons_qty = np.load(data_folder / "cons_qty.npy")
-    return params
+# def recover_params(params: Parameters, data_folder: Path) -> Parameters:
+#     try:
+#         prev = Parameters.load(data_folder / "params.toml")
+#     except FileNotFoundError:
+#         prev = Parameters()
+#     for k, v in filter(lambda el: el[1] is not None, vars(prev).items()):
+#         if getattr(params, k) is None:
+#             setattr(params, k, v)
+#     num, last_spectrum = io.load_last_spectrum(data_folder)
+#     params.spec_0 = last_spectrum
+#     params.field_0 = np.fft.ifft(last_spectrum)
+#     params.recovery_last_stored = num
+#     params.cons_qty = np.load(data_folder / "cons_qty.npy")
+#     return params
 
 
 # def build_sim_grid(
