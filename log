@@ -1,0 +1,126 @@
+attempt 1 to compute w_c, this time using Rule(targets={'z_targets': 1, 't': 1, 'time_window': 1, 't_num': 1, 'dt': 1, 'w_c': 1, 'w0': 1, 'w': 1, 'w_power_fact': 1, 'l': 1}, func=<function build_sim_grid_0 at 0x7f9e92cb1280>, args=['length', 'z_num', 'wavelength', 'interpolation_degree', 'time_window', 't_num'])
+	attempt 1 to compute time_window, this time using Rule(targets={'z_targets': 1, 't': 1, 'time_window': 1, 't_num': 1, 'dt': 1, 'w_c': 1, 'w0': 1, 'w': 1, 'w_power_fact': 1, 'l': 1}, func=<function build_sim_grid_0 at 0x7f9e92cb1280>, args=['length', 'z_num', 'wavelength', 'interpolation_degree', 'time_window', 't_num'])
+	error using build_sim_grid_0 : cyclic dependency detected : 'time_window' seems to depend on itself, please provide a value for at least one variable in {'w_c', 'time_window'}
+	attempt 2 to compute time_window, this time using Rule(targets={'z_targets': 1, 't': 1, 'time_window': 1, 't_num': 1, 'dt': 1, 'w_c': 1, 'w0': 1, 'w': 1, 'w_power_fact': 1, 'l': 1}, func=<function build_sim_grid_0 at 0x7f9e92cb11f0>, args=['length', 'z_num', 'wavelength', 'interpolation_degree', 'time_window', 'dt'])
+	error using build_sim_grid_0 : cyclic dependency detected : 'time_window' seems to depend on itself, please provide a value for at least one variable in {'w_c', 'time_window'}
+	attempt 3 to compute time_window, this time using Rule(targets={'z_targets': 1, 't': 1, 'time_window': 1, 't_num': 1, 'dt': 1, 'w_c': 1, 'w0': 1, 'w': 1, 'w_power_fact': 1, 'l': 1}, func=<function build_sim_grid_0 at 0x7f9e92cb1310>, args=['length', 'z_num', 'wavelength', 'interpolation_degree', 't_num', 'dt'])
+	computed z_targets=[0.         0.00043307 0.00086614 0.00129921 0.00173228 0.00216535
+ 0.00259843 0.0030315  0.00346457 0.00389764 0.00433071 0.00476378
+ 0.00519685 0.00562992 0.00606299 0.00649606 0.00692913 0.0073622
+ 0.00779528 0.00822835 0.00866142 0.00909449 0.00952756 0.00996063
+ 0.0103937  0.01082677 0.01125984 0.01169291 0.01212598 0.01255906
+ 0.01299213 0.0134252  0.01385827 0.01429134 0.01472441 0.01515748
+ 0.01559055 0.01602362 0.01645669 0.01688976 0.01732283 0.01775591
+ 0.01818898 0.01862205 0.01905512 0.01948819 0.01992126 0.02035433
+ 0.0207874  0.02122047 0.02165354 0.02208661 0.02251969 0.02295276
+ 0.02338583 0.0238189  0.02425197 0.02468504 0.02511811 0.02555118
+ 0.02598425 0.02641732 0.02685039 0.02728346 0.02771654 0.02814961
+ 0.02858268 0.02901575 0.02944882 0.02988189 0.03031496 0.03074803
+ 0.0311811  0.03161417 0.03204724 0.03248031 0.03291339 0.03334646
+ 0.03377953 0.0342126  0.03464567 0.03507874 0.03551181 0.03594488
+ 0.03637795 0.03681102 0.03724409 0.03767717 0.03811024 0.03854331
+ 0.03897638 0.03940945 0.03984252 0.04027559 0.04070866 0.04114173
+ 0.0415748  0.04200787 0.04244094 0.04287402 0.04330709 0.04374016
+ 0.04417323 0.0446063  0.04503937 0.04547244 0.04590551 0.04633858
+ 0.04677165 0.04720472 0.0476378  0.04807087 0.04850394 0.04893701
+ 0.04937008 0.04980315 0.05023622 0.05066929 0.05110236 0.05153543
+ 0.0519685  0.05240157 0.05283465 0.05326772 0.05370079 0.05413386
+ 0.05456693 0.055     ] using build_sim_grid_0 from evaluator
+	computed t=[-8.1915e-12 -8.1905e-12 -8.1895e-12 ...  8.1895e-12  8.1905e-12
+  8.1915e-12] using build_sim_grid_0 from evaluator
+	computed time_window=1.6383000000000002e-11 using build_sim_grid_0 from evaluator
+	computed w_c=[ 0.00000000e+00  3.83495197e+11  7.66990394e+11 ... -1.15048559e+12
+ -7.66990391e+11 -3.83495194e+11] using build_sim_grid_0 from evaluator
+	computed w0=1226655097231605.2 using build_sim_grid_0 from evaluator
+	computed w=[1.22665510e+15 1.22703859e+15 1.22742209e+15 ... 1.22550461e+15
+ 1.22588811e+15 1.22627160e+15] using build_sim_grid_0 from evaluator
+	computed w_power_fact=[[ 0.00000000e+000  7.35342831e+022  2.94137132e+023 ...  6.61808544e+023
+   2.94137130e+023  7.35342818e+022]
+ [ 0.00000000e+000  9.40001479e+033  7.52001183e+034 ... -2.53800397e+035
+  -7.52001174e+034 -9.40001456e+033]
+ [ 0.00000000e+000  9.01215131e+044  1.44194421e+046 ...  7.29984248e+046
+   1.44194419e+046  9.01215101e+044]
+ ...
+ [ 0.00000000e+000  1.16026959e+088  2.97029015e+090 ...  7.61252860e+091
+   2.97029005e+090  1.16026951e+088]
+ [ 0.00000000e+000  4.94397571e+098  2.53131557e+101 ... -9.73122716e+102
+  -2.53131547e+101 -4.94397535e+098]
+ [ 0.00000000e+000  1.89599094e+109  1.94149472e+112 ...  1.11956366e+114
+   1.94149464e+112  1.89599078e+109]] using build_sim_grid_0 from evaluator
+	computed l=[1.53560000e-06 1.53512007e-06 1.53464044e-06 ... 1.53704160e-06
+ 1.53656077e-06 1.53608023e-06] using build_sim_grid_0 from evaluator
+computed w_c=[ 0.00000000e+00  3.83495197e+11  7.66990394e+11 ... -1.15048559e+12
+ -7.66990391e+11 -3.83495194e+11] using build_sim_grid_0 from evaluator
+attempt 1 to compute spec_0, this time using Rule(targets={'spec_0': 3}, func=<function load_previous_spectrum at 0x7f9e8fca7ca0>, args=['prev_data_dir'])
+error using load_previous_spectrum : no rule for prev_data_dir
+attempt 2 to compute spec_0, this time using Rule(targets={'spec_0': 1}, func=<function fft at 0x7f9e8dd27040>, args=['field_0'])
+		attempt 1 to compute field_0, this time using Rule(targets={'field_0': 1}, func=<function ifft at 0x7f9e8dd27160>, args=['spec_0'])
+		error using ifft : cyclic dependency detected : 'spec_0' seems to depend on itself, please provide a value for at least one variable in {'field_0', 'spec_0', 'prev_data_dir'}
+		attempt 2 to compute field_0, this time using Rule(targets={'field_0': 1}, func=<function add_shot_noise at 0x7f9e92c9e280>, args=['pre_field_0', 'quantum_noise', 'w_c', 'w0', 'time_window', 'dt'])
+			attempt 1 to compute pre_field_0, this time using Rule(targets={'pre_field_0': 2, 'peak_power': 1, 'energy': 1, 'width': 1}, func=<function load_and_adjust_field_file at 0x7f9e92c9baf0>, args=['field_file', 't', 'peak_power', 'energy', 'intensity_noise', 'noise_correlation'])
+				attempt 1 to compute peak_power, this time using Rule(targets={'pre_field_0': 2, 'peak_power': 1, 'energy': 1, 'width': 1}, func=<function load_and_adjust_field_file at 0x7f9e92c9baf0>, args=['field_file', 't', 'peak_power', 'energy', 'intensity_noise', 'noise_correlation'])
+				error using load_and_adjust_field_file : cyclic dependency detected : 'peak_power' seems to depend on itself, please provide a value for at least one variable in {'peak_power', 'field_0', 'spec_0', 'prev_data_dir', 'pre_field_0'}
+				attempt 2 to compute peak_power, this time using Rule(targets={'peak_power': 1}, func=<function E0_to_P0 at 0x7f9e92c9bca0>, args=['energy', 't0', 'shape'])
+					attempt 1 to compute energy, this time using Rule(targets={'pre_field_0': 2, 'peak_power': 1, 'energy': 1, 'width': 1}, func=<function load_and_adjust_field_file at 0x7f9e92c9baf0>, args=['field_file', 't', 'peak_power', 'energy', 'intensity_noise', 'noise_correlation'])
+					error using load_and_adjust_field_file : cyclic dependency detected : 'peak_power' seems to depend on itself, please provide a value for at least one variable in {'peak_power', 'field_0', 'energy', 'spec_0', 'prev_data_dir', 'pre_field_0'}
+					attempt 2 to compute energy, this time using Rule(targets={'width': 1, 'peak_power': 1, 'energy': 1}, func=<function measure_custom_field at 0x7f9e92c9ec10>, args=['field_file', 't'])
+					computed width=8.827707794861245e-14 using measure_custom_field from scgenerator.physics.pulse
+					computed peak_power=0.0008031855671188997 using measure_custom_field from scgenerator.physics.pulse
+					computed energy=8.994671799886145e-17 using measure_custom_field from scgenerator.physics.pulse
+					attempt 1 to compute t0, this time using Rule(targets={'t0': 1}, func=<function width_to_t0 at 0x7f9e92c9b670>, args=['width', 'shape'])
+					computed t0=7.497564676748131e-14 using width_to_t0 from scgenerator.physics.pulse
+				computed peak_power=0.0009572054484404637 using E0_to_P0 from scgenerator.physics.pulse
+			computed pre_field_0=[0.+0.j 0.+0.j 0.+0.j ... 0.+0.j 0.+0.j 0.+0.j] using load_and_adjust_field_file from scgenerator.physics.pulse
+		computed field_0=[ 0.00160864+0.02127688j -0.01957086-0.0069138j  -0.01820735+0.02002421j
+ ...  0.00622707-0.01068023j  0.01055843-0.00319426j
+  0.00117607-0.03033724j] using add_shot_noise from scgenerator.physics.pulse
+computed spec_0=[ 1.50681561-3.69877757j -5.66353753-2.05828961j -0.54462979-1.50501029j
+ ... -1.45621111-3.03434314j  2.6362116 -3.91420005j
+ -2.2820021 -3.24150382j] using fft from numpy.fft
+	attempt 1 to compute beta2_coefficients, this time using Rule(targets={'beta2_coefficients': 1}, func=<function dispersion_coefficients at 0x7f9e9158f3a0>, args=['wl_for_disp', 'beta2_arr', 'w0', 'interpolation_range', 'interpolation_degree'])
+		attempt 1 to compute wl_for_disp, this time using Rule(targets={'wl_for_disp': 2, 'beta2_arr': 2, 'interpolation_range': 2}, func=<function load_custom_dispersion at 0x7f9e9158f0d0>, args=['dispersion_file'])
+		computed wl_for_disp=[7.0000e-07 7.0125e-07 7.0250e-07 ... 2.3960e-06 2.3970e-06 2.3980e-06] using load_custom_dispersion from scgenerator.physics.fiber
+		computed beta2_arr=[ 3.37108270e-26  3.37294702e-26  3.37477437e-26 ... -2.08838856e-25
+ -2.09213746e-25 -2.09589149e-25] using load_custom_dispersion from scgenerator.physics.fiber
+		computed interpolation_range=(7e-07, 2.398e-06) using load_custom_dispersion from scgenerator.physics.fiber
+interpolating dispersion between 700.0nm and 2398.0nm
+	computed beta2_coefficients=[-2.11874551e-026  1.48178177e-040 -4.15401033e-055  2.03223853e-069
+ -1.65547343e-083  1.26886165e-097 -6.93559198e-112  2.31284341e-126
+ -3.54046694e-141] using dispersion_coefficients from scgenerator.physics.fiber
+	attempt 1 to compute gamma_arr, this time using Rule(targets={'gamma_arr': 1}, func=<function gamma_parameter at 0x7f9e9158caf0>, args=['n2', 'w0', 'A_eff_arr'])
+		attempt 1 to compute A_eff_arr, this time using Rule(targets={'A_eff_arr': 1}, func=<function A_eff_from_V at 0x7f9e9158c790>, args=['core_radius', 'V_eff_arr'])
+		error using A_eff_from_V : no rule for core_radius
+		attempt 2 to compute A_eff_arr, this time using Rule(targets={'A_eff_arr': 1}, func=<function load_custom_A_eff at 0x7f9e9158f040>, args=['A_eff_file', 'l'])
+		error using load_custom_A_eff : no rule for A_eff_file
+		attempt 3 to compute A_eff_arr, this time using Rule(targets={'A_eff_arr': -1}, func=<function constant_A_eff_arr at 0x7f9e9158cb80>, args=['l', 'A_eff'])
+					attempt 1 to compute A_eff, this time using Rule(targets={'A_eff': 1}, func=<function A_eff_from_V at 0x7f9e9158c790>, args=['core_radius', 'V_eff'])
+					error using A_eff_from_V : cyclic dependency detected : 'core_radius' seems to depend on itself, please provide a value for at least one variable in {'core_radius', 'A_eff', 'gamma_arr', 'prev_data_dir', 'A_eff_arr', 'A_eff_file'}
+					attempt 2 to compute A_eff, this time using Rule(targets={'A_eff': 1}, func=<function A_eff_from_diam at 0x7f9e9158cca0>, args=['effective_mode_diameter'])
+					computed A_eff=8.01184666481737e-11 using A_eff_from_diam from scgenerator.physics.fiber
+		computed A_eff_arr=[8.01184666e-11 8.01184666e-11 8.01184666e-11 ... 8.01184666e-11
+ 8.01184666e-11 8.01184666e-11] using constant_A_eff_arr from scgenerator.physics.fiber
+	computed gamma_arr=[0.00112355 0.00112355 0.00112355 ... 0.00112355 0.00112355 0.00112355] using gamma_parameter from scgenerator.physics.fiber
+			attempt 1 to compute hr_w, this time using Rule(targets={'hr_w': 1}, func=<function delayed_raman_w at 0x7f9e9158f5e0>, args=['t', 'dt', 'raman_type'])
+			computed hr_w=[1.00168656+0.j         1.00197747-0.00248147j 1.00283647-0.00508742j ...
+ 1.00422327+0.00793569j 1.00283647+0.00508742j 1.00197747+0.00248147j] using delayed_raman_w from scgenerator.physics.fiber
+			attempt 1 to compute adapt_step_size, this time using Rule(targets={'adapt_step_size': 1}, func=<function <lambda> at 0x7f9e92cb13a0>, args=['step_size'])
+			computed adapt_step_size=True using <lambda> from scgenerator.utils.parameter
+			attempt 1 to compute dynamic_dispersion, this time using Rule(targets={'dynamic_dispersion': 1}, func=<function <lambda> at 0x7f9e92cb1430>, args=['pressure'])
+			computed dynamic_dispersion=False using <lambda> from scgenerator.utils.parameter
+Traceback (most recent call last):
+  File "/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/Module/play.py", line 20, in <module>
+    main()
+  File "/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/Module/play.py", line 10, in main
+    pa = Parameters.load(
+  File "/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/Module/src/scgenerator/utils/parameter.py", line 507, in load
+    return cls(**utils.load_toml(path))
+  File "<string>", line 87, in __init__
+  File "/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/Module/src/scgenerator/utils/parameter.py", line 503, in __post_init__
+    setattr(self, k, v)
+  File "/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/Module/src/scgenerator/utils/parameter.py", line 245, in __set__
+    self.validator(self.name, value)
+  File "/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/Module/src/scgenerator/utils/parameter.py", line 41, in _type_checker_wrapped
+    validator(name, n)
+  File "/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/Module/src/scgenerator/utils/parameter.py", line 105, in int_pair
+    raise ValueError(f"{name!r} must be a list or a tuple of 2 int")
+ValueError: 'fit_parameters' must be a list or a tuple of 2 int

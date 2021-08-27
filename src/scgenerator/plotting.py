@@ -1,29 +1,22 @@
 import os
 from pathlib import Path
-import re
-from typing import Any, Callable, Dict, Literal, Optional, Tuple, Union
-from PIL.Image import new
+from typing import Any, Callable, Literal, Optional, Union
 
 import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import ListedColormap
-from numpy.core.fromnumeric import mean
 from scipy.interpolate import UnivariateSpline
 from scipy.interpolate.interpolate import interp1d
-from tqdm import utils
 
-from scgenerator.const import PARAM_SEPARATOR
-
-from .logger import get_logger
-
-from . import io, math
+from . import math
+from .const import PARAM_SEPARATOR
 from .defaults import default_plotting as defaults
-from .math import abs2, make_uniform_1D, span
+from .math import abs2, span
 from .physics import pulse, units
-from .utils.parameter import BareConfig, Parameters
+from .utils.parameter import Parameters, PlotRange, sort_axis
 
-RangeType = Tuple[float, float, Union[str, Callable]]
+RangeType = tuple[float, float, Union[str, Callable]]
 NO_LIM = object()
 
 
@@ -52,9 +45,9 @@ def get_extent(x, y, facx=1, facy=1):
 def plot_setup(
     out_path: Path,
     file_type: str = "png",
-    figsize: Tuple[float, float] = defaults["figsize"],
+    figsize: tuple[float, float] = defaults["figsize"],
     mode: Literal["default", "coherence", "coherence_T"] = "default",
-) -> Tuple[Path, plt.Figure, Union[plt.Axes, Tuple[plt.Axes]]]:
+) -> tuple[Path, plt.Figure, Union[plt.Axes, tuple[plt.Axes]]]:
     out_path = defaults["name"] if out_path is None else out_path
     out_path = Path(out_path)
     plot_name = out_path.name.replace(f".{file_type}", "")
@@ -181,7 +174,7 @@ def create_zoom_axis(
         ymin, ymax = 0, 0
         for line in lines:
             xdata = line.get_xdata()
-            xdata, ind, _ = units.sort_axis(xdata, (*xlim, units.s))
+            xdata, ind, _ = sort_axis(xdata, (*xlim, units.s))
             ydata = line.get_ydata()[ind]
             inset.plot(
                 xdata, ydata, c=line.get_color(), ls=line.get_linestyle(), lw=line.get_linewidth()
@@ -262,7 +255,7 @@ def corner_annotation(text, ax, position="tl", rel_x_offset=0.05, rel_y_offset=0
 
 def propagation_plot(
     values: np.ndarray,
-    plt_range: Union[units.PlotRange, RangeType],
+    plt_range: Union[PlotRange, RangeType],
     params: Parameters,
     ax: plt.Axes,
     log: Union[int, float, bool, str] = "1D",
@@ -279,7 +272,7 @@ def propagation_plot(
     ----------
     values : np.ndarray
         raw values, either complex fields or complex spectra
-    plt_range : Union[units.PlotRange, RangeType]
+    plt_range : Union[PlotRange, RangeType]
         time, wavelength or frequency range
     params : Parameters
         parameters of the simulation
@@ -417,7 +410,7 @@ def plot_2D(
 
 def transform_2D_propagation(
     values: np.ndarray,
-    plt_range: Union[units.PlotRange, RangeType],
+    plt_range: Union[PlotRange, RangeType],
     params: Parameters,
     log: Union[int, float, bool, str] = "1D",
     skip: int = 1,
@@ -428,7 +421,7 @@ def transform_2D_propagation(
     ----------
     values : np.ndarray, shape (n, nt)
         values to transform
-    plt_range : Union[units.PlotRange, RangeType]
+    plt_range : Union[PlotRange, RangeType]
         range
     params : Parameters
         parameters of the simulation
@@ -468,7 +461,7 @@ def transform_2D_propagation(
 
 def mean_values_plot(
     values: np.ndarray,
-    plt_range: Union[units.PlotRange, RangeType],
+    plt_range: Union[PlotRange, RangeType],
     params: Parameters,
     ax: plt.Axes,
     log: Union[float, int, str, bool] = False,
@@ -478,7 +471,7 @@ def mean_values_plot(
     spacing: Union[float, int] = 1,
     renormalize: bool = True,
     y_label: str = None,
-    line_labels: Tuple[str, str] = None,
+    line_labels: tuple[str, str] = None,
     mean_style: dict[str, Any] = None,
     individual_style: dict[str, Any] = None,
 ) -> tuple[plt.Line2D, list[plt.Line2D]]:
@@ -510,7 +503,7 @@ def mean_values_plot(
 
 def transform_mean_values(
     values: np.ndarray,
-    plt_range: Union[units.PlotRange, RangeType],
+    plt_range: Union[PlotRange, RangeType],
     params: Parameters,
     log: Union[bool, int, float] = False,
     spacing: Union[int, float] = 1,
@@ -521,7 +514,7 @@ def transform_mean_values(
     ----------
     values : np.ndarray, shape (m, n)
         values to transform
-    plt_range : Union[units.PlotRange, RangeType]
+    plt_range : Union[PlotRange, RangeType]
         x axis specifications
     params : Parameters
         parameters of the simulation
@@ -545,7 +538,7 @@ def transform_mean_values(
     is_complex, x_axis, plt_range = prep_plot_axis(values, plt_range, params)
     if is_complex:
         values = abs2(values)
-    new_axis, ind, ext = units.sort_axis(x_axis, plt_range)
+    new_axis, ind, ext = sort_axis(x_axis, plt_range)
     values = values[:, ind]
     if plt_range.unit.type == "WL":
         values = np.apply_along_axis(units.to_WL, -1, values, new_axis)
@@ -636,7 +629,7 @@ def plot_mean(
 
 def single_position_plot(
     values: np.ndarray,
-    plt_range: Union[units.PlotRange, RangeType],
+    plt_range: Union[PlotRange, RangeType],
     params: Parameters,
     ax: plt.Axes,
     log: Union[str, int, float, bool] = False,
@@ -711,7 +704,7 @@ def plot_1D(
 
 def transform_1D_values(
     values: np.ndarray,
-    plt_range: Union[units.PlotRange, RangeType],
+    plt_range: Union[PlotRange, RangeType],
     params: Parameters,
     log: Union[int, float, bool] = False,
     spacing: Union[int, float] = 1,
@@ -722,7 +715,7 @@ def transform_1D_values(
     ----------
     values : np.ndarray, shape (n,)
         values to plot, may be complex
-    plt_range : Union[units.PlotRange, RangeType]
+    plt_range : Union[PlotRange, RangeType]
         plot range specification, either (min, max, unit) or a PlotRange obj
     params : Parameters
         parameters of the simulations
@@ -744,7 +737,7 @@ def transform_1D_values(
     is_complex, x_axis, plt_range = prep_plot_axis(values, plt_range, params)
     if is_complex:
         values = abs2(values)
-    new_axis, ind, ext = units.sort_axis(x_axis, plt_range)
+    new_axis, ind, ext = sort_axis(x_axis, plt_range)
     values = values[ind]
     if plt_range.unit.type == "WL":
         values = units.to_WL(values, new_axis)
@@ -814,8 +807,8 @@ def plot_spectrogram(
     if values.ndim != 1:
         print("plot_spectrogram can only plot 1D arrays")
         return
-    x_range: units.PlotRange
-    y_range: units.PlotRange
+    x_range: PlotRange
+    y_range: PlotRange
     _, x_axis, x_range = prep_plot_axis(values, x_range, params)
     _, y_axis, y_range = prep_plot_axis(values, y_range, params)
 
@@ -862,7 +855,7 @@ def plot_spectrogram(
 
 
 def uniform_axis(
-    axis: np.ndarray, values: np.ndarray, new_axis_spec: Union[units.PlotRange, RangeType, str]
+    axis: np.ndarray, values: np.ndarray, new_axis_spec: Union[PlotRange, RangeType, str]
 ) -> tuple[np.ndarray, np.ndarray]:
     """given some values(axis), creates a new uniformly spaced axis and interpolates
     the values over it.
@@ -891,14 +884,14 @@ def uniform_axis(
         new_axis_spec = "unity"
     if isinstance(new_axis_spec, str) or callable(new_axis_spec):
         unit = units.get_unit(new_axis_spec)
-        plt_range = units.PlotRange(unit.inv(axis.min()), unit.inv(axis.max()), new_axis_spec)
+        plt_range = PlotRange(unit.inv(axis.min()), unit.inv(axis.max()), new_axis_spec)
     elif isinstance(new_axis_spec, tuple):
-        plt_range = units.PlotRange(*new_axis_spec)
-    elif isinstance(new_axis_spec, units.PlotRange):
+        plt_range = PlotRange(*new_axis_spec)
+    elif isinstance(new_axis_spec, PlotRange):
         plt_range = new_axis_spec
     else:
         raise TypeError(f"Don't know how to interpret {new_axis_spec}")
-    tmp_axis, ind, ext = units.sort_axis(axis, plt_range)
+    tmp_axis, ind, ext = sort_axis(axis, plt_range)
     values = np.atleast_2d(values)
     if np.allclose((diff := np.diff(tmp_axis))[0], diff):
         new_axis = tmp_axis
@@ -954,11 +947,11 @@ def apply_log(values: np.ndarray, log: Union[str, bool, float, int]) -> np.ndarr
 
 
 def prep_plot_axis(
-    values: np.ndarray, plt_range: Union[units.PlotRange, RangeType], params: Parameters
-) -> tuple[bool, np.ndarray, units.PlotRange]:
+    values: np.ndarray, plt_range: Union[PlotRange, RangeType], params: Parameters
+) -> tuple[bool, np.ndarray, PlotRange]:
     is_spectrum = values.dtype == "complex"
-    if not isinstance(plt_range, units.PlotRange):
-        plt_range = units.PlotRange(*plt_range)
+    if not isinstance(plt_range, PlotRange):
+        plt_range = PlotRange(*plt_range)
     if plt_range.unit.type in ["WL", "FREQ", "AFREQ"]:
         x_axis = params.w.copy()
     else:

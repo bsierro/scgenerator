@@ -1,5 +1,7 @@
 from scgenerator import Parameters
+from scgenerator.physics.simulate import RK4IP
 import os
+import matplotlib.pyplot as plt
 
 
 def main():
@@ -7,9 +9,13 @@ def main():
     try:
         os.chdir("/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/PCF Simulations")
 
-        pa = Parameters.load("PM1550+PM2000D/PM1550_PM2000D raman_test/initial_config_0.toml")
+        pa = Parameters.load(
+            "/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/PCF Simulations/PM1550+PM2000D/PM1550_RIN.toml"
+        )
 
-        print(pa)
+        plt.plot(pa.t, pa.field_0.imag)
+        plt.plot(pa.t, pa.field_0.real)
+        plt.show()
     finally:
         os.chdir(cwd)
 

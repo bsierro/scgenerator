@@ -10,7 +10,7 @@ from typing import Tuple
 import numpy as np
 
 from ..initialize import validate_config_sequence
-from ..io import Paths
+from ..utils import Paths
 from ..utils.parameter import BareConfig
 
 

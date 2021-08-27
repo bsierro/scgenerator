@@ -1,21 +1,23 @@
 import datetime as datetime_module
 import inspect
 import itertools
+import os
 import re
 from collections import defaultdict
 from copy import copy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields, replace
 from functools import lru_cache
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, TypeVar, Union
-import os
-import numpy as np
-from tqdm.std import Bar
+from pathlib import Path
+from typing import Any, Callable, Iterable, Optional, TypeVar, Union, Iterator
+from copy import deepcopy
 
-from .. import math
-from ..const import __version__
+import numpy as np
+
+from .. import math, utils
+from ..const import PARAM_SEPARATOR, __version__
 from ..logger import get_logger
-from .. import io
 from ..physics import fiber, materials, pulse, units
+from ..errors import EvaluatorError, NoDefaultError
 
 T = TypeVar("T")
 
@@ -99,7 +101,7 @@ def int_pair(name, t):
     invalid = len(t) != 2
     for m in t:
         if invalid or not isinstance(m, int):
-            raise ValueError(f"{name!r} must be a list or a tuple of 2 int")
+            raise ValueError(f"{name!r} must be a list or a tuple of 2 int. got {t!r} instead")
 
 
 @type_checker(tuple, list)
@@ -107,7 +109,7 @@ def float_pair(name, t):
     invalid = len(t) != 2
     for m in t:
         if invalid or not isinstance(m, (int, float)):
-            raise ValueError(f"{name!r} must be a list or a tuple of 2 numbers")
+            raise ValueError(f"{name!r} must be a list or a tuple of 2 numbers. got {t!r} instead")
 
 
 def literal(*l):
@@ -235,8 +237,9 @@ class Parameter:
 
     def __set__(self, instance, value):
         if isinstance(value, Parameter):
-            defaut = None if self.default is None else copy(self.default)
-            instance.__dict__[self.name] = defaut
+            # defaut = None if self.default is None else copy(self.default)
+            # instance.__dict__[self.name] = defaut
+            instance.__dict__[self.name] = None
         else:
             if value is not None:
                 self.validator(self.name, value)
@@ -356,6 +359,7 @@ mandatory_parameters = [
     "w_power_fact",
     "alpha",
     "spec_0",
+    "field_0",
     "z_targets",
     "length",
     "beta2_coefficients",
@@ -364,7 +368,7 @@ mandatory_parameters = [
     "raman_type",
     "hr_w",
     "adapt_step_size",
-    "tollerated_error",
+    "tolerated_error",
     "dynamic_dispersion",
     "recovery_last_stored",
 ]
@@ -394,8 +398,8 @@ class Parameters:
     pitch: float = Parameter(in_range_excl(0, 1e-3))
     pitch_ratio: float = Parameter(in_range_excl(0, 1))
     core_radius: float = Parameter(in_range_excl(0, 1e-3))
-    he_mode: Tuple[int, int] = Parameter(int_pair, default=(1, 1))
-    fit_parameters: Tuple[int, int] = Parameter(int_pair, default=(0.08, 200e-9))
+    he_mode: tuple[int, int] = Parameter(int_pair, default=(1, 1))
+    fit_parameters: tuple[int, int] = Parameter(int_pair, default=(0.08, 200e-9))
     beta2_coefficients: Iterable[float] = Parameter(num_list)
     dispersion_file: str = Parameter(string)
     model: str = Parameter(
@@ -430,6 +434,7 @@ class Parameters:
     shape: str = Parameter(literal("gaussian", "sech"), default="gaussian")
     wavelength: float = Parameter(in_range_incl(100e-9, 3000e-9), display_info=(1e9, "nm"))
     intensity_noise: float = Parameter(in_range_incl(0, 1), display_info=(1e2, "%"), default=0)
+    noise_correlation: float = Parameter(in_range_incl(-10, 10), default=0)
     width: float = Parameter(in_range_excl(0, 1e-9), display_info=(1e15, "fs"))
     t0: float = Parameter(in_range_excl(0, 1e-9), display_info=(1e15, "fs"))
 
@@ -446,8 +451,8 @@ class Parameters:
     time_window: float = Parameter(positive(float, int))
     dt: float = Parameter(in_range_excl(0, 5e-15))
     tolerated_error: float = Parameter(in_range_excl(1e-15, 1e-3), default=1e-11)
-    step_size: float = Parameter(positive(float, int))
-    interpolation_range: Tuple[float, float] = Parameter(float_pair)
+    step_size: float = Parameter(positive(float, int), default=0)
+    interpolation_range: tuple[float, float] = Parameter(float_pair)
     interpolation_degree: int = Parameter(positive(int), default=8)
     prev_sim_dir: str = Parameter(string)
     recovery_last_stored: int = Parameter(non_negative(int), default=0)
@@ -457,7 +462,8 @@ class Parameters:
     field_0: np.ndarray = Parameter(type_checker(np.ndarray))
     spec_0: np.ndarray = Parameter(type_checker(np.ndarray))
     beta2: float = Parameter(type_checker(int, float))
-    alpha: np.ndarray = Parameter(type_checker(np.ndarray))
+    alpha_arr: np.ndarray = Parameter(type_checker(np.ndarray))
+    alpha: float = Parameter(positive(float, int), default=0)
     gamma_arr: np.ndarray = Parameter(type_checker(np.ndarray))
     A_eff_arr: np.ndarray = Parameter(type_checker(np.ndarray))
     w: np.ndarray = Parameter(type_checker(np.ndarray))
@@ -475,12 +481,12 @@ class Parameters:
     hr_w: np.ndarray = Parameter(type_checker(np.ndarray))
     z_targets: np.ndarray = Parameter(type_checker(np.ndarray))
     const_qty: np.ndarray = Parameter(type_checker(np.ndarray))
-    beta_func: Callable[[float], List[float]] = Parameter(func_validator)
+    beta_func: Callable[[float], list[float]] = Parameter(func_validator)
     gamma_func: Callable[[float], float] = Parameter(func_validator)
     datetime: datetime_module.datetime = Parameter(type_checker(datetime_module.datetime))
     version: str = Parameter(string)
 
-    def prepare_for_dump(self) -> Dict[str, Any]:
+    def prepare_for_dump(self) -> dict[str, Any]:
         param = asdict(self)
         param = Parameters.strip_params_dict(param)
         param["datetime"] = datetime_module.datetime.now()
@@ -493,16 +499,21 @@ class Parameters:
         evaluator.set(**param_dict)
         for p_name in mandatory_parameters:
             evaluator.compute(p_name)
+        valid_fields = self.all_parameters()
         for k, v in evaluator.params.items():
-            if k in param_dict:
+            if k in valid_fields:
                 setattr(self, k, v)
 
     @classmethod
+    def all_parameters(cls) -> list[str]:
+        return [f.name for f in fields(cls)]
+
+    @classmethod
     def load(cls, path: os.PathLike) -> "Parameters":
-        return cls(**io.load_toml(path))
+        return cls(**utils.load_toml(path))
 
     @staticmethod
-    def strip_params_dict(dico: Dict[str, Any]) -> Dict[str, Any]:
+    def strip_params_dict(dico: dict[str, Any]) -> dict[str, Any]:
         """prepares a dictionary for serialization. Some keys may not be preserved
         (dropped because they take a lot of space and can be exactly reconstructed)
 
@@ -543,10 +554,6 @@ class Parameters:
             del out["variable"]
 
         return out
-
-
-class EvaluatorError(Exception):
-    pass
 
 
 class Rule:
@@ -657,6 +664,12 @@ class Evaluator:
         self.params = {}
         self.eval_stats = defaultdict(EvalStat)
 
+    def get_default(self, key: str) -> Any:
+        try:
+            return getattr(Parameters, key).default
+        except AttributeError:
+            return None
+
     def compute(self, target: str) -> Any:
         """computes a target
 
@@ -679,6 +692,8 @@ class Evaluator:
         """
         value = self.params.get(target)
         if value is None:
+            prefix = "\t" * len(self.__curent_lookup)
+            # Avoid cycles
             if target in self.__curent_lookup:
                 raise EvaluatorError(
                     "cyclic dependency detected : "
@@ -689,13 +704,17 @@ class Evaluator:
                 self.__curent_lookup.add(target)
 
             if len(self.rules[target]) == 0:
-                raise EvaluatorError(f"no rule for {target}")
+                error = EvaluatorError(f"no rule for {target}")
+            else:
+                error = None
 
-            error = None
+            # try every rule until one succeeds
             for ii, rule in enumerate(
-                filter(lambda r: self.validate_condition(r), reversed(self.rules[target]))
+                filter(lambda r: self.validate_condition(r), self.rules[target])
             ):
-                self.logger.debug(f"attempt {ii+1} to compute {target}, this time using {rule!r}")
+                self.logger.debug(
+                    prefix + f"attempt {ii+1} to compute {target}, this time using {rule!r}"
+                )
                 try:
                     args = [self.compute(k) for k in rule.args]
                     returned_values = rule.func(*args)
@@ -710,16 +729,26 @@ class Evaluator:
                             or self.eval_stats[param_name].priority < param_priority
                         ):
                             self.logger.info(
-                                f"computed {param_name}={returned_value} using {rule.func.__name__} from {rule.func.__module__}"
+                                prefix
+                                + f"computed {param_name}={returned_value} using {rule.func.__name__} from {rule.func.__module__}"
                             )
                             self.params[param_name] = returned_value
-                            self.eval_stats[param_name] = param_priority
+                            self.eval_stats[param_name].priority = param_priority
                         if param_name == target:
                             value = returned_value
                     break
-                except (EvaluatorError, KeyError) as e:
+                except (EvaluatorError, KeyError, NoDefaultError) as e:
                     error = e
+                    self.logger.debug(
+                        prefix + f"error using {rule.func.__name__} : {str(error).strip()}"
+                    )
                     continue
+            else:
+                default = self.get_default(target)
+                if default is None:
+                    error = NoDefaultError(prefix + f"No default provided for {target}")
+                else:
+                    value = default
 
             if value is None and error is not None:
                 raise error
@@ -747,6 +776,107 @@ class Evaluator:
             return func
 
         return wrapper
+
+
+@dataclass
+class BareConfig(Parameters):
+    variable: dict = VariableParameter(Parameters)
+
+    def __post_init__(self):
+        pass
+
+    @classmethod
+    def load(cls, path: os.PathLike) -> "BareConfig":
+        return cls(**utils.load_toml(path))
+
+    @classmethod
+    def load_sequence(cls, *config_paths: os.PathLike) -> list["BareConfig"]:
+        """Loads a sequence of
+
+        Parameters
+        ----------
+        config_paths : os.PathLike
+            either one path (the last config containing previous_config_file parameter)
+            or a list of config path in the order they have to be simulated
+
+        Returns
+        -------
+        list[BareConfig]
+            all loaded configs
+        """
+        if config_paths[0] is None:
+            return []
+        all_configs = [cls.load(config_paths[0])]
+        if len(config_paths) == 1:
+            while True:
+                if all_configs[0].previous_config_file is not None:
+                    all_configs.insert(0, cls.load(all_configs[0].previous_config_file))
+                else:
+                    break
+        else:
+            for i, path in enumerate(config_paths[1:]):
+                all_configs.append(cls.load(path))
+                all_configs[i + 1].previous_config_file = config_paths[i]
+        return all_configs
+
+
+@dataclass
+class PlotRange:
+    left: float = Parameter(type_checker(int, float))
+    right: float = Parameter(type_checker(int, float))
+    unit: Callable[[float], float] = Parameter(units.is_unit, converter=units.get_unit)
+    conserved_quantity: bool = Parameter(boolean, default=True)
+
+    def __str__(self):
+        return f"{self.left:.1f}-{self.right:.1f} {self.unit.__name__}"
+
+
+def sort_axis(axis, plt_range: PlotRange) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
+    """
+    given an axis, returns this axis cropped according to the given range, converted and sorted
+
+    Parameters
+    ----------
+    axis : 1D array containing the original axis (usual the w or t array)
+    plt_range : tupple (min, max, conversion_function) used to crop the axis
+
+    Returns
+    -------
+    cropped : the axis cropped, converted and sorted
+    indices : indices to use to slice and sort other array in the same fashion
+    extent : tupple with min and max of cropped
+
+    Example
+    -------
+    w = np.append(np.linspace(0, -10, 20), np.linspace(0, 10, 20))
+    t = np.linspace(-10, 10, 400)
+    W, T = np.meshgrid(w, t)
+    y = np.exp(-W**2 - T**2)
+
+    # Define ranges
+    rw = (-4, 4, s)
+    rt = (-2, 6, s)
+
+    w, cw = sort_axis(w, rw)
+    t, ct = sort_axis(t, rt)
+
+    # slice y according to the given ranges
+    y = y[ct][:, cw]
+    """
+    if isinstance(plt_range, tuple):
+        plt_range = PlotRange(*plt_range)
+    r = np.array((plt_range.left, plt_range.right), dtype="float")
+
+    indices = np.arange(len(axis))[
+        (axis <= np.max(plt_range.unit(r))) & (axis >= np.min(plt_range.unit(r)))
+    ]
+    cropped = axis[indices]
+    order = np.argsort(plt_range.unit.inv(cropped))
+    indices = indices[order]
+    cropped = cropped[order]
+    out_ax = plt_range.unit.inv(cropped)
+
+    return out_ax, indices, (out_ax[0], out_ax[-1])
 
 
 def get_arg_names(func: Callable) -> list[str]:
@@ -780,6 +910,167 @@ def func_rewrite(func: Callable, kwarg_names: list[str], arg_names: list[str] = 
     return out_func
 
 
+def format_variable_list(l: list[tuple[str, Any]]):
+    joints = 2 * PARAM_SEPARATOR
+    str_list = []
+    for p_name, p_value in l:
+        ps = p_name.replace("/", "").replace(joints[0], "").replace(joints[1], "")
+        vs = (
+            format_value(p_name, p_value)
+            .replace("/", "")
+            .replace(joints[0], "")
+            .replace(joints[1], "")
+        )
+        str_list.append(ps + joints[1] + vs)
+    return joints[0].join(str_list)
+
+
+def format_value(name: str, value) -> str:
+    if value is True or value is False:
+        return str(value)
+    elif isinstance(value, (float, int)):
+        try:
+            return getattr(Parameters, name).display(value)
+        except AttributeError:
+            return format(value, ".9g")
+    elif isinstance(value, (list, tuple, np.ndarray)):
+        return "-".join([str(v) for v in value])
+    elif isinstance(value, str):
+        p = Path(value)
+        if p.exists():
+            return p.stem
+    return str(value)
+
+
+def pretty_format_value(name: str, value) -> str:
+    try:
+        return getattr(Parameters, name).display(value)
+    except AttributeError:
+        return name + PARAM_SEPARATOR + str(value)
+
+
+def pretty_format_from_sim_name(name: str) -> str:
+    """formats a pretty version of a simulation directory
+
+    Parameters
+    ----------
+    name : str
+        name of the simulation (directory name)
+
+    Returns
+    -------
+    str
+        prettier name
+    """
+    s = name.split(PARAM_SEPARATOR)
+    out = []
+    for key, value in zip(s[::2], s[1::2]):
+        try:
+            out += [key.replace("_", " "), getattr(Parameters, key).display(float(value))]
+        except (AttributeError, ValueError):
+            out.append(key + PARAM_SEPARATOR + value)
+    return PARAM_SEPARATOR.join(out)
+
+
+def variable_iterator(config: BareConfig) -> Iterator[tuple[list[tuple[str, Any]], dict[str, Any]]]:
+    """given a config with "variable" parameters, iterates through every possible combination,
+    yielding a a list of (parameter_name, value) tuples and a full config dictionary.
+
+    Parameters
+    ----------
+    config : BareConfig
+        initial config obj
+
+    Yields
+    -------
+    Iterator[tuple[list[tuple[str, Any]], dict[str, Any]]]
+        variable_list : a list of (name, value) tuple of parameter name and value that are variable.
+
+        params : a dict[str, Any] to be fed to Parameters
+    """
+    possible_keys = []
+    possible_ranges = []
+
+    for key, values in config.variable.items():
+        possible_keys.append(key)
+        possible_ranges.append(range(len(values)))
+
+    combinations = itertools.product(*possible_ranges)
+
+    for combination in combinations:
+        indiv_config = {}
+        variable_list = []
+        for i, key in enumerate(possible_keys):
+            parameter_value = config.variable[key][combination[i]]
+            indiv_config[key] = parameter_value
+            variable_list.append((key, parameter_value))
+        param_dict = asdict(config)
+        param_dict.pop("variable")
+        param_dict.update(indiv_config)
+        yield variable_list, param_dict
+
+
+def required_simulations(
+    *configs: BareConfig,
+) -> Iterator[tuple[list[tuple[str, Any]], Parameters]]:
+    """takes the output of `scgenerator.utils.variable_iterator` which is a new dict per different
+    parameter set and iterates through every single necessary simulation
+
+    Yields
+    -------
+    Iterator[tuple[list[tuple[str, Any]], dict]]
+        variable_ind : a list of (name, value) tuple of parameter name and value that are variable. The parameter
+        "num" (how many times this specific parameter set has been yielded already) and "id" (how many parameter sets
+        have been exhausted already) are added to the list to make sure every yielded list is unique.
+
+        dict : a config dictionary for one simulation
+    """
+    i = 0  # unique sim id
+    for data in itertools.product(*[variable_iterator(config) for config in configs]):
+        all_variable_only, all_params_dict = list(zip(*data))
+        params_dict = all_params_dict[0]
+        for p in all_params_dict[1:]:
+            params_dict.update({k: v for k, v in p.items() if v is not None})
+        variable_only = reduce_all_variable(all_variable_only)
+        for j in range(configs[0].repeat or 1):
+            variable_ind = [("id", i)] + variable_only + [("num", j)]
+            i += 1
+            yield variable_ind, Parameters(**params_dict)
+
+
+def reduce_all_variable(all_variable: list[list[tuple[str, Any]]]) -> list[tuple[str, Any]]:
+    out = []
+    for n, variable_list in enumerate(all_variable):
+        out += [("fiber", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[n % 26] * (n // 26 + 1)), *variable_list]
+    return out
+
+
+def override_config(new: BareConfig, old: BareConfig = None) -> BareConfig:
+    """makes sure all the parameters set in new are there, leaves untouched parameters in old"""
+    new_dict = asdict(new)
+    if old is None:
+        return BareConfig(**new_dict)
+    variable = deepcopy(old.variable)
+    new_dict = {k: v for k, v in new_dict.items() if v is not None}
+
+    for k, v in new_dict.pop("variable", {}).items():
+        variable[k] = v
+    for k in variable:
+        new_dict[k] = None
+    return replace(old, variable=variable, **new_dict)
+
+
+def final_config_from_sequence(*configs: BareConfig) -> BareConfig:
+    if len(configs) == 0:
+        raise ValueError("Must provide at least one config")
+    if len(configs) == 1:
+        return configs[0]
+    elif len(configs) == 2:
+        return override_config(*configs[::-1])
+    else:
+        return override_config(configs[-1], final_config_from_sequence(*configs[:-1]))
+
+
 default_rules: list[Rule] = [
     # Grid
     *Rule.deduce(
@@ -788,26 +1079,16 @@ default_rules: list[Rule] = [
         ["time_window", "t_num", "dt"],
         2,
     ),
+    Rule("adapt_step_size", lambda step_size: step_size == 0),
+    Rule("dynamic_dispersion", lambda pressure: isinstance(pressure, (list, tuple, np.ndarray))),
     # Pulse
     Rule("spec_0", np.fft.fft, ["field_0"]),
     Rule("field_0", np.fft.ifft, ["spec_0"]),
-    Rule("spec_0", pulse.load_previous_spectrum, priorities=3),
+    Rule("spec_0", utils.load_previous_spectrum, priorities=3),
     Rule(
         ["pre_field_0", "peak_power", "energy", "width"],
-        pulse.load_field_file,
-        [
-            "field_file",
-            "t",
-            "peak_power",
-            "energy",
-            "intensity_noise",
-            "noise_correlation",
-            "quantum_noise",
-            "w_c",
-            "w0",
-            "time_window",
-            "dt",
-        ],
+        pulse.load_and_adjust_field_file,
+        ["field_file", "t", "peak_power", "energy", "intensity_noise", "noise_correlation"],
         priorities=[2, 1, 1, 1],
     ),
     Rule("pre_field_0", pulse.initial_field, priorities=1),
@@ -818,6 +1099,7 @@ default_rules: list[Rule] = [
     ),
     Rule("peak_power", pulse.E0_to_P0, ["energy", "t0", "shape"]),
     Rule("peak_power", pulse.soliton_num_to_peak_power),
+    Rule(["width", "peak_power", "energy"], pulse.measure_custom_field),
     Rule("energy", pulse.P0_to_E0, ["peak_power", "t0", "shape"]),
     Rule("energy", pulse.mean_power_to_energy),
     Rule("t0", pulse.width_to_t0),
@@ -874,53 +1156,12 @@ default_rules: list[Rule] = [
     Rule("gamma", lambda gamma_arr: gamma_arr[0]),
     Rule("gamma_arr", fiber.gamma_parameter, ["n2", "w0", "A_eff_arr"]),
     # Fiber loss
-    Rule("alpha", fiber.compute_capillary_loss),
-    Rule("alpha", fiber.load_custom_loss),
+    Rule("alpha_arr", fiber.compute_capillary_loss),
+    Rule("alpha_arr", fiber.load_custom_loss),
+    Rule("alpha_arr", lambda alpha, t: np.ones_like(t) * alpha),
     # gas
     Rule("n_gas_2", materials.n_gas_2),
 ]
-
-
-@dataclass
-class BareConfig(Parameters):
-    variable: dict = VariableParameter(Parameters)
-
-    def __post_init__(self):
-        pass
-
-    @classmethod
-    def load(cls, path: os.PathLike) -> "BareConfig":
-        return cls(**io.load_toml(path))
-
-    @classmethod
-    def load_sequence(cls, *config_paths: os.PathLike) -> list["BareConfig"]:
-        """Loads a sequence of
-
-        Parameters
-        ----------
-        config_paths : os.PathLike
-            either one path (the last config containing previous_config_file parameter)
-            or a list of config path in the order they have to be simulated
-
-        Returns
-        -------
-        list[BareConfig]
-            all loaded configs
-        """
-        if config_paths[0] is None:
-            return []
-        all_configs = [cls.load(config_paths[0])]
-        if len(config_paths) == 1:
-            while True:
-                if all_configs[0].previous_config_file is not None:
-                    all_configs.insert(0, cls.load(all_configs[0].previous_config_file))
-                else:
-                    break
-        else:
-            for i, path in enumerate(config_paths[1:]):
-                all_configs.append(cls.load(path))
-                all_configs[i + 1].previous_config_file = config_paths[i]
-        return all_configs
 
 
 if __name__ == "__main__":

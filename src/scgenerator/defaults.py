@@ -1,34 +1,6 @@
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-default_parameters = dict(
-    input_transmission=1.0,
-    name="no name",
-    he_mode=(1, 1),
-    fit_parameters=(0.08, 200e-9),
-    model="custom",
-    length=1,
-    n2=2.2e-20,
-    capillary_resonance_strengths=[],
-    capillary_nested=0,
-    gas_name="vacuum",
-    plasma_density=0,
-    pressure=1e5,
-    temperature=300,
-    quantum_noise=False,
-    intensity_noise=0,
-    shape="gaussian",
-    frep=40e6,
-    behaviors=["spm", "ss"],
-    raman_type="agrawal",
-    parallel=True,
-    repeat=1,
-    tolerated_error=1e-11,
-    interpolation_degree=8,
-    interpolation_range=(200e-9, 3000e-9),
-    ideal_gas=False,
-    recovery_last_stored=0,
-)
 
 default_plotting = dict(
     figsize=(10, 7),

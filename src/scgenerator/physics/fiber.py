@@ -8,7 +8,7 @@ from scipy.interpolate import interp1d
 
 from ..logger import get_logger
 
-from .. import io
+from .. import utils
 from ..math import abs2, argclosest, power_fact, u_nm
 from ..utils.cache import np_cache
 from . import materials as mat
@@ -247,7 +247,7 @@ def n_eff_hasan(
 
     n_eff_2 = n_gas_2 - (u * wl_for_disp / (pipi * R_eff)) ** 2
 
-    chi_sil = mat.sellmeier(wl_for_disp, io.load_material_dico("silica"))
+    chi_sil = mat.sellmeier(wl_for_disp, utils.load_material_dico("silica"))
 
     with np.errstate(divide="ignore", invalid="ignore"):
         for m, strength in enumerate(capillary_resonance_strengths):
@@ -670,7 +670,7 @@ def n_eff_pcf(wl_for_disp: np.ndarray, pitch: float, pitch_ratio: float) -> np.n
     n_eff2 = (wl_for_disp * W / (pi2a)) ** 2 + n_FSM2
     n_eff = np.sqrt(n_eff2)
 
-    material_dico = io.load_material_dico("silica")
+    material_dico = utils.load_material_dico("silica")
     chi_mat = mat.sellmeier(wl_for_disp, material_dico)
     return n_eff + np.sqrt(chi_mat + 1)
 
@@ -882,7 +882,7 @@ def delayed_raman_t(t: np.ndarray, raman_type: str) -> np.ndarray:
 
     elif raman_type == "measured":
         try:
-            path = io.Paths.get("hr_t")
+            path = utils.Paths.get("hr_t")
             loaded = np.load(path)
         except FileNotFoundError:
             print(
@@ -1090,7 +1090,7 @@ def capillary_loss(
     """
     alpha = np.zeros_like(wl_for_disp)
     mask = wl_for_disp > 0
-    chi_silica = mat.sellmeier(wl_for_disp[mask], io.load_material_dico("silica"))
+    chi_silica = mat.sellmeier(wl_for_disp[mask], utils.load_material_dico("silica"))
     nu_n = 0.5 * (chi_silica + 2) / np.sqrt(chi_silica)
     alpha[mask] = nu_n * (u_nm(*he_mode) * wl_for_disp[mask] / pipi) ** 2 * core_radius ** -3
     return alpha

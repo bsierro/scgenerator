@@ -1,22 +1,21 @@
-from itertools import cycle
 import itertools
+from itertools import cycle
 from pathlib import Path
 from typing import Any, Iterable, Optional
-from cycler import cycler
 
 import matplotlib.pyplot as plt
 import numpy as np
+from cycler import cycler
 from tqdm import tqdm
 
-from ..utils.parameter import Parameters
-from ..const import PARAM_SEPARATOR
-
-from ..initialize import ParamSequence
-from ..physics import units, fiber
-from ..spectra import Pulse
-from ..utils import pretty_format_value, pretty_format_from_sim_name, auto_crop
-from ..plotting import plot_setup
 from .. import env, math
+from ..const import PARAM_SEPARATOR
+from ..initialize import ParamSequence
+from ..physics import fiber, units
+from ..plotting import plot_setup
+from ..spectra import Pulse
+from ..utils import auto_crop
+from ..utils.parameter import Parameters, pretty_format_from_sim_name, pretty_format_value
 
 
 def fingerprint(params: Parameters):
@@ -91,7 +90,7 @@ def plot_dispersion(config_path: Path, lim: tuple[float, float] = None):
     loss_ax = None
     plt.sca(left)
     for style, lbl, params in plot_helper(config_path):
-        if params.alpha is not None and loss_ax is None:
+        if params.alpha_arr is not None and loss_ax is None:
             loss_ax = right.twinx()
         if (bbb := tuple(params.beta2_coefficients)) not in already_plotted:
             already_plotted.add(bbb)
@@ -116,7 +115,7 @@ def plot_init(
     all_labels = []
     already_plotted = set()
     for style, lbl, params in plot_helper(config_path):
-        if params.alpha is not None and loss_ax is None:
+        if params.alpha_arr is not None and loss_ax is None:
             loss_ax = tr.twinx()
         if (fp := fingerprint(params)) not in already_plotted:
             already_plotted.add(fp)
@@ -214,8 +213,8 @@ def plot_1_dispersion(
     left.set_xlabel(units.nm.label)
     right.set_xlabel("wavelength (nm)")
 
-    if params.alpha is not None and loss is not None:
-        loss.plot(1e9 * wl[m], params.alpha[m], c="r", ls="--")
+    if params.alpha_arr is not None and loss is not None:
+        loss.plot(1e9 * wl[m], params.alpha_arr[m], c="r", ls="--")
         loss.set_ylabel("loss (1/m)", color="r")
         loss.set_yscale("log")
         loss.tick_params(axis="y", labelcolor="r")

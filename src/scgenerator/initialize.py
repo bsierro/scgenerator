@@ -1,24 +1,23 @@
 import os
+from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Tuple, Union
-from collections import defaultdict
+from typing import Any, Iterator, Union
 
 import numpy as np
 
-from . import io, utils
-from .defaults import default_parameters
+from . import utils
 from .errors import *
 from .logger import get_logger
-from .utils import override_config, required_simulations
-from .utils.evaluator import Evaluator
 from .utils.parameter import (
     BareConfig,
     Parameters,
     hc_model_specific_parameters,
-    mandatory_parameters,
+    override_config,
+    required_simulations,
 )
+from scgenerator.utils import parameter
 
 
 @dataclass
@@ -188,12 +187,12 @@ class Config(BareConfig):
 
 
 class ParamSequence:
-    def __init__(self, config_dict: Union[Dict[str, Any], os.PathLike, BareConfig]):
+    def __init__(self, config_dict: Union[dict[str, Any], os.PathLike, BareConfig]):
         """creates a param sequence from a base config
 
         Parameters
         ----------
-        config_dict : Union[Dict[str, Any], os.PathLike, BareConfig]
+        config_dict : Union[dict[str, Any], os.PathLike, BareConfig]
             Can be either a dictionary, a path to a config toml file or BareConfig obj
         """
         if isinstance(config_dict, Config):
@@ -202,14 +201,14 @@ class ParamSequence:
             self.config = Config.from_bare(config_dict)
         else:
             if not isinstance(config_dict, Mapping):
-                config_dict = io.load_toml(config_dict)
+                config_dict = utils.load_toml(config_dict)
             self.config = Config(**config_dict)
         self.name = self.config.name
         self.logger = get_logger(__name__)
 
         self.update_num_sim()
 
-    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Parameters]]:
+    def __iter__(self) -> Iterator[tuple[list[tuple[str, Any]], Parameters]]:
         """iterates through all possible parameters, yielding a config as well as a flattened
         computed parameters set each time"""
         for variable_list, params in required_simulations(self.config):
@@ -242,17 +241,17 @@ class ContinuationParamSequence(ParamSequence):
         ----------
         prev_sim_dir : PathLike
             path to the folder of the previous simulation containing 'initial_config.toml'
-        new_config : Dict[str, Any]
+        new_config : dict[str, Any]
             new config
         """
         self.prev_sim_dir = Path(prev_sim_dir)
         self.bare_configs = BareConfig.load_sequence(new_config.previous_config_file)
         self.bare_configs.append(new_config)
         self.bare_configs[0] = Config.from_bare(self.bare_configs[0])
-        final_config = utils.final_config_from_sequence(*self.bare_configs)
+        final_config = parameter.final_config_from_sequence(*self.bare_configs)
         super().__init__(final_config)
 
-    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Parameters]]:
+    def __iter__(self) -> Iterator[tuple[list[tuple[str, Any]], Parameters]]:
         """iterates through all possible parameters, yielding a config as well as a flattened
         computed parameters set each time"""
         for variable_list, params in required_simulations(*self.bare_configs):
@@ -260,12 +259,12 @@ class ContinuationParamSequence(ParamSequence):
             params.prev_data_dir = str(prev_data_dir.resolve())
             yield variable_list, params
 
-    def find_prev_data_dirs(self, new_variable_list: List[Tuple[str, Any]]) -> List[Path]:
+    def find_prev_data_dirs(self, new_variable_list: list[tuple[str, Any]]) -> list[Path]:
         """finds the previous simulation data that this new config should start from
 
         Parameters
         ----------
-        new_variable_list : List[Tuple[str, Any]]
+        new_variable_list : list[tuple[str, Any]]
             as yielded by required_simulations
 
         Returns
@@ -278,7 +277,7 @@ class ContinuationParamSequence(ParamSequence):
         ValueError
             no data folder found
         """
-        new_target = set(utils.format_variable_list(new_variable_list).split()[2:])
+        new_target = set(parameter.format_variable_list(new_variable_list).split()[2:])
         path_dic = defaultdict(list)
         max_in_common = 0
         for data_dir in self.prev_sim_dir.glob("id*"):
@@ -315,7 +314,7 @@ class RecoveryParamSequence(ParamSequence):
             self.prev_variable_lists = [
                 (
                     set(variable_list[1:]),
-                    self.prev_sim_dir / utils.format_variable_list(variable_list),
+                    self.prev_sim_dir / parameter.format_variable_list(variable_list),
                 )
                 for variable_list, _ in required_simulations(init_config)
             ]
@@ -330,12 +329,12 @@ class RecoveryParamSequence(ParamSequence):
             )
             self.update_num_sim(self.num_sim * additional_sims_factor)
         not_started = self.num_sim
-        sub_folders = io.get_data_dirs(io.get_sim_dir(self.id))
+        sub_folders = utils.get_data_dirs(utils.get_sim_dir(self.id))
 
         for sub_folder in utils.PBars(
             sub_folders, "Initial recovery", head_kwargs=dict(unit="sim")
         ):
-            num_left = io.num_left_to_propagate(sub_folder, self.config.z_num)
+            num_left = utils.num_left_to_propagate(sub_folder, self.config.z_num)
             if num_left == 0:
                 self.num_sim -= 1
             self.num_steps += num_left
@@ -344,26 +343,26 @@ class RecoveryParamSequence(ParamSequence):
         self.num_steps += not_started * self.config.z_num
         self.single_sim = self.num_sim == 1
 
-    def __iter__(self) -> Iterator[Tuple[List[Tuple[str, Any]], Parameters]]:
+    def __iter__(self) -> Iterator[tuple[list[tuple[str, Any]], Parameters]]:
         for variable_list, params in required_simulations(self.config):
 
-            data_dir = io.get_sim_dir(self.id) / utils.format_variable_list(variable_list)
+            data_dir = utils.get_sim_dir(self.id) / parameter.format_variable_list(variable_list)
 
-            if not data_dir.is_dir() or io.find_last_spectrum_num(data_dir) == 0:
-                if (prev_data_dir := self.find_prev_data_dir(variable_list)) is not None:
+            if not data_dir.is_dir() or utils.find_last_spectrum_num(data_dir) == 0:
+                if (prev_data_dir := self.find_prev_data_dirs(variable_list)) is not None:
                     params.prev_data_dir = str(prev_data_dir)
                 yield variable_list, params
-            elif io.num_left_to_propagate(data_dir, self.config.z_num) != 0:
+            elif utils.num_left_to_propagate(data_dir, self.config.z_num) != 0:
                 yield variable_list, params + "Needs to rethink recovery procedure"
             else:
                 continue
 
-    def find_prev_data_dirs(self, new_variable_list: List[Tuple[str, Any]]) -> List[Path]:
+    def find_prev_data_dirs(self, new_variable_list: list[tuple[str, Any]]) -> list[Path]:
         """finds the previous simulation data that this new config should start from
 
         Parameters
         ----------
-        new_variable_list : List[Tuple[str, Any]]
+        new_variable_list : list[tuple[str, Any]]
             as yielded by required_simulations
 
         Returns
@@ -411,194 +410,3 @@ def validate_config_sequence(*configs: os.PathLike) -> tuple[str, int]:
         new_conf = config
         previous = Config.from_bare(override_config(new_conf, previous))
     return previous.name, count_variations(*configs)
-
-
-# def wspace(t, t_num=0):
-#     """frequency array such that x(t) <-> np.fft(x)(w)
-#     Parameters
-#     ----------
-#         t : float or array
-#             float : total width of the time window
-#             array : time array
-#         t_num : int-
-#             if t is a float, specifies the number of points
-#     Returns
-#     ----------
-#         w : array
-#             linspace of frencies corresponding to t
-#     """
-#     if isinstance(t, (np.ndarray, list, tuple)):
-#         dt = t[1] - t[0]
-#         t_num = len(t)
-#         t = t[-1] - t[0] + dt
-#     else:
-#         dt = t / t_num
-#     w = 2 * pi * np.arange(t_num) / t
-#     w = np.where(w >= pi / dt, w - 2 * pi / dt, w)
-#     return w
-
-
-# def tspace(time_window=None, t_num=None, dt=None):
-#     """returns a time array centered on 0
-#     Parameters
-#     ----------
-#         time_window : float
-#             total time spanned
-#         t_num : int
-#             number of points
-#         dt : float
-#             time resolution
-
-#         at least 2 arguments must be given. They are prioritize as such
-#         t_num > time_window > dt
-
-#     Returns
-#     -------
-#         t : array
-#             a linearily spaced time array
-#     Raises
-#     ------
-#         TypeError
-#             missing at least 1 argument
-#     """
-#     if t_num is not None:
-#         if isinstance(time_window, (float, int)):
-#             return np.linspace(-time_window / 2, time_window / 2, int(t_num))
-#         elif isinstance(dt, (float, int)):
-#             time_window = (t_num - 1) * dt
-#             return np.linspace(-time_window / 2, time_window / 2, t_num)
-#     elif isinstance(time_window, (float, int)) and isinstance(dt, (float, int)):
-#         t_num = int(time_window / dt) + 1
-#         return np.linspace(-time_window / 2, time_window / 2, t_num)
-#     else:
-#         raise TypeError("not enough parameter to determine time vector")
-
-
-# def recover_params(params: Parameters, data_folder: Path) -> Parameters:
-#     try:
-#         prev = Parameters.load(data_folder / "params.toml")
-#     except FileNotFoundError:
-#         prev = Parameters()
-#     for k, v in filter(lambda el: el[1] is not None, vars(prev).items()):
-#         if getattr(params, k) is None:
-#             setattr(params, k, v)
-#     num, last_spectrum = io.load_last_spectrum(data_folder)
-#     params.spec_0 = last_spectrum
-#     params.field_0 = np.fft.ifft(last_spectrum)
-#     params.recovery_last_stored = num
-#     params.cons_qty = np.load(data_folder / "cons_qty.npy")
-#     return params
-
-
-# def build_sim_grid(
-#     length: float,
-#     z_num: int,
-#     wavelength: float,
-#     deg: int,
-#     time_window: float = None,
-#     t_num: int = None,
-#     dt: float = None,
-# ) -> tuple[
-#     np.ndarray, np.ndarray, float, int, float, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray
-# ]:
-#     """computes a bunch of values that relate to the simulation grid
-
-#     Parameters
-#     ----------
-#     length : float
-#         length of the fiber in m
-#     z_num : int
-#         number of spatial points
-#     wavelength : float
-#         pump wavelength in m
-#     deg : int
-#         dispersion interpolation degree
-#     time_window : float, optional
-#         total width of the temporal grid in s, by default None
-#     t_num : int, optional
-#         number of temporal grid points, by default None
-#     dt : float, optional
-#         spacing of the temporal grid in s, by default None
-
-#     Returns
-#     -------
-#     z_targets : np.ndarray, shape (z_num, )
-#         spatial points in m
-#     t : np.ndarray, shape (t_num, )
-#         temporal points in s
-#     time_window : float
-#         total width of the temporal grid in s, by default None
-#     t_num : int
-#         number of temporal grid points, by default None
-#     dt : float
-#         spacing of the temporal grid in s, by default None
-#     w_c : np.ndarray, shape (t_num, )
-#         centered angular frequencies in rad/s where 0 is the pump frequency
-#     w0 : float
-#         pump angular frequency
-#     w : np.ndarray, shape (t_num, )
-#         actual angualr frequency grid in rad/s
-#     w_power_fact : np.ndarray, shape (deg, t_num)
-#         set of all the necessaray powers of w_c
-#     l : np.ndarray, shape (t_num)
-#         wavelengths in m
-#     """
-#     t = tspace(time_window, t_num, dt)
-
-#     time_window = t.max() - t.min()
-#     dt = t[1] - t[0]
-#     t_num = len(t)
-#     z_targets = np.linspace(0, length, z_num)
-#     w_c, w0, w, w_power_fact = update_frequency_domain(t, wavelength, deg)
-#     l = units.To.m(w)
-#     return z_targets, t, time_window, t_num, dt, w_c, w0, w, w_power_fact, l
-
-
-# def build_sim_grid_in_place(params: BareParams):
-#     """similar to calling build_sim_grid, but sets the attributes in place"""
-#     (
-#         params.z_targets,
-#         params.t,
-#         params.time_window,
-#         params.t_num,
-#         params.dt,
-#         params.w_c,
-#         params.w0,
-#         params.w,
-#         params.w_power_fact,
-#         params.l,
-#     ) = build_sim_grid(
-#         params.length,
-#         params.z_num,
-#         params.wavelength,
-#         params.interpolation_degree,
-#         params.time_window,
-#         params.t_num,
-#         params.dt,
-#     )
-
-
-# def update_frequency_domain(
-#     t: np.ndarray, wavelength: float, deg: int
-# ) -> Tuple[np.ndarray, float, np.ndarray, np.ndarray]:
-#     """updates the frequency grid
-
-#     Parameters
-#     ----------
-#     t : np.ndarray
-#         time array
-#     wavelength : float
-#         wavelength
-#     deg : int
-#         interpolation degree of the dispersion
-
-#     Returns
-#     -------
-#     Tuple[np.ndarray, float, np.ndarray, np.ndarray]
-#         w_c, w0, w, w_power_fact
-#     """
-#     w_c = wspace(t)
-#     w0 = units.m(wavelength)
-#     w = w_c + w0
-#     w_power_fact = np.array([power_fact(w_c, k) for k in range(2, deg + 3)])
-#     return w_c, w0, w, w_power_fact

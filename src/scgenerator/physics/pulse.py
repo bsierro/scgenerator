@@ -11,25 +11,23 @@ n is the number of spectra at the same z position and nt is the size of the time
 
 import itertools
 import os
+from dataclasses import astuple, dataclass, fields
 from pathlib import Path
 from typing import Literal, Tuple, TypeVar
-from collections import namedtuple
-from dataclasses import dataclass, astuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy import pi
 from numpy.fft import fft, fftshift, ifft
-from scipy import optimize
 from scipy.interpolate import UnivariateSpline
 from scipy.optimize import minimize_scalar
 from scipy.optimize.optimize import OptimizeResult
 
-from .. import io
+from scgenerator import utils
+
 from ..defaults import default_plotting
 from ..logger import get_logger
 from ..math import *
-from ..plotting import plot_setup
 from . import units
 
 c = 299792458.0
@@ -317,30 +315,33 @@ def L_sol(L_D):
     return pi / 2 * L_D
 
 
-def load_previous_spectrum(prev_data_dir: str) -> np.ndarray:
-    num = utils.find_last_spectrum_num(data_dir)
-    return np.load(data_dir / SPEC1_FN.format(num))
-
-
-def load_field_file(
+def load_and_adjust_field_file(
     field_file: str,
     t: np.ndarray,
-    peak_power: float,
-    energy: float,
     intensity_noise: float,
     noise_correlation: float,
+    energy: float = None,
+    peak_power: float = None,
 ) -> np.ndarray:
-    field_data = np.load(field_file)
-    field_interp = interp1d(
-        field_data["time"], field_data["field"], bounds_error=False, fill_value=(0, 0)
-    )
-    field_0 = field_interp(t)
+    field_0 = load_field_file(field_file, t)
+    if energy is not None:
+        curr_energy = np.trapz(abs2(field_0), t)
+        field_0 *= 
 
     field_0 = field_0 * modify_field_ratio(
         t, field_0, peak_power, energy, intensity_noise, noise_correlation
     )
     width, peak_power, energy = measure_field(t, field_0)
     return field_0, peak_power, energy, width
+
+
+def load_field_file(field_file: str, t: np.ndarray) -> np.ndarray:
+    field_data = np.load(field_file)
+    field_interp = interp1d(
+        field_data["time"], field_data["field"], bounds_error=False, fill_value=(0, 0)
+    )
+    field_0 = field_interp(t)
+    return field_0
 
 
 def correct_wavelength(init_wavelength: float, w_c: np.ndarray, field_0: np.ndarray) -> float:
@@ -908,7 +909,7 @@ def _detailed_find_lobe_limits(
     # if the final measurement is good or not
 
     out_path, fig, ax = (
-        plot_setup(out_path=f"measurement_errors_plots/it_{iterations}_{debug}")
+        (Path(f"measurement_errors_plots/it_{iterations}_{debug}"), *plt.subplots())
         if debug != ""
         else (None, None, None)
     )
@@ -1053,6 +1054,10 @@ def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float
     peak_power = intensity.max()
     energy = np.trapz(intensity, t)
     return fwhm, peak_power, energy
+
+
+def measure_custom_field(field_file: str, t: np.ndarray) -> float:
+    return measure_field(t, load_field_file(field_file, t))[0]
 
 
 def remove_2nd_order_dispersion(

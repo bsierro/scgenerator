@@ -5,14 +5,14 @@ from scipy.integrate import cumulative_trapezoid
 
 from ..logger import get_logger
 from . import units
-from .. import io
+from .. import utils
 from .units import NA, c, kB, me, e, hbar
 
 
 def n_gas_2(
     wl_for_disp: np.ndarray, gas: str, pressure: float, temperature: float, ideal_gas: bool
 ):
-    material_dico = io.load_material_dico(gas)
+    material_dico = utils.load_material_dico(gas)
 
     if ideal_gas:
         n_gas_2 = sellmeier(wl_for_disp, material_dico, pressure, temperature) + 1
@@ -103,7 +103,7 @@ def sellmeier(lambda_, material_dico, pressure=None, temperature=None):
     Parameters
     ----------
         lambda_ : wl vector over which to compute the refractive index
-        material_dico : material dictionary as explained in scgenerator.io.load_material_dico
+        material_dico : material dictionary as explained in scgenerator.utils.load_material_dico
         pressure : pressure in mbar if material is a gas. Can be a constant or a tupple if a presure gradient is considered
         temperature : temperature of the gas in Kelvin
     Returns
@@ -150,7 +150,7 @@ def delta_gas(w, material_dico):
     Parameters
     ----------
         w : angular frequency array
-        material_dico : material dictionary as explained in scgenerator.io.load_material_dico
+        material_dico : material dictionary as explained in scgenerator.utils.load_material_dico
     Returns
     ----------
         delta_t

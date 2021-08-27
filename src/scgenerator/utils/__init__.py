@@ -4,31 +4,427 @@ scgenerator module but some function may be used in any python program
 
 """
 
+from __future__ import annotations
+
 import itertools
 import multiprocessing
 import os
 import random
 import re
+import shutil
 import threading
 from collections import abc
-from copy import deepcopy
-from dataclasses import asdict, replace
 from io import StringIO
 from pathlib import Path
-from typing import Any, Iterable, Iterator, TypeVar, Union
-from ..errors import IncompleteDataFolderError
+from typing import Any, Callable, Generator, Iterable, Sequence, TypeVar, Union
 
 import numpy as np
-from numpy.lib.arraysetops import isin
+import pkg_resources as pkg
+import toml
 from tqdm import tqdm
 
-from .. import env
-from ..const import PARAM_SEPARATOR, SPEC1_FN
-from ..math import *
-from .. import io
-from .parameter import BareConfig, Parameters
+from ..const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, SPECN_FN, Z_FN, __version__
+from ..env import TMP_FOLDER_KEY_BASE, data_folder, pbar_policy
+from ..errors import IncompleteDataFolderError
+from ..logger import get_logger
+
 
 T_ = TypeVar("T_")
+
+PathTree = list[tuple[Path, ...]]
+
+
+class Paths:
+    _data_files = [
+        "silica.toml",
+        "gas.toml",
+        "hr_t.npz",
+        "submit_job_template.txt",
+        "start_worker.sh",
+        "start_head.sh",
+    ]
+
+    paths = {
+        f.split(".")[0]: os.path.abspath(
+            pkg.resource_filename("scgenerator", os.path.join("data", f))
+        )
+        for f in _data_files
+    }
+
+    @classmethod
+    def get(cls, key):
+        if key not in cls.paths:
+            if os.path.exists("paths.toml"):
+                with open("paths.toml") as file:
+                    paths_dico = toml.load(file)
+                for k, v in paths_dico.items():
+                    cls.paths[k] = v
+        if key not in cls.paths:
+            get_logger(__name__).info(
+                f"{key} was not found in path index, returning current working directory."
+            )
+            cls.paths[key] = os.getcwd()
+
+        return cls.paths[key]
+
+    @classmethod
+    def gets(cls, key):
+        """returned the specified file as a string"""
+        with open(cls.get(key)) as file:
+            return file.read()
+
+    @classmethod
+    def plot(cls, name):
+        """returns the paths to the specified plot. Used to save new plot
+        example
+        ---------
+        fig.savefig(Paths.plot("figure5.pdf"))
+        """
+        return os.path.join(cls.get("plots"), name)
+
+
+def load_previous_spectrum(prev_data_dir: str) -> np.ndarray:
+    num = find_last_spectrum_num(prev_data_dir)
+    return np.load(prev_data_dir / SPEC1_FN.format(num))
+
+
+def conform_toml_path(path: os.PathLike) -> Path:
+    path = Path(path)
+    if not path.name.lower().endswith(".toml"):
+        path = path.parent / (path.name + ".toml")
+    return path
+
+
+def load_toml(path: os.PathLike):
+    """returns a dictionary parsed from the specified toml file"""
+    path = conform_toml_path(path)
+    with open(path, mode="r") as file:
+        dico = toml.load(file)
+    dico.setdefault("variable", {})
+    for key in {"simulation", "fiber", "gas", "pulse"} & dico.keys():
+        section = dico.pop(key, {})
+        dico["variable"].update(section.pop("variable", {}))
+        dico.update(section)
+    if len(dico["variable"]) == 0:
+        dico.pop("variable")
+    return dico
+
+
+def save_toml(path: os.PathLike, dico):
+    """saves a dictionary into a toml file"""
+    path = conform_toml_path(path)
+    with open(path, mode="w") as file:
+        toml.dump(dico, file)
+    return dico
+
+
+def save_parameters(
+    params: dict[str, Any], destination_dir: Path, file_name: str = "params.toml"
+) -> Path:
+    """saves a parameter dictionary. Note that is does remove some entries, particularly
+    those that take a lot of space ("t", "w", ...)
+
+    Parameters
+    ----------
+    params : dict[str, Any]
+        dictionary to save
+    destination_dir : Path
+        destination directory
+
+    Returns
+    -------
+    Path
+        path to newly created the paramter file
+    """
+    file_path = destination_dir / file_name
+
+    file_path.parent.mkdir(exist_ok=True)
+
+    # save toml of the simulation
+    with open(file_path, "w") as file:
+        toml.dump(params, file, encoder=toml.TomlNumpyEncoder())
+
+    return file_path
+
+
+def load_material_dico(name: str) -> dict[str, Any]:
+    """loads a material dictionary
+    Parameters
+    ----------
+        name : str
+            name of the material
+    Returns
+    ----------
+        material_dico : dict
+    """
+    if name == "silica":
+        return toml.loads(Paths.gets("silica"))
+    else:
+        return toml.loads(Paths.gets("gas"))[name]
+
+
+def get_data_dirs(sim_dir: Path) -> list[Path]:
+    """returns a list of absolute paths corresponding to a particular run
+
+    Parameters
+    ----------
+    sim_dir : Path
+        path to directory containing the initial config file and the spectra sub folders
+
+    Returns
+    -------
+    list[Path]
+        paths to sub folders
+    """
+
+    return [p.resolve() for p in sim_dir.glob("*") if p.is_dir()]
+
+
+def update_appended_params(source: Path, destination: Path, z: Sequence):
+    z_num = len(z)
+    params = load_toml(source)
+    if "simulation" in params:
+        params["simulation"]["z_num"] = z_num
+        params["fiber"]["length"] = float(z[-1] - z[0])
+    else:
+        params["z_num"] = z_num
+        params["length"] = float(z[-1] - z[0])
+    save_toml(destination, params)
+
+
+def build_path_trees(sim_dir: Path) -> list[PathTree]:
+    sim_dir = sim_dir.resolve()
+    path_branches: list[tuple[Path, ...]] = []
+    to_check = list(sim_dir.glob("id*num*"))
+    with PBars(len(to_check), desc="Building path trees") as pbar:
+        for branch in map(build_path_branch, to_check):
+            if branch is not None:
+                path_branches.append(branch)
+                pbar.update()
+    path_trees = group_path_branches(path_branches)
+    return path_trees
+
+
+def build_path_branch(data_dir: Path) -> tuple[Path, ...]:
+    if not data_dir.is_dir():
+        return None
+    path_branch = [data_dir]
+    while (prev_sim_path := load_toml(path_branch[-1] / PARAM_FN).get("prev_data_dir")) is not None:
+        p = Path(prev_sim_path).resolve()
+        if not p.exists():
+            p = Path(*p.parts[-2:]).resolve()
+        path_branch.append(p)
+    return tuple(reversed(path_branch))
+
+
+def group_path_branches(path_branches: list[tuple[Path, ...]]) -> list[PathTree]:
+    """groups path lists
+
+    [
+        ("a/id 0 wavelength 100 num 0"," b/id 0 wavelength 100 num 0"),
+        ("a/id 2 wavelength 100 num 1"," b/id 2 wavelength 100 num 1"),
+        ("a/id 1 wavelength 200 num 0"," b/id 1 wavelength 200 num 0"),
+        ("a/id 3 wavelength 200 num 1"," b/id 3 wavelength 200 num 1")
+    ]
+    ->
+    [
+        (
+            ("a/id 0 wavelength 100 num 0", "a/id 2 wavelength 100 num 1"),
+            ("b/id 0 wavelength 100 num 0", "b/id 2 wavelength 100 num 1"),
+        )
+        (
+            ("a/id 1 wavelength 200 num 0", "a/id 3 wavelength 200 num 1"),
+            ("b/id 1 wavelength 200 num 0", "b/id 3 wavelength 200 num 1"),
+        )
+    ]
+
+
+    Parameters
+    ----------
+    path_branches : list[tuple[Path, ...]]
+        each element of the list is a path to a folder containing data of one simulation
+
+    Returns
+    -------
+    list[PathTree]
+        list of PathTrees to be used in merge
+    """
+    sort_key = lambda el: el[0]
+
+    size = len(path_branches[0])
+    out_trees_map: dict[str, dict[int, dict[int, Path]]] = {}
+    for branch in path_branches:
+        b_id = branch_id(branch)
+        out_trees_map.setdefault(b_id, {i: {} for i in range(size)})
+        for sim_part, data_dir in enumerate(branch):
+            *_, num = data_dir.name.split()
+            out_trees_map[b_id][sim_part][int(num)] = data_dir
+
+    return [
+        tuple(
+            tuple(w for _, w in sorted(v.items(), key=sort_key))
+            for __, v in sorted(d.items(), key=sort_key)
+        )
+        for d in out_trees_map.values()
+    ]
+
+
+def merge_path_tree(
+    path_tree: PathTree, destination: Path, z_callback: Callable[[int], None] = None
+):
+    """given a path tree, copies the file into the right location
+
+    Parameters
+    ----------
+    path_tree : PathTree
+        elements of the list returned by group_path_branches
+    destination : Path
+        dir where to save the data
+    """
+    z_arr: list[float] = []
+
+    destination.mkdir(exist_ok=True)
+
+    for i, (z, merged_spectra) in enumerate(merge_spectra(path_tree)):
+        z_arr.append(z)
+        spec_out_name = SPECN_FN.format(i)
+        np.save(destination / spec_out_name, merged_spectra)
+        if z_callback is not None:
+            z_callback(i)
+    d = np.diff(z_arr)
+    d[d < 0] = 0
+    z_arr = np.concatenate(([z_arr[0]], np.cumsum(d)))
+    np.save(destination / Z_FN, z_arr)
+    update_appended_params(path_tree[-1][0] / PARAM_FN, destination / PARAM_FN, z_arr)
+
+
+def merge_spectra(
+    path_tree: PathTree,
+) -> Generator[tuple[float, np.ndarray], None, None]:
+    for same_sim_paths in path_tree:
+        z_arr = np.load(same_sim_paths[0] / Z_FN)
+        for i, z in enumerate(z_arr):
+            spectra: list[np.ndarray] = []
+            for data_dir in same_sim_paths:
+                spec = np.load(data_dir / SPEC1_FN.format(i))
+                spectra.append(spec)
+            yield z, np.atleast_2d(spectra)
+
+
+def merge(destination: os.PathLike, path_trees: list[PathTree] = None):
+
+    destination = ensure_folder(Path(destination))
+
+    z_num = 0
+    prev_z_num = 0
+
+    for i, sim_dir in enumerate(sim_dirs(path_trees)):
+        conf = sim_dir / "initial_config.toml"
+        shutil.copy(
+            conf,
+            destination / f"initial_config_{i}.toml",
+        )
+        prev_z_num = load_toml(conf).get("z_num", prev_z_num)
+        z_num += prev_z_num
+
+    pbars = PBars(
+        len(path_trees) * z_num, "Merging", 1, worker_kwargs=dict(total=z_num, desc="current pos")
+    )
+    for path_tree in path_trees:
+        pbars.reset(1)
+        iden = PARAM_SEPARATOR.join(path_tree[-1][0].name.split()[2:-2])
+        merge_path_tree(path_tree, destination / iden, z_callback=lambda i: pbars.update(1))
+
+
+def sim_dirs(path_trees: list[PathTree]) -> Generator[Path, None, None]:
+    for p in path_trees[0]:
+        yield p[0].parent
+
+
+def get_sim_dir(task_id: int, path_if_new: Path = None) -> Path:
+    if path_if_new is None:
+        path_if_new = Path("scgenerator data")
+    tmp = data_folder(task_id)
+    if tmp is None:
+        tmp = ensure_folder(path_if_new)
+        os.environ[TMP_FOLDER_KEY_BASE + str(task_id)] = str(tmp)
+    tmp = Path(tmp).resolve()
+    if not tmp.exists():
+        tmp.mkdir()
+    return tmp
+
+
+def set_data_folder(task_id: int, path: os.PathLike):
+    """stores the path to an existing data folder in the environment
+
+    Parameters
+    ----------
+    task_id : int
+        id uniquely identifying the session
+    path : str
+        path to the root of the data folder
+    """
+    idstr = str(int(task_id))
+    os.environ[TMP_FOLDER_KEY_BASE + idstr] = str(path)
+
+
+def save_data(data: np.ndarray, data_dir: Path, file_name: str):
+    """saves numpy array to disk
+
+    Parameters
+    ----------
+    data : np.ndarray
+        data to save
+    file_name : str
+        file name
+    task_id : int
+        id that uniquely identifies the process
+    identifier : str, optional
+        identifier in the main data folder of the task, by default ""
+    """
+    path = data_dir / file_name
+    np.save(path, data)
+    get_logger(__name__).debug(f"saved data in {path}")
+    return
+
+
+def ensure_folder(path: Path, prevent_overwrite: bool = True) -> Path:
+    """ensure a folder exists and doesn't overwrite anything if required
+
+    Parameters
+    ----------
+    path : Path
+        desired path
+    prevent_overwrite : bool, optional
+        whether to create a new directory when one already exists, by default True
+
+    Returns
+    -------
+    Path
+        final path
+    """
+
+    path = path.resolve()
+
+    # is path root ?
+    if len(path.parts) < 2:
+        return path
+
+    # is a part of path an existing *file* ?
+    parts = path.parts
+    path = Path(path.root)
+    for part in parts:
+        if path.is_file():
+            path = ensure_folder(path, prevent_overwrite=False)
+        path /= part
+
+    folder_name = path.name
+
+    for i in itertools.count():
+        if not path.is_file() and (not prevent_overwrite or not path.is_dir()):
+            path.mkdir(exist_ok=True)
+            return path
+        path = path.parent / (folder_name + f"_{i}")
 
 
 class PBars:
@@ -53,7 +449,7 @@ class PBars:
             self.num_tot: int = task
             self.iterator = None
 
-        self.policy = env.pbar_policy()
+        self.policy = pbar_policy()
         if head_kwargs is None:
             head_kwargs = dict()
         if worker_kwargs is None:
@@ -62,7 +458,7 @@ class PBars:
                 desc="Worker {worker_id}",
                 bar_format="{l_bar}{bar}" "|[{elapsed}<{remaining}, " "{rate_fmt}{postfix}]",
             )
-        if "print" not in env.pbar_policy():
+        if "print" not in pbar_policy():
             head_kwargs["file"] = worker_kwargs["file"] = StringIO()
             self.width = 80
         head_kwargs["desc"] = desc
@@ -190,70 +586,8 @@ def progress_worker(
             pbars[0].update()
 
 
-def format_variable_list(l: list[tuple[str, Any]]):
-    joints = 2 * PARAM_SEPARATOR
-    str_list = []
-    for p_name, p_value in l:
-        ps = p_name.replace("/", "").replace(joints[0], "").replace(joints[1], "")
-        vs = (
-            format_value(p_name, p_value)
-            .replace("/", "")
-            .replace(joints[0], "")
-            .replace(joints[1], "")
-        )
-        str_list.append(ps + joints[1] + vs)
-    return joints[0].join(str_list)
-
-
 def branch_id(branch: tuple[Path, ...]) -> str:
     return "".join("".join(re.sub(r"id\d+\S*num\d+", "", b.name).split()[2:-2]) for b in branch)
-
-
-def format_value(name: str, value) -> str:
-    if value is True or value is False:
-        return str(value)
-    elif isinstance(value, (float, int)):
-        try:
-            return getattr(Parameters, name).display(value)
-        except AttributeError:
-            return format(value, ".9g")
-    elif isinstance(value, (list, tuple, np.ndarray)):
-        return "-".join([str(v) for v in value])
-    elif isinstance(value, str):
-        p = Path(value)
-        if p.exists():
-            return p.stem
-    return str(value)
-
-
-def pretty_format_value(name: str, value) -> str:
-    try:
-        return getattr(Parameters, name).display(value)
-    except AttributeError:
-        return name + PARAM_SEPARATOR + str(value)
-
-
-def pretty_format_from_sim_name(name: str) -> str:
-    """formats a pretty version of a simulation directory
-
-    Parameters
-    ----------
-    name : str
-        name of the simulation (directory name)
-
-    Returns
-    -------
-    str
-        prettier name
-    """
-    s = name.split(PARAM_SEPARATOR)
-    out = []
-    for key, value in zip(s[::2], s[1::2]):
-        try:
-            out += [key.replace("_", " "), getattr(Parameters, key).display(float(value))]
-        except (AttributeError, ValueError):
-            out.append(key + PARAM_SEPARATOR + value)
-    return PARAM_SEPARATOR.join(out)
 
 
 def check_data_integrity(sub_folders: list[Path], init_z_num: int):
@@ -299,7 +633,7 @@ def num_left_to_propagate(sub_folder: Path, init_z_num: int) -> int:
     IncompleteDataFolderError
         raised if init_z_num doesn't match that specified in the individual parameter file
     """
-    z_num = io.load_toml(sub_folder / "params.toml")["z_num"]
+    z_num = load_toml(sub_folder / "params.toml")["z_num"]
     num_spectra = find_last_spectrum_num(sub_folder) + 1  # because of zero-indexing
 
     if z_num != init_z_num:
@@ -316,105 +650,6 @@ def find_last_spectrum_num(data_dir: Path):
         p_to_test = data_dir / SPEC1_FN.format(num)
         if not p_to_test.is_file() or os.path.getsize(p_to_test) == 0:
             return num - 1
-
-
-def variable_iterator(config: BareConfig) -> Iterator[tuple[list[tuple[str, Any]], dict[str, Any]]]:
-    """given a config with "variable" parameters, iterates through every possible combination,
-    yielding a a list of (parameter_name, value) tuples and a full config dictionary.
-
-    Parameters
-    ----------
-    config : BareConfig
-        initial config obj
-
-    Yields
-    -------
-    Iterator[tuple[list[tuple[str, Any]], dict[str, Any]]]
-        variable_list : a list of (name, value) tuple of parameter name and value that are variable.
-
-        params : a dict[str, Any] to be fed to Parameters
-    """
-    possible_keys = []
-    possible_ranges = []
-
-    for key, values in config.variable.items():
-        possible_keys.append(key)
-        possible_ranges.append(range(len(values)))
-
-    combinations = itertools.product(*possible_ranges)
-
-    for combination in combinations:
-        indiv_config = {}
-        variable_list = []
-        for i, key in enumerate(possible_keys):
-            parameter_value = config.variable[key][combination[i]]
-            indiv_config[key] = parameter_value
-            variable_list.append((key, parameter_value))
-        param_dict = asdict(config)
-        param_dict.pop("variable")
-        param_dict.update(indiv_config)
-        yield variable_list, param_dict
-
-
-def required_simulations(
-    *configs: BareConfig,
-) -> Iterator[tuple[list[tuple[str, Any]], Parameters]]:
-    """takes the output of `scgenerator.utils.variable_iterator` which is a new dict per different
-    parameter set and iterates through every single necessary simulation
-
-    Yields
-    -------
-    Iterator[tuple[list[tuple[str, Any]], dict]]
-        variable_ind : a list of (name, value) tuple of parameter name and value that are variable. The parameter
-        "num" (how many times this specific parameter set has been yielded already) and "id" (how many parameter sets
-        have been exhausted already) are added to the list to make sure every yielded list is unique.
-
-        dict : a config dictionary for one simulation
-    """
-    i = 0  # unique sim id
-    for data in itertools.product(*[variable_iterator(config) for config in configs]):
-        all_variable_only, all_params_dict = list(zip(*data))
-        params_dict = all_params_dict[0]
-        for p in all_params_dict[1:]:
-            params_dict.update({k: v for k, v in p.items() if v is not None})
-        variable_only = reduce_all_variable(all_variable_only)
-        for j in range(configs[0].repeat or 1):
-            variable_ind = [("id", i)] + variable_only + [("num", j)]
-            i += 1
-            yield variable_ind, Parameters(**params_dict)
-
-
-def reduce_all_variable(all_variable: list[list[tuple[str, Any]]]) -> list[tuple[str, Any]]:
-    out = []
-    for n, variable_list in enumerate(all_variable):
-        out += [("fiber", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[n % 26] * (n // 26 + 1)), *variable_list]
-    return out
-
-
-def override_config(new: BareConfig, old: BareConfig = None) -> BareConfig:
-    """makes sure all the parameters set in new are there, leaves untouched parameters in old"""
-    new_dict = asdict(new)
-    if old is None:
-        return BareConfig(**new_dict)
-    variable = deepcopy(old.variable)
-    new_dict = {k: v for k, v in new_dict.items() if v is not None}
-
-    for k, v in new_dict.pop("variable", {}).items():
-        variable[k] = v
-    for k in variable:
-        new_dict[k] = None
-    return replace(old, variable=variable, **new_dict)
-
-
-def final_config_from_sequence(*configs: BareConfig) -> BareConfig:
-    if len(configs) == 0:
-        raise ValueError("Must provide at least one config")
-    if len(configs) == 1:
-        return configs[0]
-    elif len(configs) == 2:
-        return override_config(*configs[::-1])
-    else:
-        return override_config(configs[-1], final_config_from_sequence(*configs[:-1]))
 
 
 def auto_crop(x: np.ndarray, y: np.ndarray, rel_thr: float = 0.01) -> np.ndarray:

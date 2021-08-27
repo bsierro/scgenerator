@@ -3,12 +3,12 @@ import os
 import random
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Type, Union
+from typing import Type
 
 import numpy as np
 
-from .. import env, initialize, io, utils
-from ..utils import Parameters, BareConfig
+from .. import env, initialize, utils
+from ..utils.parameter import Parameters, BareConfig
 from ..const import PARAM_SEPARATOR
 from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
@@ -55,7 +55,7 @@ class RK4IP:
         self.job_identifier = job_identifier
         self.id = task_id
 
-        self.sim_dir = io.get_sim_dir(self.id)
+        self.sim_dir = utils.get_sim_dir(self.id)
         self.sim_dir.mkdir(exist_ok=True)
         self.data_dir = self.sim_dir / self.job_identifier
 
@@ -68,7 +68,7 @@ class RK4IP:
         self.dw = self.w[1] - self.w[0]
         self.w0 = params.w0
         self.w_power_fact = params.w_power_fact
-        self.alpha = params.alpha
+        self.alpha = params.alpha_arr
         self.spec_0 = np.sqrt(params.input_transmission) * params.spec_0
         self.z_targets = params.z_targets
         self.z_final = params.length
@@ -81,7 +81,7 @@ class RK4IP:
         self.raman_type = params.raman_type
         self.hr_w = params.hr_w
         self.adapt_step_size = params.adapt_step_size
-        self.error_ok = params.tolerated_error
+        self.error_ok = params.tolerated_error if self.adapt_step_size else params.step_size
         self.dynamic_dispersion = params.dynamic_dispersion
         self.starting_num = params.recovery_last_stored
 
@@ -178,7 +178,7 @@ class RK4IP:
         name : str
             file name
         """
-        io.save_data(data, self.data_dir, name)
+        utils.save_data(data, self.data_dir, name)
 
     def run(self):
 
@@ -241,7 +241,7 @@ class RK4IP:
 
     def take_step(
         self, step: int, h_next_step: float, current_spectrum: np.ndarray
-    ) -> Tuple[float, float, np.ndarray]:
+    ) -> tuple[float, float, np.ndarray]:
         """computes a new spectrum, whilst adjusting step size if required, until the error estimation
         validates the new spectrum
 
@@ -385,8 +385,8 @@ class Simulations:
     New Simulations child classes can be written and must implement the following
     """
 
-    simulation_methods: List[Tuple[Type["Simulations"], int]] = []
-    simulation_methods_dict: Dict[str, Type["Simulations"]] = dict()
+    simulation_methods: list[tuple[Type["Simulations"], int]] = []
+    simulation_methods_dict: dict[str, Type["Simulations"]] = dict()
 
     def __init_subclass__(cls, priority=0, **kwargs):
         Simulations.simulation_methods.append((cls, priority))
@@ -437,16 +437,16 @@ class Simulations:
         """
         if not self.is_available():
             raise RuntimeError(f"{self.__class__} is currently not available")
-        self.logger = io.get_logger(__name__)
+        self.logger = get_logger(__name__)
         self.id = int(task_id)
 
         self.update(param_seq)
 
         self.name = self.param_seq.name
-        self.sim_dir = io.get_sim_dir(
+        self.sim_dir = utils.get_sim_dir(
             self.id, path_if_new=Path(self.name + PARAM_SEPARATOR + "tmp")
         )
-        io.save_parameters(
+        utils.save_parameters(
             self.param_seq.config.prepare_for_dump(), self.sim_dir, file_name="initial_config.toml"
         )
 
@@ -455,7 +455,9 @@ class Simulations:
     @property
     def finished_and_complete(self):
         try:
-            io.check_data_integrity(io.get_data_dirs(self.sim_dir), self.param_seq.config.z_num)
+            utils.check_data_integrity(
+                utils.get_data_dirs(self.sim_dir), self.param_seq.config.z_num
+            )
             return True
         except IncompleteDataFolderError:
             return False
@@ -470,7 +472,7 @@ class Simulations:
     def _run_available(self):
         for variable, params in self.param_seq:
             v_list_str = utils.format_variable_list(variable)
-            io.save_parameters(params.prepare_for_dump(), self.sim_dir / v_list_str)
+            utils.save_parameters(params.prepare_for_dump(), self.sim_dir / v_list_str)
 
             self.new_sim(v_list_str, params)
         self.finish()
@@ -582,7 +584,7 @@ class MultiProcSimulations(Simulations, priority=1):
         p_queue: multiprocessing.Queue,
     ):
         while True:
-            raw_data: Tuple[List[tuple], Parameters] = queue.get()
+            raw_data: tuple[list[tuple], Parameters] = queue.get()
             if raw_data == 0:
                 queue.task_done()
                 return
@@ -695,17 +697,17 @@ def run_simulation_sequence(
         sim = new_simulation(config, prev, method)
         sim.run()
         prev = sim.sim_dir
-    path_trees = io.build_path_trees(sim.sim_dir)
+    path_trees = utils.build_path_trees(sim.sim_dir)
 
     final_name = env.get(env.OUTPUT_PATH)
     if final_name is None:
         final_name = config.name
 
-    io.merge(final_name, path_trees)
+    utils.merge(final_name, path_trees)
 
 
 def new_simulation(
-    config: utils.BareConfig,
+    config: BareConfig,
     prev_sim_dir=None,
     method: Type[Simulations] = None,
 ) -> Simulations:
@@ -729,8 +731,8 @@ def new_simulation(
 def resume_simulations(sim_dir: Path, method: Type[Simulations] = None) -> Simulations:
 
     task_id = random.randint(1e9, 1e12)
-    config = io.load_toml(sim_dir / "initial_config.toml")
-    io.set_data_folder(task_id, sim_dir)
+    config = utils.load_toml(sim_dir / "initial_config.toml")
+    utils.set_data_folder(task_id, sim_dir)
     param_seq = initialize.RecoveryParamSequence(config, task_id)
 
     return Simulations.new(param_seq, task_id, method)

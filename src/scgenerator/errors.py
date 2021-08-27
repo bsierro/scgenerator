@@ -34,3 +34,11 @@ class DuplicateParameterError(Exception):
 
 class IncompleteDataFolderError(FileNotFoundError):
     pass
+
+
+class EvaluatorError(Exception):
+    pass
+
+
+class NoDefaultError(Exception):
+    pass

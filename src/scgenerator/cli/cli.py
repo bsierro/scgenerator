@@ -6,7 +6,7 @@ import re
 
 import numpy as np
 
-from .. import env, io, scripts
+from .. import env, utils, scripts
 from ..logger import get_logger
 from ..physics.fiber import dispersion_coefficients
 from ..physics.simulate import SequencialSimulations, resume_simulations, run_simulation_sequence
@@ -150,13 +150,13 @@ def run_sim(args):
 
 
 def merge(args):
-    path_trees = io.build_path_trees(Path(args.path))
+    path_trees = utils.build_path_trees(Path(args.path))
 
     output = env.output_path()
     if output is None:
         output = path_trees[0][-1][0].parent.name + " merged"
 
-    io.merge(output, path_trees)
+    utils.merge(output, path_trees)
 
 
 def prep_ray():

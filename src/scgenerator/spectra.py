@@ -6,12 +6,12 @@ from typing import Callable, Dict, Iterable, Union
 import matplotlib.pyplot as plt
 import numpy as np
 
-from . import initialize, io, math
+from . import initialize, math
 from .const import SPECN_FN
 from .logger import get_logger
 from .physics import pulse, units
 from .plotting import mean_values_plot, propagation_plot, single_position_plot
-from .utils.parameter import Parameters
+from .utils.parameter import Parameters, PlotRange
 
 
 class Spectrum(np.ndarray):
@@ -347,7 +347,7 @@ class Pulse(Sequence):
         return mean_values_plot(vals, plt_range, self.params, ax, **kwargs)
 
     def retrieve_plot_values(self, left, right, unit, z_pos, sim_ind):
-        plt_range = units.PlotRange(left, right, unit)
+        plt_range = PlotRange(left, right, unit)
         if plt_range.unit.type == "TIME":
             vals = self.all_fields(ind=z_pos)
         else:
