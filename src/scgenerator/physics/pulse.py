@@ -394,7 +394,7 @@ def pulse_energy_with_loss(spectrum, dw, alpha, h) -> float:
     return np.sum(spec2 * dw) - h * np.sum(alpha * spec2 * dw)
 
 
-def technical_noise(rms_noise, relative_factor=0.4):
+def technical_noise(rms_noise, noise_correlation=-0.4):
     """
     To implement technical noise as described in Grenier2019, we need to know the
     noise properties of the laser, summarized into the RMS amplitude noise
@@ -411,7 +411,7 @@ def technical_noise(rms_noise, relative_factor=0.4):
         delta_T0 : float
     """
     psy = np.random.normal(1, rms_noise)
-    return psy, 1 - relative_factor * (psy - 1)
+    return psy, 1 + noise_correlation * (psy - 1)
 
 
 def shot_noise(w_c, w0, T, dt):
@@ -1045,10 +1045,8 @@ def rin_curve(spectra: np.ndarray) -> np.ndarray:
     rin_curve : np.ndarray
         RIN curve
     """
-    spec2 = abs2(spectra)
-    # return np.std(spec, axis=0) / np.mean(spec, axis=0)
-    m = np.mean(spec2, axis=0)
-    return np.sqrt(np.mean((spec2 - m) ** 2)) / m
+    A2 = abs2(spectra)
+    return np.std(A2, axis=0) / np.mean(A2, axis=0)
 
 
 def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float]:

@@ -62,6 +62,11 @@ class ParamSequence:
     def count_variations(self) -> int:
         return count_variations(self.config)
 
+    @property
+    def first(self) -> Parameters:
+        for _, params in self:
+            return params
+
 
 class ContinuationParamSequence(ParamSequence):
     def __init__(self, prev_sim_dir: os.PathLike, new_config: Config):

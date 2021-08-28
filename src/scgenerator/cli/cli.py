@@ -1,12 +1,14 @@
 import argparse
 import os
+import re
+import subprocess
+import sys
 from collections import ChainMap
 from pathlib import Path
-import re
 
 import numpy as np
 
-from .. import env, utils, scripts
+from .. import const, env, scripts, utils
 from ..logger import get_logger
 from ..physics.fiber import dispersion_coefficients
 from ..physics.simulate import SequencialSimulations, resume_simulations, run_simulation_sequence
@@ -37,6 +39,7 @@ def create_parser():
         parser.add_argument(
             *names, **{k: v for k, v in args.items() if k not in {"short_name", "type"}}
         )
+    parser.add_argument("--version", action="version", version=const.__version__)
 
     run_parser = subparsers.add_parser("run", help="run a simulation from a config file")
     run_parser.add_argument("configs", help="path(s) to the toml configuration file(s)", nargs="+")
@@ -147,6 +150,16 @@ def run_sim(args):
 
     method = prep_ray()
     run_simulation_sequence(*args.configs, method=method)
+    if sys.platform == "darwin" and sys.stdout.isatty():
+        subprocess.run(
+            [
+                "osascript",
+                "-e",
+                'tell app "System Events" to display dialog "simulation finished !"',
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
 
 def merge(args):
