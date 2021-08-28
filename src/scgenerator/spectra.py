@@ -146,8 +146,6 @@ class Pulse(Sequence):
 
         self.params = Parameters.load(self.path / "params.toml")
 
-        initialize.build_sim_grid_in_place(self.params)
-
         try:
             self.z = np.load(os.path.join(path, "z.npy"))
         except FileNotFoundError:
@@ -161,7 +159,7 @@ class Pulse(Sequence):
             raise FileNotFoundError(f"No appropriate file in specified folder {self.path}")
 
         self.t = self.params.t
-        w = initialize.wspace(self.t) + units.m(self.params.wavelength)
+        w = math.wspace(self.t) + units.m(self.params.wavelength)
         self.w_order = np.argsort(w)
         self.w = w
         self.wl = units.m.inv(self.w)

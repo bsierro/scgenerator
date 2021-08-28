@@ -7,7 +7,7 @@ import toml
 from scgenerator import defaults, utils, math
 from scgenerator.errors import *
 from scgenerator.physics import pulse, units
-from scgenerator.utils.parameter import BareConfig, Parameters
+from scgenerator.utils.parameter import Config, Parameters
 
 
 def load_conf(name):

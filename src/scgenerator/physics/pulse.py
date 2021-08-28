@@ -326,7 +326,12 @@ def load_and_adjust_field_file(
     field_0 = load_field_file(field_file, t)
     if energy is not None:
         curr_energy = np.trapz(abs2(field_0), t)
-        field_0 *= 
+        field_0 = field_0 * np.sqrt(energy / curr_energy)
+    elif peak_power is not None:
+        ratio = np.sqrt(peak_power / abs2(field_0).max())
+        field_0 = field_0 * ratio
+    else:
+        raise ValueError(f"Not enough parameters specified to load {field_file} correctly")
 
     field_0 = field_0 * modify_field_ratio(
         t, field_0, peak_power, energy, intensity_noise, noise_correlation
@@ -1054,10 +1059,6 @@ def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float
     peak_power = intensity.max()
     energy = np.trapz(intensity, t)
     return fwhm, peak_power, energy
-
-
-def measure_custom_field(field_file: str, t: np.ndarray) -> float:
-    return measure_field(t, load_field_file(field_file, t))[0]
 
 
 def remove_2nd_order_dispersion(

@@ -16,7 +16,7 @@ def conf_maker(folder, val=True):
         if val:
             return initialize.Config(**load_conf(folder + "/" + name))
         else:
-            return initialize.BareConfig(**load_conf(folder + "/" + name))
+            return initialize.Config(**load_conf(folder + "/" + name))
 
     return conf
 

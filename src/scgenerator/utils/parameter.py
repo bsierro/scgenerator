@@ -336,21 +336,6 @@ valid_variable = {
     "ideal_gas",
 }
 
-hc_model_specific_parameters = dict(
-    marcatili=["core_radius", "he_mode"],
-    marcatili_adjusted=["core_radius", "he_mode", "fit_parameters"],
-    hasan=[
-        "core_radius",
-        "capillary_num",
-        "capillary_thickness",
-        "capillary_resonance_strengths",
-        "capillary_nested",
-        "capillary_spacing",
-        "capillary_outer_d",
-    ],
-)
-"""dependecy map only includes actual fiber parameters and exclude gas parameters"""
-
 mandatory_parameters = [
     "name",
     "w_c",
@@ -360,6 +345,7 @@ mandatory_parameters = [
     "alpha",
     "spec_0",
     "field_0",
+    "input_transmission",
     "z_targets",
     "length",
     "beta2_coefficients",
@@ -451,7 +437,7 @@ class Parameters:
     time_window: float = Parameter(positive(float, int))
     dt: float = Parameter(in_range_excl(0, 5e-15))
     tolerated_error: float = Parameter(in_range_excl(1e-15, 1e-3), default=1e-11)
-    step_size: float = Parameter(positive(float, int), default=0)
+    step_size: float = Parameter(non_negative(float, int), default=0)
     interpolation_range: tuple[float, float] = Parameter(float_pair)
     interpolation_degree: int = Parameter(positive(int), default=8)
     prev_sim_dir: str = Parameter(string)
@@ -463,7 +449,7 @@ class Parameters:
     spec_0: np.ndarray = Parameter(type_checker(np.ndarray))
     beta2: float = Parameter(type_checker(int, float))
     alpha_arr: np.ndarray = Parameter(type_checker(np.ndarray))
-    alpha: float = Parameter(positive(float, int), default=0)
+    alpha: float = Parameter(non_negative(float, int), default=0)
     gamma_arr: np.ndarray = Parameter(type_checker(np.ndarray))
     A_eff_arr: np.ndarray = Parameter(type_checker(np.ndarray))
     w: np.ndarray = Parameter(type_checker(np.ndarray))
@@ -588,6 +574,7 @@ class Rule:
         kwarg_names: list[str],
         n_var: int,
         args_const: list[str] = None,
+        priorities: Union[int, list[int]] = None,
     ) -> list["Rule"]:
         """given a function that doesn't need all its keyword arguemtn specified, will
         return a list of Rule obj, one for each combination of n_var specified kwargs
@@ -625,7 +612,7 @@ class Rule:
 
             new_func = func_rewrite(func, list(var_possibility), args_const)
 
-            rules.append(cls(target, new_func))
+            rules.append(cls(target, new_func, priorities=priorities))
         return rules
 
 
@@ -732,8 +719,7 @@ class Evaluator:
                                 prefix
                                 + f"computed {param_name}={returned_value} using {rule.func.__name__} from {rule.func.__module__}"
                             )
-                            self.params[param_name] = returned_value
-                            self.eval_stats[param_name].priority = param_priority
+                            self.set_value(param_name, returned_value, param_priority)
                         if param_name == target:
                             value = returned_value
                     break
@@ -749,12 +735,20 @@ class Evaluator:
                     error = NoDefaultError(prefix + f"No default provided for {target}")
                 else:
                     value = default
+                    self.set_value(target, value, 0)
 
             if value is None and error is not None:
                 raise error
 
             self.__curent_lookup.remove(target)
         return value
+
+    def __getitem__(self, key: str) -> Any:
+        return self.params[key]
+
+    def set_value(self, key: str, value: Any, priority: int):
+        self.params[key] = value
+        self.eval_stats[key].priority = priority
 
     def validate_condition(self, rule: Rule) -> bool:
         return all(self.compute(k) == v for k, v in rule.conditions.items())
@@ -779,18 +773,25 @@ class Evaluator:
 
 
 @dataclass
-class BareConfig(Parameters):
+class Config(Parameters):
     variable: dict = VariableParameter(Parameters)
 
     def __post_init__(self):
         pass
 
+    def check_validity(self):
+        conf_dict = asdict(self)
+        variable = conf_dict.pop("variable", {})
+        for k, v in variable.items():
+            conf_dict[k] = v[0]
+        Parameters(**conf_dict)
+
     @classmethod
-    def load(cls, path: os.PathLike) -> "BareConfig":
+    def load(cls, path: os.PathLike) -> "Config":
         return cls(**utils.load_toml(path))
 
     @classmethod
-    def load_sequence(cls, *config_paths: os.PathLike) -> list["BareConfig"]:
+    def load_sequence(cls, *config_paths: os.PathLike) -> list["Config"]:
         """Loads a sequence of
 
         Parameters
@@ -830,8 +831,13 @@ class PlotRange:
     def __str__(self):
         return f"{self.left:.1f}-{self.right:.1f} {self.unit.__name__}"
 
+    def sort_axis(self, axis: np.ndarray) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
+        return sort_axis(axis, self)
 
-def sort_axis(axis, plt_range: PlotRange) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
+
+def sort_axis(
+    axis: np.ndarray, plt_range: PlotRange
+) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
     """
     given an axis, returns this axis cropped according to the given range, converted and sorted
 
@@ -893,7 +899,7 @@ def validate_arg_names(names: list[str]):
             raise ValueError(f"{n} is an invalid parameter name")
 
 
-def func_rewrite(func: Callable, kwarg_names: list[str], arg_names: list[str] = None):
+def func_rewrite(func: Callable, kwarg_names: list[str], arg_names: list[str] = None) -> Callable:
     if arg_names is None:
         arg_names = get_arg_names(func)
     else:
@@ -972,7 +978,7 @@ def pretty_format_from_sim_name(name: str) -> str:
     return PARAM_SEPARATOR.join(out)
 
 
-def variable_iterator(config: BareConfig) -> Iterator[tuple[list[tuple[str, Any]], dict[str, Any]]]:
+def variable_iterator(config: Config) -> Iterator[tuple[list[tuple[str, Any]], dict[str, Any]]]:
     """given a config with "variable" parameters, iterates through every possible combination,
     yielding a a list of (parameter_name, value) tuples and a full config dictionary.
 
@@ -1011,7 +1017,7 @@ def variable_iterator(config: BareConfig) -> Iterator[tuple[list[tuple[str, Any]
 
 
 def required_simulations(
-    *configs: BareConfig,
+    *configs: Config,
 ) -> Iterator[tuple[list[tuple[str, Any]], Parameters]]:
     """takes the output of `scgenerator.utils.variable_iterator` which is a new dict per different
     parameter set and iterates through every single necessary simulation
@@ -1045,11 +1051,11 @@ def reduce_all_variable(all_variable: list[list[tuple[str, Any]]]) -> list[tuple
     return out
 
 
-def override_config(new: BareConfig, old: BareConfig = None) -> BareConfig:
+def override_config(new: Config, old: Config = None) -> Config:
     """makes sure all the parameters set in new are there, leaves untouched parameters in old"""
     new_dict = asdict(new)
     if old is None:
-        return BareConfig(**new_dict)
+        return Config(**new_dict)
     variable = deepcopy(old.variable)
     new_dict = {k: v for k, v in new_dict.items() if v is not None}
 
@@ -1060,7 +1066,7 @@ def override_config(new: BareConfig, old: BareConfig = None) -> BareConfig:
     return replace(old, variable=variable, **new_dict)
 
 
-def final_config_from_sequence(*configs: BareConfig) -> BareConfig:
+def final_config_from_sequence(*configs: Config) -> Config:
     if len(configs) == 0:
         raise ValueError("Must provide at least one config")
     if len(configs) == 1:
@@ -1085,10 +1091,11 @@ default_rules: list[Rule] = [
     Rule("spec_0", np.fft.fft, ["field_0"]),
     Rule("field_0", np.fft.ifft, ["spec_0"]),
     Rule("spec_0", utils.load_previous_spectrum, priorities=3),
-    Rule(
+    *Rule.deduce(
         ["pre_field_0", "peak_power", "energy", "width"],
         pulse.load_and_adjust_field_file,
-        ["field_file", "t", "peak_power", "energy", "intensity_noise", "noise_correlation"],
+        ["energy", "peak_power"],
+        1,
         priorities=[2, 1, 1, 1],
     ),
     Rule("pre_field_0", pulse.initial_field, priorities=1),
@@ -1099,7 +1106,6 @@ default_rules: list[Rule] = [
     ),
     Rule("peak_power", pulse.E0_to_P0, ["energy", "t0", "shape"]),
     Rule("peak_power", pulse.soliton_num_to_peak_power),
-    Rule(["width", "peak_power", "energy"], pulse.measure_custom_field),
     Rule("energy", pulse.P0_to_E0, ["peak_power", "t0", "shape"]),
     Rule("energy", pulse.mean_power_to_energy),
     Rule("t0", pulse.width_to_t0),

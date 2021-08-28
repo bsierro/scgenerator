@@ -11,7 +11,7 @@ import numpy as np
 
 from ..initialize import validate_config_sequence
 from ..utils import Paths
-from ..utils.parameter import BareConfig
+from ..utils.parameter import Config
 
 
 def primes(n):
@@ -128,7 +128,7 @@ def main():
         )
 
     if args.command == "merge":
-        final_name = BareConfig.load(Path(args.configs[0]) / "initial_config.toml").name
+        final_name = Config.load(Path(args.configs[0]) / "initial_config.toml").name
         sim_num = "many"
         args.nodes = 1
         args.cpus_per_node = 1

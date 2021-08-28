@@ -12,4 +12,4 @@ from .physics.simulate import RK4IP, new_simulation, resume_simulations
 from .plotting import mean_values_plot, plot_spectrogram, propagation_plot, single_position_plot
 from .spectra import Pulse, Spectrum
 from .utils import Paths, load_toml
-from .utils.parameter import BareConfig, Parameters, PlotRange
+from .utils.parameter import Config, Parameters, PlotRange

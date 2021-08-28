@@ -8,7 +8,7 @@ from typing import Type
 import numpy as np
 
 from .. import env, initialize, utils
-from ..utils.parameter import Parameters, BareConfig
+from ..utils.parameter import Parameters, Config, format_variable_list
 from ..const import PARAM_SEPARATOR
 from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
@@ -471,7 +471,7 @@ class Simulations:
 
     def _run_available(self):
         for variable, params in self.param_seq:
-            v_list_str = utils.format_variable_list(variable)
+            v_list_str = format_variable_list(variable)
             utils.save_parameters(params.prepare_for_dump(), self.sim_dir / v_list_str)
 
             self.new_sim(v_list_str, params)
@@ -690,7 +690,7 @@ def run_simulation_sequence(
     method=None,
     prev_sim_dir: os.PathLike = None,
 ):
-    configs = BareConfig.load_sequence(*config_files)
+    configs = Config.load_sequence(*config_files)
 
     prev = prev_sim_dir
     for config in configs:
@@ -707,7 +707,7 @@ def run_simulation_sequence(
 
 
 def new_simulation(
-    config: BareConfig,
+    config: Config,
     prev_sim_dir=None,
     method: Type[Simulations] = None,
 ) -> Simulations:

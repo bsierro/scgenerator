@@ -1,7 +1,10 @@
+from dataclasses import fields
 from scgenerator import Parameters
 from scgenerator.physics.simulate import RK4IP
 import os
 import matplotlib.pyplot as plt
+
+from pprint import pprint
 
 
 def main():
@@ -10,12 +13,11 @@ def main():
         os.chdir("/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/PCF Simulations")
 
         pa = Parameters.load(
-            "/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/PCF Simulations/PM1550+PM2000D/PM1550_RIN.toml"
+            "/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/PCF Simulations/PM1550+PM2000D/PM2000D.toml"
         )
-
-        plt.plot(pa.t, pa.field_0.imag)
-        plt.plot(pa.t, pa.field_0.real)
-        plt.show()
+        x = 1, 2
+        print(pa.input_transmission)
+        print(x)
     finally:
         os.chdir(cwd)
 

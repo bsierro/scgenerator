@@ -84,6 +84,7 @@ class Paths:
 
 
 def load_previous_spectrum(prev_data_dir: str) -> np.ndarray:
+    prev_data_dir = Path(prev_data_dir)
     num = find_last_spectrum_num(prev_data_dir)
     return np.load(prev_data_dir / SPEC1_FN.format(num))
 
