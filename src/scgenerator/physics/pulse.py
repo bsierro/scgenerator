@@ -1019,10 +1019,8 @@ def rin_curve(spectra: np.ndarray) -> np.ndarray:
     rin_curve : np.ndarray
         RIN curve
     """
-    spec2 = abs2(spectra)
-    # return np.std(spec, axis=0) / np.mean(spec, axis=0)
-    m = np.mean(spec2, axis=0)
-    return np.sqrt(np.mean((spec2 - m) ** 2)) / m
+    A2 = abs2(spectra)
+    return np.std(A2, axis=0) / np.mean(A2, axis=0)
 
 
 def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float]:

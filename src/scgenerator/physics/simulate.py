@@ -207,7 +207,7 @@ class RK4IP:
 
         return self.stored_spectra
 
-    def irun(self):
+    def irun(self) -> Generator[tuple[int, int, np.ndarray], None, None]:
 
         # Print introduction
         self.logger.debug(

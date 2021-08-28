@@ -711,6 +711,13 @@ def compute_loss(params: BareParams) -> Optional[np.ndarray]:
         out = np.zeros_like(params.l)
         out[mask] = alpha
         return out
+    # else:
+        # return np.where(
+        #     (params.l < params.lower_wavelength_interp_limit)
+        #     | (params.l > params.upper_wavelength_interp_limit),
+        #     100,
+        #     0,
+        # )
     return None
 
 
