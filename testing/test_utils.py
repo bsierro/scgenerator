@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 import toml
-from scgenerator import initialize, utils
+from scgenerator import utils
 
 
 def load_conf(name):

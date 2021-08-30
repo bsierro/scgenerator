@@ -1,26 +1,13 @@
-from dataclasses import fields
-from scgenerator import Parameters
-from scgenerator.physics.simulate import RK4IP
-import os
-import matplotlib.pyplot as plt
-
+from pathlib import Path
 from pprint import pprint
+import scgenerator as sc
+import os
+
+cwd = os.getcwd()
+os.chdir("/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/PCF Simulations/")
+conf = sc.Configuration(sc.load_toml("PM1550+PM2000D/RIN_PM2000D_appended.toml"))
 
 
-def main():
-    cwd = os.getcwd()
-    try:
-        os.chdir("/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/PCF Simulations")
-
-        pa = Parameters.load(
-            "/Users/benoitsierro/Nextcloud/PhD/Supercontinuum/PCF Simulations/PM1550+PM2000D/PM2000D.toml"
-        )
-        x = 1, 2
-        print(pa.input_transmission)
-        print(x)
-    finally:
-        os.chdir(cwd)
-
-
-if __name__ == "__main__":
-    main()
+pprint(conf.data_dirs)
+print(conf.total_num_steps)
+os.chdir(cwd)

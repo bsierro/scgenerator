@@ -6,7 +6,7 @@ from typing import Callable, Dict, Iterable, Union
 import matplotlib.pyplot as plt
 import numpy as np
 
-from . import initialize, math
+from . import math
 from .const import SPECN_FN
 from .logger import get_logger
 from .physics import pulse, units

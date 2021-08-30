@@ -10,12 +10,16 @@ from tqdm import tqdm
 
 from .. import env, math
 from ..const import PARAM_SEPARATOR
-from ..initialize import ParamSequence
 from ..physics import fiber, units
 from ..plotting import plot_setup
 from ..spectra import Pulse
-from ..utils import auto_crop
-from ..utils.parameter import Parameters, pretty_format_from_sim_name, pretty_format_value
+from ..utils import auto_crop, load_toml
+from ..utils.parameter import (
+    Configuration,
+    Parameters,
+    pretty_format_from_sim_name,
+    pretty_format_value,
+)
 
 
 def fingerprint(params: Parameters):
@@ -254,7 +258,7 @@ def finish_plot(fig, legend_axes, all_labels, params):
 
 def plot_helper(config_path: Path) -> Iterable[tuple[dict, list[str], Parameters]]:
     cc = cycler(color=[f"C{i}" for i in range(10)]) * cycler(ls=["-", "--"])
-    pseq = ParamSequence(config_path)
+    pseq = Configuration(load_toml(config_path))
     for style, (variables, params) in zip(cc, pseq):
         lbl = [pretty_format_value(name, value) for name, value in variables[1:-1]]
         yield style, lbl, params

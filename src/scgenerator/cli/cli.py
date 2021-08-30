@@ -11,7 +11,7 @@ import numpy as np
 from .. import const, env, scripts, utils
 from ..logger import get_logger
 from ..physics.fiber import dispersion_coefficients
-from ..physics.simulate import SequencialSimulations, resume_simulations, run_simulation_sequence
+from ..physics.simulate import SequencialSimulations, run_simulation
 
 try:
     import ray
@@ -42,21 +42,8 @@ def create_parser():
     parser.add_argument("--version", action="version", version=const.__version__)
 
     run_parser = subparsers.add_parser("run", help="run a simulation from a config file")
-    run_parser.add_argument("configs", help="path(s) to the toml configuration file(s)", nargs="+")
+    run_parser.add_argument("config", help="path(s) to the toml configuration file(s)")
     run_parser.set_defaults(func=run_sim)
-
-    resume_parser = subparsers.add_parser("resume", help="resume a simulation")
-    resume_parser.add_argument(
-        "sim_dir",
-        help="path to the directory where the initial_config.toml and the partial data is stored",
-    )
-    resume_parser.add_argument(
-        "configs",
-        nargs="*",
-        default=[],
-        help="list of subsequent config files (excluding the resumed one)",
-    )
-    resume_parser.set_defaults(func=resume_sim)
 
     merge_parser = subparsers.add_parser("merge", help="merge simulation results")
     merge_parser.add_argument(
@@ -149,7 +136,7 @@ def main():
 def run_sim(args):
 
     method = prep_ray()
-    run_simulation_sequence(*args.configs, method=method)
+    run_simulation(args.config, method=method)
     if sys.platform == "darwin" and sys.stdout.isatty():
         subprocess.run(
             [
@@ -187,14 +174,6 @@ def prep_ray():
             except ConnectionError as e:
                 logger.warning(e)
     return SequencialSimulations if env.get(env.NO_RAY) else None
-
-
-def resume_sim(args):
-
-    method = prep_ray()
-    sim = resume_simulations(Path(args.sim_dir), method=method)
-    sim.run()
-    run_simulation_sequence(*args.configs, method=method, prev_sim_dir=sim.sim_dir)
 
 
 def plot_all(args):

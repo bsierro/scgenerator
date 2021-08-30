@@ -389,7 +389,7 @@ def save_data(data: np.ndarray, data_dir: Path, file_name: str):
     return
 
 
-def ensure_folder(path: Path, prevent_overwrite: bool = True) -> Path:
+def ensure_folder(path: Path, prevent_overwrite: bool = True, mkdir=True) -> Path:
     """ensure a folder exists and doesn't overwrite anything if required
 
     Parameters
@@ -423,7 +423,8 @@ def ensure_folder(path: Path, prevent_overwrite: bool = True) -> Path:
 
     for i in itertools.count():
         if not path.is_file() and (not prevent_overwrite or not path.is_dir()):
-            path.mkdir(exist_ok=True)
+            if mkdir:
+                path.mkdir(exist_ok=True)
             return path
         path = path.parent / (folder_name + f"_{i}")
 

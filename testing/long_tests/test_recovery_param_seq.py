@@ -2,7 +2,7 @@ import shutil
 import unittest
 
 import toml
-from scgenerator import initialize, io, logger
+from scgenerator import logger
 from send2trash import send2trash
 
 TMP = "testing/.tmp"

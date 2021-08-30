@@ -8,11 +8,11 @@ from typing import Any, Generator, Type
 
 import numpy as np
 
-from .. import env, initialize, utils
+from .. import env, utils
 from ..const import PARAM_SEPARATOR
 from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
-from ..utils.parameter import Config, Parameters, format_variable_list
+from ..utils.parameter import Configuration, Parameters, format_variable_list
 from . import pulse
 from .fiber import create_non_linear_op, fast_dispersion_op
 
@@ -58,11 +58,9 @@ class RK4IP:
         self.save_data = save_data
 
         if self.save_data:
-            self.sim_dir = utils.get_sim_dir(self.id)
-            self.sim_dir.mkdir(exist_ok=True)
-            self.data_dir = self.sim_dir / self.job_identifier
+            self.data_dir = params.output_path
+            os.makedirs(self.data_dir, exist_ok=True)
         else:
-            self.sim_dir = None
             self.data_dir = None
 
         self.logger = get_logger(self.job_identifier)
@@ -426,7 +424,7 @@ class Simulations:
 
     @classmethod
     def new(
-        cls, param_seq: initialize.ParamSequence, task_id, method: Type["Simulations"] = None
+        cls, configuration: Configuration, task_id, method: Type["Simulations"] = None
     ) -> "Simulations":
         """Prefered method to create a new simulations object
 
@@ -438,17 +436,17 @@ class Simulations:
         if method is not None:
             if isinstance(method, str):
                 method = Simulations.simulation_methods_dict[method]
-            return method(param_seq, task_id)
-        elif param_seq.num_sim > 1 and param_seq.config.parallel:
-            return Simulations.get_best_method()(param_seq, task_id)
+            return method(configuration, task_id)
+        elif configuration.num_sim > 1 and configuration.parallel:
+            return Simulations.get_best_method()(configuration, task_id)
         else:
-            return SequencialSimulations(param_seq, task_id)
+            return SequencialSimulations(configuration, task_id)
 
-    def __init__(self, param_seq: initialize.ParamSequence, task_id=0):
+    def __init__(self, configuration: Configuration, task_id=0):
         """
         Parameters
         ----------
-        param_seq : scgenerator.initialize.ParamSequence obj
+        configuration : scgenerator.Configuration obj
             parameter sequence
         task_id : int, optional
             a unique id that identifies the simulation, by default 0
@@ -460,37 +458,28 @@ class Simulations:
         self.logger = get_logger(__name__)
         self.id = int(task_id)
 
-        self.update(param_seq)
+        self.configuration = configuration
 
-        self.name = self.param_seq.name
-        self.sim_dir = utils.get_sim_dir(
-            self.id, path_if_new=Path(self.name + PARAM_SEPARATOR + "tmp")
-        )
-        utils.save_parameters(
-            self.param_seq.config.prepare_for_dump(), self.sim_dir, file_name="initial_config.toml"
-        )
+        self.name = self.configuration.name
+        self.sim_dir = utils.get_sim_dir(self.id, path_if_new=self.configuration.final_sim_dir)
+        self.configuration.save_parameters()
 
         self.sim_jobs_per_node = 1
 
     @property
     def finished_and_complete(self):
         try:
-            utils.check_data_integrity(
-                utils.get_data_dirs(self.sim_dir), self.param_seq.config.z_num
-            )
+            utils.check_data_integrity(utils.get_data_dirs(self.sim_dir), self.configuration.z_num)
             return True
         except IncompleteDataFolderError:
             return False
-
-    def update(self, param_seq: initialize.ParamSequence):
-        self.param_seq = param_seq
 
     def run(self):
         self._run_available()
         self.ensure_finised_and_complete()
 
     def _run_available(self):
-        for variable, params in self.param_seq:
+        for variable, params in self.configuration:
             v_list_str = format_variable_list(variable)
             utils.save_parameters(params.prepare_for_dump(), self.sim_dir / v_list_str)
 
@@ -516,7 +505,6 @@ class Simulations:
     def ensure_finised_and_complete(self):
         while not self.finished_and_complete:
             self.logger.warning(f"Something wrong happened, running again to finish simulation")
-            self.update(initialize.RecoveryParamSequence(self.param_seq.config, self.id))
             self._run_available()
 
     def stop(self):
@@ -528,12 +516,14 @@ class SequencialSimulations(Simulations, priority=0):
     def is_available(cls):
         return True
 
-    def __init__(self, param_seq: initialize.ParamSequence, task_id):
-        super().__init__(param_seq, task_id=task_id)
-        self.pbars = utils.PBars(self.param_seq.num_steps, "Simulating " + self.param_seq.name, 1)
+    def __init__(self, configuration: Configuration, task_id):
+        super().__init__(configuration, task_id=task_id)
+        self.pbars = utils.PBars(
+            self.configuration.total_num_steps, "Simulating " + self.configuration.name, 1
+        )
 
     def new_sim(self, v_list_str: str, params: Parameters):
-        self.logger.info(f"{self.param_seq.name} : launching simulation with {v_list_str}")
+        self.logger.info(f"{self.configuration.name} : launching simulation with {v_list_str}")
         SequentialRK4IP(
             params, self.pbars, save_data=True, job_identifier=v_list_str, task_id=self.id
         ).run()
@@ -550,10 +540,10 @@ class MultiProcSimulations(Simulations, priority=1):
     def is_available(cls):
         return True
 
-    def __init__(self, param_seq: initialize.ParamSequence, task_id):
-        super().__init__(param_seq, task_id=task_id)
-        if param_seq.config.worker_num is not None:
-            self.sim_jobs_per_node = param_seq.config.worker_num
+    def __init__(self, configuration: Configuration, task_id):
+        super().__init__(configuration, task_id=task_id)
+        if configuration.worker_num is not None:
+            self.sim_jobs_per_node = configuration.worker_num
         else:
             self.sim_jobs_per_node = max(1, os.cpu_count() // 2)
         self.queue = multiprocessing.JoinableQueue(self.sim_jobs_per_node)
@@ -568,9 +558,9 @@ class MultiProcSimulations(Simulations, priority=1):
         self.p_worker = multiprocessing.Process(
             target=utils.progress_worker,
             args=(
-                self.param_seq.name,
+                self.configuration.name,
                 self.sim_jobs_per_node,
-                self.param_seq.num_steps,
+                self.configuration.total_num_steps,
                 self.progress_queue,
             ),
         )
@@ -631,10 +621,10 @@ class RaySimulations(Simulations, priority=2):
 
     def __init__(
         self,
-        param_seq: initialize.ParamSequence,
+        configuration: Configuration,
         task_id=0,
     ):
-        super().__init__(param_seq, task_id)
+        super().__init__(configuration, task_id)
 
         nodes = ray.nodes()
         self.logger.info(
@@ -657,7 +647,7 @@ class RaySimulations(Simulations, priority=2):
         self.p_actor = (
             ray.remote(utils.ProgressBarActor)
             .options(runtime_env=dict(env_vars=env.all_environ()))
-            .remote(self.param_seq.name, self.sim_jobs_total, self.param_seq.num_steps)
+            .remote(self.configuration.name, self.sim_jobs_total, self.configuration.total_num_steps)
         )
 
     def new_sim(self, v_list_str: str, params: Parameters):
@@ -678,7 +668,7 @@ class RaySimulations(Simulations, priority=2):
         )
         self.num_submitted += 1
 
-        self.logger.info(f"{self.param_seq.name} : launching simulation with {v_list_str}")
+        self.logger.info(f"{self.configuration.name} : launching simulation with {v_list_str}")
 
     def collect_1_job(self):
         ray.get(self.p_actor.update_pbars.remote())
@@ -699,24 +689,20 @@ class RaySimulations(Simulations, priority=2):
 
     @property
     def sim_jobs_total(self):
-        if self.param_seq.config.worker_num is not None:
-            return self.param_seq.config.worker_num
+        if self.configuration.config.worker_num is not None:
+            return self.configuration.config.worker_num
         tot_cpus = ray.cluster_resources().get("CPU", 1)
-        return int(min(self.param_seq.num_sim, tot_cpus))
+        return int(min(self.configuration.num_sim, tot_cpus))
 
 
-def run_simulation_sequence(
-    *config_files: os.PathLike,
+def run_simulation(
+    config_file: os.PathLike,
     method=None,
-    prev_sim_dir: os.PathLike = None,
 ):
-    configs = Config.load_sequence(*config_files)
+    config = Configuration.load(config_file)
 
-    prev = prev_sim_dir
-    for config in configs:
-        sim = new_simulation(config, prev, method)
-        sim.run()
-        prev = sim.sim_dir
+    sim = new_simulation(config, method)
+    sim.run()
     path_trees = utils.build_path_trees(sim.sim_dir)
 
     final_name = env.get(env.OUTPUT_PATH)
@@ -727,42 +713,20 @@ def run_simulation_sequence(
 
 
 def new_simulation(
-    config: Config,
-    prev_sim_dir=None,
+    configuration: Configuration,
     method: Type[Simulations] = None,
 ) -> Simulations:
     logger = get_logger(__name__)
-
-    if prev_sim_dir is not None:
-        config.prev_sim_dir = str(prev_sim_dir)
-
     task_id = random.randint(1e9, 1e12)
-
-    if prev_sim_dir is None:
-        param_seq = initialize.ParamSequence(config)
-    else:
-        param_seq = initialize.ContinuationParamSequence(prev_sim_dir, config)
-
-    logger.info(f"running {param_seq.name}")
-
-    return Simulations.new(param_seq, task_id, method)
-
-
-def resume_simulations(sim_dir: Path, method: Type[Simulations] = None) -> Simulations:
-
-    task_id = random.randint(1e9, 1e12)
-    config = utils.load_toml(sim_dir / "initial_config.toml")
-    utils.set_data_folder(task_id, sim_dir)
-    param_seq = initialize.RecoveryParamSequence(config, task_id)
-
-    return Simulations.new(param_seq, task_id, method)
+    logger.info(f"running {configuration.name}")
+    return Simulations.new(configuration, task_id, method)
 
 
 def __parallel_RK4IP_worker(
     worker_id: int,
     msq_queue: multiprocessing.connection.Connection,
     data_queue: multiprocessing.Queue,
-    params: utils.BareParams,
+    params: Parameters,
 ):
     logger = get_logger(__name__)
     logger.debug(f"workder {worker_id} started")
@@ -777,10 +741,10 @@ def __parallel_RK4IP_worker(
 def parallel_RK4IP(
     config,
 ) -> Generator[
-    tuple[tuple[list[tuple[str, Any]], initialize.Params, int, int, np.ndarray], ...], None, None
+    tuple[tuple[list[tuple[str, Any]], Parameters, int, int, np.ndarray], ...], None, None
 ]:
     logger = get_logger(__name__)
-    params = list(initialize.ParamSequence(config))
+    params = list(Configuration(config))
     n = len(params)
     z_num = params[0][1].z_num
 

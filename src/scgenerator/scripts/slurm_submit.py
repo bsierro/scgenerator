@@ -9,9 +9,8 @@ from typing import Tuple
 
 import numpy as np
 
-from ..initialize import validate_config_sequence
 from ..utils import Paths
-from ..utils.parameter import Config
+from ..utils.parameter import Configuration
 
 
 def primes(n):
@@ -75,7 +74,7 @@ def format_time(t):
 
 def create_parser():
     parser = argparse.ArgumentParser(description="submit a job to a slurm cluster")
-    parser.add_argument("configs", nargs="+", help="path to the toml configuration file")
+    parser.add_argument("config", help="path to the toml configuration file")
     parser.add_argument(
         "-t", "--time", required=True, type=str, help="time required for the job in hh:mm:ss"
     )
@@ -127,16 +126,15 @@ def main():
             "time format must be an integer number of minute or must match the pattern hh:mm:ss"
         )
 
+    config = Configuration.load(args.config)
+    final_name = config.name
+    sim_num = config.num_sim
+
     if args.command == "merge":
-        final_name = Config.load(Path(args.configs[0]) / "initial_config.toml").name
-        sim_num = "many"
         args.nodes = 1
         args.cpus_per_node = 1
     else:
-        config_paths = args.configs
-        final_name, sim_num = validate_config_sequence(*config_paths)
-
-        args.nodes, args.cpus_per_node = distribute(sim_num, args.nodes, args.cpus_per_node)
+        args.nodes, args.cpus_per_node = distribute(config.num_sim, args.nodes, args.cpus_per_node)
 
     submit_path = Path(
         "submit " + final_name.replace("/", "") + "-" + format(datetime.now(), "%Y%m%d%H%M") + ".sh"
@@ -145,13 +143,13 @@ def main():
 
     job_name = f"supercontinuum {final_name}"
     submit_sh = template.format(
-        job_name=job_name, configs_list=" ".join(f'"{c}"' for c in args.configs), **vars(args)
+        job_name=job_name, configs_list=" ".join(f'"{c}"' for c in args.config), **vars(args)
     )
 
     tmp_path.write_text(submit_sh)
     subprocess.run(["sbatch", "--test-only", str(tmp_path)])
     submit = input(
-        f"{command_map[args.command]} {sim_num} pulses from configs {args.configs} with {args.cpus_per_node} cpus"
+        f"{command_map[args.command]} {sim_num} pulses from config {args.config} with {args.cpus_per_node} cpus"
         + f" per node on {args.nodes} nodes for {format_time(args.time)} ? (y/[n])\n"
     )
     if submit.lower() in ["y", "yes"]:

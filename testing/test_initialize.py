@@ -1,7 +1,6 @@
 import unittest
 from copy import deepcopy
 
-import scgenerator.initialize as init
 import numpy as np
 import toml
 from scgenerator import defaults, utils, math
