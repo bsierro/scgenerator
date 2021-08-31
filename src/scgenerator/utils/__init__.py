@@ -138,8 +138,7 @@ def save_parameters(
         path to newly created the paramter file
     """
     file_path = destination_dir / file_name
-
-    file_path.parent.mkdir(exist_ok=True)
+    os.makedirs(file_path.parent, exist_ok=True)
 
     # save toml of the simulation
     with open(file_path, "w") as file:
@@ -416,7 +415,7 @@ def ensure_folder(path: Path, prevent_overwrite: bool = True, mkdir=True) -> Pat
     path = Path(path.root)
     for part in parts:
         if path.is_file():
-            path = ensure_folder(path, prevent_overwrite=False)
+            path = ensure_folder(path, mkdir=mkdir, prevent_overwrite=False)
         path /= part
 
     folder_name = path.name

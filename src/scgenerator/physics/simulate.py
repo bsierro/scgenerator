@@ -9,8 +9,6 @@ from typing import Any, Generator, Type
 import numpy as np
 
 from .. import env, utils
-from ..const import PARAM_SEPARATOR
-from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
 from ..utils.parameter import Configuration, Parameters, format_variable_list
 from . import pulse
@@ -58,7 +56,7 @@ class RK4IP:
         self.save_data = save_data
 
         if self.save_data:
-            self.data_dir = params.output_path
+            self.data_dir = Path(params.output_path)
             os.makedirs(self.data_dir, exist_ok=True)
         else:
             self.data_dir = None
@@ -461,18 +459,17 @@ class Simulations:
         self.configuration = configuration
 
         self.name = self.configuration.name
-        self.sim_dir = utils.get_sim_dir(self.id, path_if_new=self.configuration.final_sim_dir)
+        self.sim_dir = self.configuration.final_sim_dir
         self.configuration.save_parameters()
 
         self.sim_jobs_per_node = 1
 
-    @property
     def finished_and_complete(self):
-        try:
-            utils.check_data_integrity(utils.get_data_dirs(self.sim_dir), self.configuration.z_num)
-            return True
-        except IncompleteDataFolderError:
-            return False
+        for sim in self.configuration.data_dirs:
+            for data_dir in sim:
+                if self.configuration.sim_status(data_dir) != self.configuration.State.COMPLETE:
+                    return False
+        return True
 
     def run(self):
         self._run_available()
@@ -481,7 +478,7 @@ class Simulations:
     def _run_available(self):
         for variable, params in self.configuration:
             v_list_str = format_variable_list(variable)
-            utils.save_parameters(params.prepare_for_dump(), self.sim_dir / v_list_str)
+            utils.save_parameters(params.prepare_for_dump(), Path(params.output_path))
 
             self.new_sim(v_list_str, params)
         self.finish()
@@ -503,7 +500,7 @@ class Simulations:
         raise NotImplementedError()
 
     def ensure_finised_and_complete(self):
-        while not self.finished_and_complete:
+        while not self.finished_and_complete():
             self.logger.warning(f"Something wrong happened, running again to finish simulation")
             self._run_available()
 
@@ -647,7 +644,9 @@ class RaySimulations(Simulations, priority=2):
         self.p_actor = (
             ray.remote(utils.ProgressBarActor)
             .options(runtime_env=dict(env_vars=env.all_environ()))
-            .remote(self.configuration.name, self.sim_jobs_total, self.configuration.total_num_steps)
+            .remote(
+                self.configuration.name, self.sim_jobs_total, self.configuration.total_num_steps
+            )
         )
 
     def new_sim(self, v_list_str: str, params: Parameters):
