@@ -10,7 +10,12 @@ from . import initialize, io, math
 from .const import SPECN_FN
 from .logger import get_logger
 from .physics import pulse, units
-from .plotting import mean_values_plot, propagation_plot, single_position_plot
+from .plotting import (
+    mean_values_plot,
+    propagation_plot,
+    single_position_plot,
+    transform_2D_propagation,
+)
 from .utils.parameter import BareParams
 
 
@@ -357,6 +362,35 @@ class Pulse(Sequence):
         else:
             vals = vals[sim_ind]
         return plt_range, vals
+
+    def rin_propagation(
+        self, left: float, right: float, unit: str
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """returns the RIN as function of unit and z
+
+        Parameters
+        ----------
+        left : float
+            left limit in unit
+        right : float
+            right limit in unit
+        unit : str
+            unit descriptor
+
+        Returns
+        -------
+        x : np.ndarray, shape (nt,)
+            x axis
+        y : np.ndarray, shape (z_num, )
+            y axis
+        rin_prop : np.ndarray, shape (z_num, nt)
+            RIN
+        """
+        spectra = []
+        for spec in np.moveaxis(self.all_spectra(), 1, 0):
+            x, z, tmp = transform_2D_propagation(spec, (left, right, unit), self.params, False)
+            spectra.append(tmp)
+        return x, z, pulse.rin_curve(np.moveaxis(spectra, 0, 1))
 
     def z_ind(self, z: float) -> int:
         """return the closest z index to the given target

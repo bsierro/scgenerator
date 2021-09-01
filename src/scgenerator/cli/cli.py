@@ -149,16 +149,16 @@ def run_sim(args):
 
     method = prep_ray()
     run_simulation_sequence(*args.configs, method=method)
-    if sys.platform == "darwin" and sys.stdout.isatty():
-        subprocess.run(
-            [
-                "osascript",
-                "-e",
-                'tell app "System Events" to display dialog "simulation finished !"',
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+    # if sys.platform == "darwin" and sys.stdout.isatty():
+    #     subprocess.run(
+    #         [
+    #             "osascript",
+    #             "-e",
+    #             'tell app "System Events" to display dialog "simulation finished !"',
+    #         ],
+    #         stdout=subprocess.DEVNULL,
+    #         stderr=subprocess.DEVNULL,
+    #     )
 
 
 def merge(args):

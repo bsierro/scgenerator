@@ -1013,14 +1013,18 @@ def rin_curve(spectra: np.ndarray) -> np.ndarray:
     ----------
     spectra : np.ndarray, shape (n, nt)
         a collection of n spectra from which to compute the RIN
+        complex amplitude is automatically converted to intensity
 
     Returns
     -------
     rin_curve : np.ndarray
         RIN curve
     """
-    A2 = abs2(spectra)
-    return np.std(A2, axis=0) / np.mean(A2, axis=0)
+    if np.iscomplexobj(spectra):
+        A2 = abs2(spectra)
+    else:
+        A2 = spectra
+    return np.std(A2, axis=-2) / np.mean(A2, axis=-2)
 
 
 def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float]:
