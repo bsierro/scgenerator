@@ -189,6 +189,9 @@ def update_appended_params(source: Path, destination: Path, z: Sequence):
     else:
         params["z_num"] = z_num
         params["length"] = float(z[-1] - z[0])
+    for p_name in ["recovery_data_dir", "prev_data_dir", "output_path"]:
+        if p_name in params:
+            del params[p_name]
     save_toml(destination, params)
 
 
@@ -332,40 +335,18 @@ def merge(destination: os.PathLike, path_trees: list[PathTree] = None):
     )
     for path_tree in path_trees:
         pbars.reset(1)
-        iden = PARAM_SEPARATOR.join(path_tree[-1][0].name.split()[2:-2])
+        iden_items = path_tree[-1][0].name.split()[2:-2]
+        for i, p_name in list(enumerate(iden_items))[-2::-2]:
+            if p_name == "num":
+                del iden_items[i + 1]
+                del iden_items[i]
+        iden = PARAM_SEPARATOR.join(iden_items)
         merge_path_tree(path_tree, destination / iden, z_callback=lambda i: pbars.update(1))
 
 
 def sim_dirs(path_trees: list[PathTree]) -> Generator[Path, None, None]:
     for p in path_trees[0]:
         yield p[0].parent
-
-
-def get_sim_dir(task_id: int, path_if_new: Path = None) -> Path:
-    if path_if_new is None:
-        path_if_new = Path("scgenerator data")
-    tmp = data_folder(task_id)
-    if tmp is None:
-        tmp = ensure_folder(path_if_new)
-        os.environ[TMP_FOLDER_KEY_BASE + str(task_id)] = str(tmp)
-    tmp = Path(tmp).resolve()
-    if not tmp.exists():
-        tmp.mkdir()
-    return tmp
-
-
-def set_data_folder(task_id: int, path: os.PathLike):
-    """stores the path to an existing data folder in the environment
-
-    Parameters
-    ----------
-    task_id : int
-        id uniquely identifying the session
-    path : str
-        path to the root of the data folder
-    """
-    idstr = str(int(task_id))
-    os.environ[TMP_FOLDER_KEY_BASE + idstr] = str(path)
 
 
 def save_data(data: np.ndarray, data_dir: Path, file_name: str):
@@ -543,7 +524,7 @@ class ProgressBarActor:
         Parameters
         ----------
         worker_id : int
-            id of the worker
+            id of the worker. 0 is the overall progress
         rel_pos : float, optional
             if None, increase the counter by one, if set, will set
             the counter to the specified value (instead of incrementing it), by default None
@@ -583,8 +564,11 @@ def progress_worker(
             if raw == 0:
                 return
             i, rel_pos = raw
-            pbars[i].update(rel_pos - pbars[i].n)
-            pbars[0].update()
+            if i > 0:
+                pbars[i].update(rel_pos - pbars[i].n)
+                pbars[0].update()
+            elif i == 0:
+                pbars[0].update(rel_pos)
 
 
 def branch_id(branch: tuple[Path, ...]) -> str:

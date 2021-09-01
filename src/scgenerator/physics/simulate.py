@@ -1,3 +1,4 @@
+from send2trash import send2trash
 import multiprocessing
 import multiprocessing.connection
 import os
@@ -467,7 +468,7 @@ class Simulations:
     def finished_and_complete(self):
         for sim in self.configuration.data_dirs:
             for data_dir in sim:
-                if self.configuration.sim_status(data_dir) != self.configuration.State.COMPLETE:
+                if self.configuration.sim_status(data_dir)[0] != self.configuration.State.COMPLETE:
                     return False
         return True
 
@@ -518,6 +519,7 @@ class SequencialSimulations(Simulations, priority=0):
         self.pbars = utils.PBars(
             self.configuration.total_num_steps, "Simulating " + self.configuration.name, 1
         )
+        self.configuration.skip_callback = lambda num: self.pbars.update(0, num)
 
     def new_sim(self, v_list_str: str, params: Parameters):
         self.logger.info(f"{self.configuration.name} : launching simulation with {v_list_str}")
@@ -545,6 +547,7 @@ class MultiProcSimulations(Simulations, priority=1):
             self.sim_jobs_per_node = max(1, os.cpu_count() // 2)
         self.queue = multiprocessing.JoinableQueue(self.sim_jobs_per_node)
         self.progress_queue = multiprocessing.Queue()
+        self.configuration.skip_callback = lambda num: self.progress_queue.put((0, num))
         self.workers = [
             multiprocessing.Process(
                 target=MultiProcSimulations.worker,
@@ -608,7 +611,8 @@ class MultiProcSimulations(Simulations, priority=1):
 
 
 class RaySimulations(Simulations, priority=2):
-    """runs simulation with the help of the ray module. ray must be initialized before creating an instance of RaySimulations"""
+    """runs simulation with the help of the ray module.
+    ray must be initialized before creating an instance of RaySimulations"""
 
     @classmethod
     def is_available(cls):
@@ -648,6 +652,7 @@ class RaySimulations(Simulations, priority=2):
                 self.configuration.name, self.sim_jobs_total, self.configuration.total_num_steps
             )
         )
+        self.configuration.skip_callback = lambda num: ray.get(self.p_actor.update.remote(0, num))
 
     def new_sim(self, v_list_str: str, params: Parameters):
         while self.num_submitted >= self.sim_jobs_total:
@@ -702,13 +707,17 @@ def run_simulation(
 
     sim = new_simulation(config, method)
     sim.run()
-    path_trees = utils.build_path_trees(sim.sim_dir)
+    path_trees = utils.build_path_trees(config.sim_dirs[-1])
 
     final_name = env.get(env.OUTPUT_PATH)
     if final_name is None:
         final_name = config.name
 
     utils.merge(final_name, path_trees)
+    try:
+        send2trash(config.sim_dirs)
+    except (PermissionError, OSError):
+        get_logger(__name__).error("Could not send temporary directories to trash")
 
 
 def new_simulation(

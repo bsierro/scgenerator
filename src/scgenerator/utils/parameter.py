@@ -339,6 +339,7 @@ class Parameters:
     # root
     name: str = Parameter(string, default="no name")
     prev_data_dir: str = Parameter(string)
+    recovery_data_dir: str = Parameter(string)
     previous_config_file: str = Parameter(string)
     output_path: str = Parameter(string, default="sc_data")
 
@@ -795,7 +796,12 @@ class Configuration:
     def load(cls, path: os.PathLike) -> "Configuration":
         return cls(utils.load_toml(path))
 
-    def __init__(self, final_config: dict[str, Any], overwrite: bool = True):
+    def __init__(
+        self,
+        final_config: dict[str, Any],
+        overwrite: bool = True,
+        skip_callback: Callable[[int], None] = None,
+    ):
         self.logger = get_logger(__name__)
 
         self.configs = [final_config]
@@ -804,6 +810,7 @@ class Configuration:
         self.total_num_steps = 0
         self.sim_dirs = []
         self.overwrite = overwrite
+        self.skip_callback = skip_callback
         self.worker_num = self.configs[0].get("worker_num", max(1, os.cpu_count() // 2))
 
         while "previous_config_file" in self.configs[0]:
@@ -908,12 +915,17 @@ class Configuration:
                 if task == self.Action.RUN:
                     sim_dict.pop(data_dir)
                     yield variable_list, data_dir, Parameters(**config_dict)
+                    if "recovery_last_stored" in config_dict and self.skip_callback is not None:
+                        self.skip_callback(config_dict["recovery_last_stored"])
                     break
                 elif task == self.Action.SKIP:
                     sim_dict.pop(data_dir)
+                    self.logger.debug(f"skipping {data_dir} as it is already complete")
+                    if self.skip_callback is not None:
+                        self.skip_callback(config_dict["z_num"])
                     break
             else:
-                self.logger.debug("sleeping")
+                self.logger.debug("sleeping while waiting for other simulations to complete")
                 time.sleep(1)
 
     def __decide(
@@ -940,7 +952,7 @@ class Configuration:
         if out_status == self.State.COMPLETE:
             return self.Action.SKIP, config_dict
         elif out_status == self.State.PARTIAL:
-            config_dict["prev_data_dir"] = str(data_dir)
+            config_dict["recovery_data_dir"] = str(data_dir)
             config_dict["recovery_last_stored"] = num
             return self.Action.RUN, config_dict
 
@@ -986,9 +998,9 @@ class Configuration:
             raise ValueError(f"Too many spectra in {data_dir}")
 
     def save_parameters(self):
-        os.makedirs(self.final_sim_dir, exist_ok=True)
-        for i, config in enumerate(self.configs):
-            utils.save_toml(self.final_sim_dir / f"initial_config{i}.toml", config)
+        for config, sim_dir in zip(self.configs, self.sim_dirs):
+            os.makedirs(sim_dir, exist_ok=True)
+            utils.save_toml(sim_dir / f"initial_config.toml", config)
 
 
 @dataclass
@@ -1202,8 +1214,7 @@ def variable_iterator(
         param_dict.update(indiv_config)
         for repeat_index in range(repeat):
             variable_ind = [("id", master_index)] + variable_list
-            if repeat > 1:
-                variable_ind += [("num", repeat_index)]
+            variable_ind += [("num", repeat_index)]
             yield variable_ind, param_dict
             master_index += 1
 
@@ -1228,6 +1239,7 @@ default_rules: list[Rule] = [
     # Pulse
     Rule("spec_0", np.fft.fft, ["field_0"]),
     Rule("field_0", np.fft.ifft, ["spec_0"]),
+    Rule("spec_0", utils.load_previous_spectrum, ["recovery_data_dir"], priorities=4),
     Rule("spec_0", utils.load_previous_spectrum, priorities=3),
     *Rule.deduce(
         ["pre_field_0", "peak_power", "energy", "width"],
