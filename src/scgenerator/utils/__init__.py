@@ -120,7 +120,7 @@ def save_toml(path: os.PathLike, dico):
 
 
 def save_parameters(
-    params: dict[str, Any], destination_dir: Path, file_name: str = "params.toml"
+    params: dict[str, Any], destination_dir: Path, file_name: str = PARAM_FN
 ) -> Path:
     """saves a parameter dictionary. Note that is does remove some entries, particularly
     those that take a lot of space ("t", "w", ...)
@@ -618,7 +618,7 @@ def num_left_to_propagate(sub_folder: Path, init_z_num: int) -> int:
     IncompleteDataFolderError
         raised if init_z_num doesn't match that specified in the individual parameter file
     """
-    z_num = load_toml(sub_folder / "params.toml")["z_num"]
+    z_num = load_toml(sub_folder / PARAM_FN)["z_num"]
     num_spectra = find_last_spectrum_num(sub_folder) + 1  # because of zero-indexing
 
     if z_num != init_z_num:

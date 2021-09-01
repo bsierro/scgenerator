@@ -697,9 +697,15 @@ class Evaluator:
                             or param_name not in self.params
                             or self.eval_stats[param_name].priority < param_priority
                         ):
+                            if check_only:
+                                success_str = f"able to compute {param_name} "
+                            else:
+                                v_str = format(returned_value).replace("\n", "")
+                                success_str = f"computed {param_name}={v_str} "
                             self.logger.info(
                                 prefix
-                                + f"computed {param_name}={returned_value} using {rule.func.__name__} from {rule.func.__module__}"
+                                + success_str
+                                + f"using {rule.func.__name__} from {rule.func.__module__}"
                             )
                             self.set_value(param_name, returned_value, param_priority)
                         if param_name == target:
@@ -882,7 +888,7 @@ class Configuration:
         self, index: int, config: dict[str, Any], first=False
     ) -> tuple[list[tuple[list[tuple[str, Any]], dict[str, Any]]], list[Path]]:
         required: list[tuple[list[tuple[str, Any]], dict[str, Any]]] = list(
-            variable_iterator(config, self.repeat if first else 1)
+            variable_iterator(config, first)
         )
         for vary_list, _ in required:
             vary_list.insert(
@@ -1116,14 +1122,20 @@ def _mock_function(num_args: int, num_returns: int) -> Callable:
 def format_variable_list(l: list[tuple[str, Any]]) -> str:
     str_list = []
     previous_fibers = []
+    num = None
     for p_name, p_value in l:
         if p_name == "prev_data_dir":
-            previous_fibers += Path(p_value).name.split()[2:]
+            prev_dir_items = Path(p_value).name.split()[2:]
+            prev_dir_dic = dict(zip(prev_dir_items[::2], prev_dir_items[1::2]))
+            num = prev_dir_dic.pop("num")
+            previous_fibers += sum(([k, v] for k, v in prev_dir_dic.items()), [])
+        elif p_name == "num" and num is None:
+            num = str(p_value)
         else:
             ps = p_name.replace("/", "").replace(PARAM_SEPARATOR, "")
             vs = format_value(p_name, p_value).replace("/", "").replace(PARAM_SEPARATOR, "")
             str_list.append(ps + PARAM_SEPARATOR + vs)
-    return PARAM_SEPARATOR.join(str_list[:1] + previous_fibers + str_list[1:])
+    return PARAM_SEPARATOR.join(str_list[:1] + previous_fibers + str_list[1:] + ["num", num])
 
 
 def format_value(name: str, value) -> str:
@@ -1174,7 +1186,7 @@ def pretty_format_from_sim_name(name: str) -> str:
 
 
 def variable_iterator(
-    config: dict[str, Any], repeat: int = 1
+    config: dict[str, Any], first: bool
 ) -> Generator[tuple[list[tuple[str, Any]], dict[str, Any]], None, None]:
     """given a config with "variable" parameters, iterates through every possible combination,
     yielding a a list of (parameter_name, value) tuples and a full config dictionary.
@@ -1183,6 +1195,8 @@ def variable_iterator(
     ----------
     config : BareConfig
         initial config obj
+    first : int
+        whether it is the first fiber or not (only the first fiber get a sim number)
 
     Yields
     -------
@@ -1201,7 +1215,7 @@ def variable_iterator(
     combinations = itertools.product(*possible_ranges)
 
     master_index = 0
-
+    repeat = config.get("repeat", 1) if first else 1
     for combination in combinations:
         indiv_config = {}
         variable_list = []
@@ -1214,7 +1228,8 @@ def variable_iterator(
         param_dict.update(indiv_config)
         for repeat_index in range(repeat):
             variable_ind = [("id", master_index)] + variable_list
-            variable_ind += [("num", repeat_index)]
+            if first:
+                variable_ind += [("num", repeat_index)]
             yield variable_ind, param_dict
             master_index += 1
 
