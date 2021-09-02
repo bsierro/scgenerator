@@ -703,7 +703,7 @@ def run_simulation(
     config_file: os.PathLike,
     method=None,
 ):
-    config = Configuration.load(config_file)
+    config = Configuration(config_file)
 
     sim = new_simulation(config, method)
     sim.run()

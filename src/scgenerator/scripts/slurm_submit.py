@@ -126,7 +126,7 @@ def main():
             "time format must be an integer number of minute or must match the pattern hh:mm:ss"
         )
 
-    config = Configuration.load(args.config)
+    config = Configuration(args.config)
     final_name = config.name
     sim_num = config.num_sim
 

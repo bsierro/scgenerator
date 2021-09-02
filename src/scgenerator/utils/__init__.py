@@ -14,9 +14,11 @@ import re
 import shutil
 import threading
 from collections import abc
+from copy import deepcopy
 from io import StringIO
 from pathlib import Path
-from typing import Any, Callable, Generator, Iterable, Sequence, TypeVar, Union
+from string import printable as str_printable
+from typing import Any, Callable, Generator, Iterable, MutableMapping, Sequence, TypeVar, Union
 
 import numpy as np
 import pkg_resources as pkg
@@ -27,7 +29,6 @@ from ..const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, SPECN_FN, Z_FN, __versi
 from ..env import TMP_FOLDER_KEY_BASE, data_folder, pbar_policy
 from ..errors import IncompleteDataFolderError
 from ..logger import get_logger
-
 
 T_ = TypeVar("T_")
 
@@ -119,6 +120,28 @@ def save_toml(path: os.PathLike, dico):
     return dico
 
 
+def load_config_sequence(final_config_path: os.PathLike) -> tuple[list[dict[str, Any]], str]:
+    loaded_config = load_toml(final_config_path)
+    final_name = loaded_config.get("name")
+    fiber_list = loaded_config.pop("Fiber")
+    configs = []
+    if fiber_list is not None:
+        for i, params in enumerate(fiber_list):
+            params.setdefault("variable", loaded_config.get("variable", {}) if i == 0 else {})
+            configs.append(loaded_config | params)
+    else:
+        configs.append(loaded_config)
+        while "previous_config_file" in configs[0]:
+            configs.insert(0, load_toml(configs[0]["previous_config_file"]))
+        configs[0].setdefault("variable", {})
+        for pre, nex in zip(configs[:-1], configs[1:]):
+            variable = nex.pop("variable", {})
+            nex.update({k: v for k, v in pre.items() if k not in nex})
+            nex["variable"] = variable
+
+    return configs, final_name
+
+
 def save_parameters(
     params: dict[str, Any], destination_dir: Path, file_name: str = PARAM_FN
 ) -> Path:
@@ -163,23 +186,6 @@ def load_material_dico(name: str) -> dict[str, Any]:
         return toml.loads(Paths.gets("gas"))[name]
 
 
-def get_data_dirs(sim_dir: Path) -> list[Path]:
-    """returns a list of absolute paths corresponding to a particular run
-
-    Parameters
-    ----------
-    sim_dir : Path
-        path to directory containing the initial config file and the spectra sub folders
-
-    Returns
-    -------
-    list[Path]
-        paths to sub folders
-    """
-
-    return [p.resolve() for p in sim_dir.glob("*") if p.is_dir()]
-
-
 def update_appended_params(source: Path, destination: Path, z: Sequence):
     z_num = len(z)
     params = load_toml(source)
@@ -195,10 +201,21 @@ def update_appended_params(source: Path, destination: Path, z: Sequence):
     save_toml(destination, params)
 
 
+def to_62(i: int) -> str:
+    arr = []
+    if i == 0:
+        return "0"
+    i = abs(i)
+    while i:
+        i, value = divmod(i, 62)
+        arr.append(str_printable[value])
+    return "".join(reversed(arr))
+
+
 def build_path_trees(sim_dir: Path) -> list[PathTree]:
     sim_dir = sim_dir.resolve()
     path_branches: list[tuple[Path, ...]] = []
-    to_check = list(sim_dir.glob("id*num*"))
+    to_check = list(sim_dir.glob("*fiber*num*"))
     with PBars(len(to_check), desc="Building path trees") as pbar:
         for branch in map(build_path_branch, to_check):
             if branch is not None:
@@ -260,7 +277,7 @@ def group_path_branches(path_branches: list[tuple[Path, ...]]) -> list[PathTree]
         b_id = branch_id(branch)
         out_trees_map.setdefault(b_id, {i: {} for i in range(size)})
         for sim_part, data_dir in enumerate(branch):
-            *_, num = data_dir.name.split()
+            num = re.search(r"(?<=num )[0-9]+", data_dir.name)[0]
             out_trees_map[b_id][sim_part][int(num)] = data_dir
 
     return [
@@ -335,7 +352,7 @@ def merge(destination: os.PathLike, path_trees: list[PathTree] = None):
     )
     for path_tree in path_trees:
         pbars.reset(1)
-        iden_items = path_tree[-1][0].name.split()[2:-2]
+        iden_items = path_tree[-1][0].name.split()[2:]
         for i, p_name in list(enumerate(iden_items))[-2::-2]:
             if p_name == "num":
                 del iden_items[i + 1]
@@ -572,62 +589,7 @@ def progress_worker(
 
 
 def branch_id(branch: tuple[Path, ...]) -> str:
-    return "".join("".join(re.sub(r"id\d+\S*num\d+", "", b.name).split()[2:-2]) for b in branch)
-
-
-def check_data_integrity(sub_folders: list[Path], init_z_num: int):
-    """checks the integrity and completeness of a simulation data folder
-
-    Parameters
-    ----------
-    path : str
-        path to the data folder
-    init_z_num : int
-        z_num as specified by the initial configuration file
-
-    Raises
-    ------
-    IncompleteDataFolderError
-        raised if not all spectra are present in any folder
-    """
-
-    for sub_folder in PBars(sub_folders, "Checking integrity"):
-        if num_left_to_propagate(sub_folder, init_z_num) != 0:
-            raise IncompleteDataFolderError(
-                f"not enough spectra of the specified {init_z_num} found in {sub_folder}"
-            )
-
-
-def num_left_to_propagate(sub_folder: Path, init_z_num: int) -> int:
-    """checks if a propagation has completed
-
-    Parameters
-    ----------
-    sub_folder : Path
-        path to the sub folder containing the spectra
-    init_z_num : int
-        number of z position to store as specified in the master config file
-
-    Returns
-    -------
-    bool
-        True if the propagation has completed
-
-    Raises
-    ------
-    IncompleteDataFolderError
-        raised if init_z_num doesn't match that specified in the individual parameter file
-    """
-    z_num = load_toml(sub_folder / PARAM_FN)["z_num"]
-    num_spectra = find_last_spectrum_num(sub_folder) + 1  # because of zero-indexing
-
-    if z_num != init_z_num:
-        raise IncompleteDataFolderError(
-            f"initial config specifies {init_z_num} spectra per"
-            + f" but the parameter file in {sub_folder} specifies {z_num}"
-        )
-
-    return z_num - num_spectra
+    return branch[-1].name.split()[1]
 
 
 def find_last_spectrum_num(data_dir: Path):
@@ -653,3 +615,14 @@ def auto_crop(x: np.ndarray, y: np.ndarray, rel_thr: float = 0.01) -> np.ndarray
             np.arange(ind_above[-1] + 1, min(len(y), ind_above[-1] + width)),
         )
     )
+
+
+def translate_parameters(d: dict[str, Any]) -> dict[str, Any]:
+    old_names = dict(interp_degree="interpolation_degree")
+    new = {}
+    for k, v in d.items():
+        if isinstance(v, MutableMapping):
+            new[k] = translate_parameters(v)
+        else:
+            new[old_names.get(k, k)] = v
+    return new

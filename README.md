@@ -21,7 +21,7 @@ SCGENERATOR_PBAR_POLICY : "none", "file", "print", "both", optional
 # Configuration
 
 You can load parameters by simply passing the path to a toml file to the appropriate simulation function. Each possible key of this dictionary is described below. Every value must be given in standard SI units (m, s, W, J, ...)
-The configuration file can have a ```name``` parameter at the root and must otherwise contain the following sections with the specified parameters. Every section ("fiber", "gas", "pulse", "simulation") can have a "variable" subsection where parameters are specified in a list INSTEAD of being specified as a single value in the main section. This has the effect of running one simulation per value in the list. If many parameters are variable, all possible combinations are ran.
+the root of the file has information concerning the whole simulation : name, grid information, input pulse, ...
 Examples : 
 
 ```
@@ -39,6 +39,48 @@ n2 = 2.2e-20
 n2 = [2.1e-20, 2.4e-20, 2.6e-20]
 ```
 NOT ALLOWED
+
+Here is an example of a configuration file
+
+```
+name = "Test/Compound 1"
+
+field_file = "Toptica/init_field.npz"
+repetition_rate = 40e6
+wavelength = 1535.6e-9
+
+dt = 1e-15
+t_num = 16384
+tolerated_error = 1e-6
+quantum_noise = true
+z_num = 32
+mean_power = 200e-3
+repeat = 3
+
+# will be applied to the whole simulation fiber PM1550_1 only
+# fiber parameters specified here would apply to the whole simulation as well
+# unless overridden in one of the individual fiber
+[variable] 
+behaviors = [["spm", "ss", "raman"], ["spm", "ss"]]
+raman_type = ["agrawal", "stolen"]
+
+[[Fiber]]
+name = "PM1550_1"
+n2 = 2.2e-20
+dispersion_file = "PM1550/Dispersion/PM1550XP extrapolated 1.npz"
+length = 0.01
+effective_mode_diameter = 10.1e-6
+
+[[Fiber]]
+name = "PM2000D_2"
+length = 0.01
+n2 = 3.4e-20
+A_eff_file = "PM2000D/PM2000D_A_eff_marcuse.npz"
+dispersion_file = "PM2000D/Dispersion/PM2000D_1 extrapolated 0 4.npz"
+
+[Fiber.variable] # this variable parameter will be applied to PM2000D_2
+input_transmission = [0.9, 0.95]
+```
 
 
 note : internally, another structure with a flattened dictionary is used
@@ -129,10 +171,13 @@ n2 : float, optional
 A_eff : float, optional
     effective mode field area
 
+A_eff_file : str, optional
+    file containing an A_eff array (in m^2) as function of a wavelength array (in m)
+
 length: float, optional
     length of the fiber in m. default : 1
 
-input_transmission : float
+input_transmission : float, optional
     number between 0 and 1 indicating how much light enters the fiber, useful when chaining many fibers together, default : 1
 
 
