@@ -118,6 +118,13 @@ def create_parser():
     )
     init_plot_parser.set_defaults(func=plot_init)
 
+    convert_parser = subparsers.add_parser(
+        "convert",
+        help="convert parameter files that have been saved with an older version of the program",
+    )
+    convert_parser.add_argument("config", help="path to config/parameter file")
+    convert_parser.set_defaults(func=translate_parameters)
+
     return parser
 
 
@@ -222,6 +229,11 @@ def plot_dispersion(args):
     else:
         lims = 1e-9 * np.array(args.limits, dtype=float)
     scripts.plot_dispersion(args.config, lims)
+
+
+def translate_parameters(args):
+    path = args.config
+    scripts.convert_params(path)
 
 
 if __name__ == "__main__":

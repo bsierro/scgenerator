@@ -230,11 +230,14 @@ soliton_num: float
 field_file : str
     if you have an initial field to use, convert it to a npz file with time (key : 'time') in s and electric field (key : 'field') in sqrt(W) (can be complex). You the use it with this config key. You can then scale it by settings any 1 of mean_power, energy and peak_power (priority is in this order)
 
-quantum_noise: bool
+quantum_noise : bool
     whether or not one-photon-per-mode quantum noise is activated. default : False
 
-intensity_noise: float
+intensity_noise : float
     relative intensity noise
+
+noise_correlation : float
+    correlation between intensity noise and pulse width noise. a negative value means anti-correlation
 
 shape: str {"gaussian", "sech"}
     shape of the pulse. default : gaussian

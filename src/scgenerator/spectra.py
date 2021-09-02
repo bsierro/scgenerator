@@ -150,6 +150,7 @@ class Pulse(Sequence):
             raise FileNotFoundError(f"Folder {self.path} does not exist")
 
         self.params = Parameters.load(self.path / "params.toml")
+        self.params.compute(["t", "l", "w_c", "w0", "z_targets"])
 
         try:
             self.z = np.load(os.path.join(path, "z.npy"))

@@ -67,6 +67,7 @@ VALID_VARIABLE = {
     "step_size",
     "interpolation_degree",
     "ideal_gas",
+    "length",
 }
 
 MANDATORY_PARAMETERS = [
@@ -91,6 +92,7 @@ MANDATORY_PARAMETERS = [
     "dynamic_dispersion",
     "recovery_last_stored",
     "output_path",
+    "repeat",
 ]
 
 
@@ -428,11 +430,11 @@ class Parameters:
         param["version"] = __version__
         return param
 
-    def __post_init__(self):
+    def compute(self, to_compute: list[str] = MANDATORY_PARAMETERS):
         param_dict = {k: v for k, v in asdict(self).items() if v is not None}
         evaluator = Evaluator.default()
         evaluator.set(**param_dict)
-        for p_name in MANDATORY_PARAMETERS:
+        for p_name in to_compute:
             evaluator.compute(p_name)
         valid_fields = self.all_parameters()
         for k, v in evaluator.params.items():
@@ -446,6 +448,12 @@ class Parameters:
     @classmethod
     def load(cls, path: os.PathLike) -> "Parameters":
         return cls(**utils.load_toml(path))
+
+    @classmethod
+    def load_and_compute(cls, path: os.PathLike) -> "Parameters":
+        p = cls.load(path)
+        p.compute()
+        return p
 
     @staticmethod
     def strip_params_dict(dico: dict[str, Any]) -> dict[str, Any]:
@@ -753,7 +761,6 @@ class Configuration:
     num_sim: int
     repeat: int
     z_num: int
-    total_length: float
     total_num_steps: int
     worker_num: int
     parallel: bool
@@ -789,7 +796,6 @@ class Configuration:
         if self.name is None:
             self.name = Parameters.name.default
         self.z_num = 0
-        self.total_length = 0.0
         self.total_num_steps = 0
         self.sim_dirs = []
         self.overwrite = overwrite
@@ -800,7 +806,6 @@ class Configuration:
         names = set()
         for i, config in enumerate(self.configs):
             self.z_num += config["z_num"]
-            self.total_length += config["length"]
             config.setdefault("name", f"{Parameters.name.default} {i}")
             given_name = config["name"]
             i = 0
@@ -858,8 +863,8 @@ class Configuration:
                 )
                 self.data_dirs[i].append(this_path)
                 this_conf.pop("variable")
-                this_conf.update({k: v for k, v in this_vary if k != "num"})
-                self.all_required[i].append((this_vary, this_conf))
+                conf_to_use = {k: v for k, v in this_vary if k != "num"} | this_conf
+                self.all_required[i].append((this_vary, conf_to_use))
 
     def __iter__(self) -> Generator[tuple[list[tuple[str, Any]], Parameters], None, None]:
         for sim_paths, fiber in zip(self.data_dirs, self.all_required):
@@ -897,7 +902,9 @@ class Configuration:
                 task, config_dict = self.__decide(data_dir, config_dict)
                 if task == self.Action.RUN:
                     sim_dict.pop(data_dir)
-                    yield variable_list, data_dir, Parameters(**config_dict)
+                    p = Parameters(**config_dict)
+                    p.compute()
+                    yield variable_list, data_dir, p
                     if "recovery_last_stored" in config_dict and self.skip_callback is not None:
                         self.skip_callback(config_dict["recovery_last_stored"])
                     break

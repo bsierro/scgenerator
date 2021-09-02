@@ -1,4 +1,3 @@
-from send2trash import send2trash
 import multiprocessing
 import multiprocessing.connection
 import os
@@ -8,6 +7,7 @@ from pathlib import Path
 from typing import Any, Generator, Type
 
 import numpy as np
+from send2trash import send2trash
 
 from .. import env, utils
 from ..logger import get_logger
@@ -638,19 +638,15 @@ class RaySimulations(Simulations, priority=2):
             )
         )
 
-        self.propagator = ray.remote(RayRK4IP).options(runtime_env=dict(env_vars=env.all_environ()))
+        self.propagator = ray.remote(RayRK4IP)
 
         self.update_cluster_frequency = 3
         self.jobs = []
         self.pool = ray.util.ActorPool(self.propagator.remote() for _ in range(self.sim_jobs_total))
         self.num_submitted = 0
         self.rolling_id = 0
-        self.p_actor = (
-            ray.remote(utils.ProgressBarActor)
-            .options(runtime_env=dict(env_vars=env.all_environ()))
-            .remote(
-                self.configuration.name, self.sim_jobs_total, self.configuration.total_num_steps
-            )
+        self.p_actor = ray.remote(utils.ProgressBarActor).remote(
+            self.configuration.name, self.sim_jobs_total, self.configuration.total_num_steps
         )
         self.configuration.skip_callback = lambda num: ray.get(self.p_actor.update.remote(0, num))
 

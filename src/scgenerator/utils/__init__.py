@@ -14,7 +14,6 @@ import re
 import shutil
 import threading
 from collections import abc
-from copy import deepcopy
 from io import StringIO
 from pathlib import Path
 from string import printable as str_printable
@@ -26,8 +25,7 @@ import toml
 from tqdm import tqdm
 
 from ..const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, SPECN_FN, Z_FN, __version__
-from ..env import TMP_FOLDER_KEY_BASE, data_folder, pbar_policy
-from ..errors import IncompleteDataFolderError
+from ..env import pbar_policy
 from ..logger import get_logger
 
 T_ = TypeVar("T_")
@@ -126,8 +124,11 @@ def load_config_sequence(final_config_path: os.PathLike) -> tuple[list[dict[str,
     fiber_list = loaded_config.pop("Fiber")
     configs = []
     if fiber_list is not None:
+        master_variable = loaded_config.get("variable", {})
         for i, params in enumerate(fiber_list):
-            params.setdefault("variable", loaded_config.get("variable", {}) if i == 0 else {})
+            params.setdefault("variable", master_variable if i == 0 else {})
+            if i == 0:
+                params["variable"] |= master_variable
             configs.append(loaded_config | params)
     else:
         configs.append(loaded_config)
@@ -618,11 +619,21 @@ def auto_crop(x: np.ndarray, y: np.ndarray, rel_thr: float = 0.01) -> np.ndarray
 
 
 def translate_parameters(d: dict[str, Any]) -> dict[str, Any]:
-    old_names = dict(interp_degree="interpolation_degree")
+    old_names = dict(
+        interp_degree="interpolation_degree",
+        beta="beta2_coefficients",
+        interp_range="interpolation_range",
+    )
+    deleted_names = {"lower_wavelength_interp_limit", "upper_wavelength_interp_limit"}
+    defaults_to_add = dict(repeat=1)
     new = {}
     for k, v in d.items():
-        if isinstance(v, MutableMapping):
+        if k == "error_ok":
+            new["tolerated_error" if d.get("adapt_step_size", True) else "step_size"] = v
+        elif k in deleted_names:
+            continue
+        elif isinstance(v, MutableMapping):
             new[k] = translate_parameters(v)
         else:
             new[old_names.get(k, k)] = v
-    return new
+    return defaults_to_add | new
