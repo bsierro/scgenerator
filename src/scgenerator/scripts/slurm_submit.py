@@ -142,9 +142,7 @@ def main():
     tmp_path = Path("submit tmp.sh")
 
     job_name = f"supercontinuum {final_name}"
-    submit_sh = template.format(
-        job_name=job_name, configs_list=" ".join(f'"{c}"' for c in args.config), **vars(args)
-    )
+    submit_sh = template.format(job_name=job_name, **vars(args))
 
     tmp_path.write_text(submit_sh)
     subprocess.run(["sbatch", "--test-only", str(tmp_path)])
