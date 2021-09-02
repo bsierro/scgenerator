@@ -689,8 +689,8 @@ class RaySimulations(Simulations, priority=2):
 
     @property
     def sim_jobs_total(self):
-        if self.configuration.config.worker_num is not None:
-            return self.configuration.config.worker_num
+        if self.configuration.worker_num is not None:
+            return self.configuration.worker_num
         tot_cpus = ray.cluster_resources().get("CPU", 1)
         return int(min(self.configuration.num_sim, tot_cpus))
 
