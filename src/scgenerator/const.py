@@ -1,4 +1,4 @@
-__version__ = "0.2.0rules"
+__version__ = "0.2.1rules"
 
 
 from typing import Any

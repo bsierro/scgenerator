@@ -816,16 +816,9 @@ class Configuration:
                     prevent_overwrite=not self.overwrite,
                 )
             )
-
             self.__validate_variable(config)
-            Evaluator.evaluate_default(
-                {
-                    **{k: v for k, v in config.items() if k != "variable"},
-                    **{k: v[0] for k, v in config["variable"].items()},
-                },
-                check_only=True,
-            )
         self.__compute_sim_dirs()
+        [Evaluator.evaluate_default(req[0][1], check_only=True) for req in self.all_required]
         self.num_sim = len(self.data_dirs[-1])
         self.total_num_steps = sum(
             config["z_num"] * len(self.data_dirs[i]) for i, config in enumerate(self.configs)
@@ -1038,9 +1031,17 @@ class DataPather:
 
     def all_vary_list(self, index):
         for l in self.dico_iterator(index):
+            unique_vary = []
+            for ll in l[: index + 1]:
+                for pname, pval in ll:
+                    for i, (pn, _) in enumerate(unique_vary):
+                        if pn == pname:
+                            del unique_vary[i]
+                            break
+                    unique_vary.append((pname, pval))
             yield format_variable_list(reduce_all_variable(l[:index])), format_variable_list(
                 reduce_all_variable(l)
-            ), l[index]
+            ), unique_vary
 
 
 @dataclass
@@ -1314,7 +1315,7 @@ default_rules: list[Rule] = [
     Rule("peak_power", pulse.E0_to_P0, ["energy", "t0", "shape"]),
     Rule("peak_power", pulse.soliton_num_to_peak_power),
     Rule("energy", pulse.P0_to_E0, ["peak_power", "t0", "shape"]),
-    Rule("energy", pulse.mean_power_to_energy),
+    Rule("energy", pulse.mean_power_to_energy, priorities=2),
     Rule("t0", pulse.width_to_t0),
     Rule("t0", pulse.soliton_num_to_t0),
     Rule("width", pulse.t0_to_width),
