@@ -1,7 +1,6 @@
-from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union, TypeVar
+from typing import Any, Iterable, Literal, TypeVar
 
 import numpy as np
-from numpy.ma import core
 from numpy.fft import fft, ifft
 from numpy.polynomial.chebyshev import Chebyshev, cheb2poly
 from scipy.interpolate import interp1d
@@ -280,12 +279,41 @@ def A_eff_hasan(core_radius, capillary_num, capillary_spacing):
     return M_f * core_radius ** 2 * np.exp((capillary_spacing / 22e-6) ** 2.5)
 
 
-def V_eff_marcuse(l: T, core_radius: float, numerical_aperture: float) -> T:
-    return 2 * pi * core_radius * numerical_aperture / l
+def V_eff_step_index(
+    l: T,
+    core_radius: float,
+    numerical_aperture: float,
+    interpolation_range: tuple[float, float] = None,
+) -> T:
+    """computes the V parameter of a step-index fiber
+
+    Parameters
+    ----------
+    l : T
+        wavelength
+    core_radius : float
+        radius of the core
+    numerical_aperture : float
+        as a decimal number
+    interpolation_range : tuple[float, float], optional
+        when provided, only computes V over this range, wavelengths outside this range will
+        yield V=inf, by default None
+
+    Returns
+    -------
+    T
+        V parameter
+    """
+    pi2cn = 2 * pi * core_radius * numerical_aperture
+    if interpolation_range is not None and isinstance(l, np.ndarray):
+        low, high = interpolation_range
+        l = np.where((l >= low) & (l <= high), l, np.inf)
+    return pi2cn / l
 
 
 def V_parameter_koshiba(l: np.ndarray, pitch: float, pitch_ratio: float) -> float:
     """returns the V parameter according to Koshiba2004
+
 
     Parameters
     ----------
@@ -322,19 +350,21 @@ def A_eff_from_V(core_radius: float, V_eff: T) -> T:
 
     Parameters
     ----------
-    wl : T
-        wavelength
     core_radius : float
         in m
-    numerical_aperture : float
-        NA
+    V_eff : T
+        effective V parameter.
 
     Returns
     -------
     T
-        A_eff as function of wl
+        A_eff
     """
-    return core_radius * (0.65 + 1.619 / V_eff ** 1.5 + 2.879 / V_eff ** 6)
+    out = np.ones_like(V_eff)
+    out[V_eff > 0] = core_radius * (
+        0.65 + 1.619 / V_eff[V_eff > 0] ** 1.5 + 2.879 / V_eff[V_eff > 0] ** 6
+    )
+    return out
 
 
 def HCPCF_find_with_given_ZDW(
@@ -547,15 +577,15 @@ def HCPCF_dispersion(
 
 def dynamic_HCPCF_dispersion(
     wl_for_disp: np.ndarray,
-    pressure_values: List[float],
+    pressure_values: list[float],
     core_radius: float,
     fiber_model: str,
-    model_params: Dict[str, Any],
+    model_params: dict[str, Any],
     temperature: float,
     ideal_gas: bool,
     w0: float,
-    interp_range: Tuple[float, float],
-    material_dico: Dict[str, Any],
+    interp_range: tuple[float, float],
+    material_dico: dict[str, Any],
     deg: int,
 ):
     """returns functions for beta2 coefficients and gamma instead of static values

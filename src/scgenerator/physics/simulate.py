@@ -4,7 +4,7 @@ import os
 import random
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Generator, Type
+from typing import Any, Generator, Type, Union
 
 import numpy as np
 from send2trash import send2trash
@@ -423,7 +423,7 @@ class Simulations:
 
     @classmethod
     def new(
-        cls, configuration: Configuration, task_id, method: Type["Simulations"] = None
+        cls, configuration: Configuration, task_id, method: Union[str, Type["Simulations"]] = None
     ) -> "Simulations":
         """Prefered method to create a new simulations object
 
@@ -697,7 +697,7 @@ class RaySimulations(Simulations, priority=2):
 
 def run_simulation(
     config_file: os.PathLike,
-    method=None,
+    method: Union[str, Type[Simulations]] = None,
 ):
     config = Configuration(config_file)
 
@@ -718,7 +718,7 @@ def run_simulation(
 
 def new_simulation(
     configuration: Configuration,
-    method: Type[Simulations] = None,
+    method: Union[str, Type[Simulations]] = None,
 ) -> Simulations:
     logger = get_logger(__name__)
     task_id = random.randint(1e9, 1e12)
@@ -743,7 +743,7 @@ def __parallel_RK4IP_worker(
 
 
 def parallel_RK4IP(
-    config,
+    config: os.PathLike,
 ) -> Generator[
     tuple[tuple[list[tuple[str, Any]], Parameters, int, int, np.ndarray], ...], None, None
 ]:
@@ -769,7 +769,7 @@ def parallel_RK4IP(
             for q in pipes:
                 q[1].send(0)
                 logger.debug("msg sent")
-            computed_dict = {}
+            computed_dict: dict[int, np.ndarray] = {}
             for j in range(n):
                 w_id, computed = data_queue.get()
                 computed_dict[w_id] = computed

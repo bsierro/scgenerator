@@ -331,6 +331,7 @@ class Parameters:
     effective_mode_diameter: float = Parameter(positive(float, int))
     A_eff: float = Parameter(non_negative(float, int))
     A_eff_file: str = Parameter(string)
+    numerical_aperture: float = Parameter(in_range_excl(0, 1))
     pitch: float = Parameter(in_range_excl(0, 1e-3))
     pitch_ratio: float = Parameter(in_range_excl(0, 1))
     core_radius: float = Parameter(in_range_excl(0, 1e-3))
@@ -1371,15 +1372,19 @@ default_rules: list[Rule] = [
         ["wavelength", "pitch", "pitch_ratio"],
         conditions=dict(model="pcf"),
     ),
-    Rule("V_eff", fiber.V_eff_marcuse, ["wavelength", "core_radius", "numerical_aperture"]),
+    Rule("V_eff", fiber.V_eff_step_index, ["wavelength", "core_radius", "numerical_aperture"]),
     Rule("V_eff_arr", fiber.V_parameter_koshiba, conditions=dict(model="pcf")),
-    Rule("V_eff_arr", fiber.V_eff_marcuse),
+    Rule(
+        "V_eff_arr",
+        fiber.V_eff_step_index,
+        ["l", "core_radius", "numerical_aperture", "interpolation_range"],
+    ),
     Rule("gamma", lambda gamma_arr: gamma_arr[0]),
     Rule("gamma_arr", fiber.gamma_parameter, ["n2", "w0", "A_eff_arr"]),
     # Fiber loss
     Rule("alpha_arr", fiber.compute_capillary_loss),
     Rule("alpha_arr", fiber.load_custom_loss),
-    Rule("alpha_arr", lambda alpha, t: np.ones_like(t) * alpha),
+    Rule("alpha_arr", lambda alpha, t: np.ones_like(t) * alpha, priorities=-1),
     # gas
     Rule("n_gas_2", materials.n_gas_2),
 ]
