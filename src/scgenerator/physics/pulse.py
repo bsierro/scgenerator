@@ -1055,7 +1055,10 @@ def rin_curve(spectra: np.ndarray) -> np.ndarray:
 
 def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float]:
     """returns fwhm, peak_power, energy"""
-    intensity = abs2(field)
+    if np.iscomplexobj(field):
+        intensity = abs2(field)
+    else:
+        intensity = field
     _, fwhm_lim, _, _ = find_lobe_limits(t, intensity)
     fwhm = length(fwhm_lim)
     peak_power = intensity.max()

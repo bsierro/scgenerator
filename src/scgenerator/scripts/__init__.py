@@ -1,6 +1,4 @@
-import itertools
 import os
-from itertools import cycle
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -14,7 +12,7 @@ from ..const import PARAM_FN, PARAM_SEPARATOR
 from ..physics import fiber, units
 from ..plotting import plot_setup
 from ..spectra import Pulse
-from ..utils import auto_crop, load_toml, save_toml, translate_parameters
+from ..utils import auto_crop, open_config, save_toml, translate_parameters
 from ..utils.parameter import (
     Configuration,
     Parameters,
@@ -259,7 +257,7 @@ def finish_plot(fig, legend_axes, all_labels, params):
 
 def plot_helper(config_path: Path) -> Iterable[tuple[dict, list[str], Parameters]]:
     cc = cycler(color=[f"C{i}" for i in range(10)]) * cycler(ls=["-", "--"])
-    pseq = Configuration(load_toml(config_path))
+    pseq = Configuration(open_config(config_path))
     for style, (variables, params) in zip(cc, pseq):
         lbl = [pretty_format_value(name, value) for name, value in variables[1:-1]]
         yield style, lbl, params
@@ -268,7 +266,7 @@ def plot_helper(config_path: Path) -> Iterable[tuple[dict, list[str], Parameters
 def convert_params(params_file: os.PathLike):
     p = Path(params_file)
     if p.name == PARAM_FN:
-        d = load_toml(params_file)
+        d = open_config(params_file)
         d = translate_parameters(d)
         save_toml(params_file, d)
         print(f"converted {p}")

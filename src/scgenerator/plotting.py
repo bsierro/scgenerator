@@ -259,6 +259,7 @@ def propagation_plot(
     params: Parameters,
     ax: plt.Axes,
     log: Union[int, float, bool, str] = "1D",
+    renormalize: bool = False,
     vmin: float = None,
     vmax: float = None,
     transpose: bool = False,
@@ -295,6 +296,8 @@ def propagation_plot(
 
     """
     x_axis, y_axis, values = transform_2D_propagation(values, plt_range, params, log, skip)
+    if renormalize and log is False:
+        values = values / values.max()
     if log is not False:
         vmax = defaults["vmax"] if vmax is None else vmax
         vmin = defaults["vmin"] if vmin is None else vmin

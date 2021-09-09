@@ -127,7 +127,7 @@ def main():
         )
 
     config = Configuration(args.config)
-    final_name = config.name
+    final_name = config.final_path
     sim_num = config.num_sim
 
     if args.command == "merge":

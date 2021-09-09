@@ -20,6 +20,8 @@ from string import printable as str_printable
 from typing import Any, Callable, Generator, Iterable, MutableMapping, Sequence, TypeVar, Union
 
 import numpy as np
+from numpy.lib.arraysetops import isin
+from numpy.lib.function_base import insert
 import pkg_resources as pkg
 import toml
 from tqdm import tqdm
@@ -88,18 +90,21 @@ def load_previous_spectrum(prev_data_dir: str) -> np.ndarray:
     return np.load(prev_data_dir / SPEC1_FN.format(num))
 
 
-def conform_toml_path(path: os.PathLike) -> Path:
-    path = Path(path)
-    if not path.name.lower().endswith(".toml"):
-        path = path.parent / (path.name + ".toml")
+def conform_toml_path(path: os.PathLike) -> str:
+    path: str = str(path)
+    if not path.lower().endswith(".toml"):
+        path = path + ".toml"
     return path
 
 
-def load_toml(path: os.PathLike):
-    """returns a dictionary parsed from the specified toml file"""
+def open_config(path: os.PathLike):
+    """returns a dictionary parsed from the specified toml file
+    This also handle having a 'INCLUDE' argument that will fill
+    otherwise unspecified keys with what's in the INCLUDE file(s)"""
+
     path = conform_toml_path(path)
-    with open(path, mode="r") as file:
-        dico = toml.load(file)
+    dico = resolve_loadfile_arg(load_toml(path))
+
     dico.setdefault("variable", {})
     for key in {"simulation", "fiber", "gas", "pulse"} & dico.keys():
         section = dico.pop(key, {})
@@ -108,6 +113,35 @@ def load_toml(path: os.PathLike):
     if len(dico["variable"]) == 0:
         dico.pop("variable")
     return dico
+
+
+def resolve_loadfile_arg(dico: dict[str, Any]) -> dict[str, Any]:
+    if (f_list := dico.pop("INCLUDE", None)) is not None:
+        if isinstance(f_list, str):
+            f_list = [f_list]
+        for to_load in f_list:
+            loaded = load_toml(to_load)
+            for k, v in loaded.items():
+                if k not in dico and k not in dico.get("variable", {}):
+                    dico[k] = v
+    for k, v in dico.items():
+        if isinstance(v, MutableMapping):
+            dico[k] = resolve_loadfile_arg(v)
+        elif isinstance(v, Sequence):
+            for i, vv in enumerate(v):
+                if isinstance(vv, MutableMapping):
+                    dico[k][i] = resolve_loadfile_arg(vv)
+    return dico
+
+
+def load_toml(descr: str) -> dict[str, Any]:
+    if ":" in descr:
+        path, entry = descr.split(":", 1)
+        with open(path) as file:
+            return toml.load(file)[entry]
+    else:
+        with open(descr) as file:
+            return toml.load(file)
 
 
 def save_toml(path: os.PathLike, dico):
@@ -119,7 +153,7 @@ def save_toml(path: os.PathLike, dico):
 
 
 def load_config_sequence(final_config_path: os.PathLike) -> tuple[list[dict[str, Any]], str]:
-    loaded_config = load_toml(final_config_path)
+    loaded_config = open_config(final_config_path)
     final_name = loaded_config.get("name")
     fiber_list = loaded_config.pop("Fiber")
     configs = []
@@ -133,7 +167,7 @@ def load_config_sequence(final_config_path: os.PathLike) -> tuple[list[dict[str,
     else:
         configs.append(loaded_config)
         while "previous_config_file" in configs[0]:
-            configs.insert(0, load_toml(configs[0]["previous_config_file"]))
+            configs.insert(0, open_config(configs[0]["previous_config_file"]))
         configs[0].setdefault("variable", {})
         for pre, nex in zip(configs[:-1], configs[1:]):
             variable = nex.pop("variable", {})
@@ -189,13 +223,9 @@ def load_material_dico(name: str) -> dict[str, Any]:
 
 def update_appended_params(source: Path, destination: Path, z: Sequence):
     z_num = len(z)
-    params = load_toml(source)
-    if "simulation" in params:
-        params["simulation"]["z_num"] = z_num
-        params["fiber"]["length"] = float(z[-1] - z[0])
-    else:
-        params["z_num"] = z_num
-        params["length"] = float(z[-1] - z[0])
+    params = open_config(source)
+    params["z_num"] = z_num
+    params["length"] = float(z[-1] - z[0])
     for p_name in ["recovery_data_dir", "prev_data_dir", "output_path"]:
         if p_name in params:
             del params[p_name]
@@ -230,7 +260,9 @@ def build_path_branch(data_dir: Path) -> tuple[Path, ...]:
     if not data_dir.is_dir():
         return None
     path_branch = [data_dir]
-    while (prev_sim_path := load_toml(path_branch[-1] / PARAM_FN).get("prev_data_dir")) is not None:
+    while (
+        prev_sim_path := open_config(path_branch[-1] / PARAM_FN).get("prev_data_dir")
+    ) is not None:
         p = Path(prev_sim_path).resolve()
         if not p.exists():
             p = Path(*p.parts[-2:]).resolve()
@@ -345,7 +377,7 @@ def merge(destination: os.PathLike, path_trees: list[PathTree] = None):
             conf,
             destination / f"initial_config_{i}.toml",
         )
-        prev_z_num = load_toml(conf).get("z_num", prev_z_num)
+        prev_z_num = open_config(conf).get("z_num", prev_z_num)
         z_num += prev_z_num
 
     pbars = PBars(

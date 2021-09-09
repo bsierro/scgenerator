@@ -1124,16 +1124,3 @@ def capillary_loss(
     nu_n = 0.5 * (chi_silica + 2) / np.sqrt(chi_silica)
     alpha[mask] = nu_n * (u_nm(*he_mode) * wl_for_disp[mask] / pipi) ** 2 * core_radius ** -3
     return alpha
-
-
-if __name__ == "__main__":
-    w = np.linspace(0, 1, 4096)
-    c = np.arange(8)
-    import time
-
-    t = time.time()
-
-    for _ in range(10000):
-        dispersion_from_coefficients(w, c)
-
-    print((time.time() - t) / 10, "ms")

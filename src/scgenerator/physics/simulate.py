@@ -459,17 +459,19 @@ class Simulations:
 
         self.configuration = configuration
 
-        self.name = self.configuration.name
+        self.name = self.configuration.final_path
         self.sim_dir = self.configuration.final_sim_dir
         self.configuration.save_parameters()
 
         self.sim_jobs_per_node = 1
 
     def finished_and_complete(self):
-        for sim in self.configuration.data_dirs:
-            for data_dir in sim:
-                if self.configuration.sim_status(data_dir)[0] != self.configuration.State.COMPLETE:
-                    return False
+        for sim in self.configuration.all_configs_dict.values():
+            if (
+                self.configuration.sim_status(sim.output_path)[0]
+                != self.configuration.State.COMPLETE
+            ):
+                return False
         return True
 
     def run(self):
@@ -517,12 +519,14 @@ class SequencialSimulations(Simulations, priority=0):
     def __init__(self, configuration: Configuration, task_id):
         super().__init__(configuration, task_id=task_id)
         self.pbars = utils.PBars(
-            self.configuration.total_num_steps, "Simulating " + self.configuration.name, 1
+            self.configuration.total_num_steps, "Simulating " + self.configuration.final_path, 1
         )
         self.configuration.skip_callback = lambda num: self.pbars.update(0, num)
 
     def new_sim(self, v_list_str: str, params: Parameters):
-        self.logger.info(f"{self.configuration.name} : launching simulation with {v_list_str}")
+        self.logger.info(
+            f"{self.configuration.final_path} : launching simulation with {v_list_str}"
+        )
         SequentialRK4IP(
             params, self.pbars, save_data=True, job_identifier=v_list_str, task_id=self.id
         ).run()
@@ -558,7 +562,7 @@ class MultiProcSimulations(Simulations, priority=1):
         self.p_worker = multiprocessing.Process(
             target=utils.progress_worker,
             args=(
-                self.configuration.name,
+                self.configuration.final_path,
                 self.sim_jobs_per_node,
                 self.configuration.total_num_steps,
                 self.progress_queue,
@@ -646,7 +650,7 @@ class RaySimulations(Simulations, priority=2):
         self.num_submitted = 0
         self.rolling_id = 0
         self.p_actor = ray.remote(utils.ProgressBarActor).remote(
-            self.configuration.name, self.sim_jobs_total, self.configuration.total_num_steps
+            self.configuration.final_path, self.sim_jobs_total, self.configuration.total_num_steps
         )
         self.configuration.skip_callback = lambda num: ray.get(self.p_actor.update.remote(0, num))
 
@@ -668,7 +672,9 @@ class RaySimulations(Simulations, priority=2):
         )
         self.num_submitted += 1
 
-        self.logger.info(f"{self.configuration.name} : launching simulation with {v_list_str}")
+        self.logger.info(
+            f"{self.configuration.final_path} : launching simulation with {v_list_str}"
+        )
 
     def collect_1_job(self):
         ray.get(self.p_actor.update_pbars.remote())
@@ -707,7 +713,7 @@ def run_simulation(
 
     final_name = env.get(env.OUTPUT_PATH)
     if final_name is None:
-        final_name = config.name
+        final_name = config.final_path
 
     utils.merge(final_name, path_trees)
     try:
@@ -722,7 +728,7 @@ def new_simulation(
 ) -> Simulations:
     logger = get_logger(__name__)
     task_id = random.randint(1e9, 1e12)
-    logger.info(f"running {configuration.name}")
+    logger.info(f"running {configuration.final_path}")
     return Simulations.new(configuration, task_id, method)
 
 
