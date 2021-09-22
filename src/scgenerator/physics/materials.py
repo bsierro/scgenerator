@@ -113,8 +113,8 @@ def sellmeier(lambda_, material_dico, pressure=None, temperature=None):
     logger = get_logger(__name__)
 
     WL_THRESHOLD = 8.285e-6
-    temp_l = lambda_[lambda_ < WL_THRESHOLD]
-    kind = 1
+    ind = lambda_ < WL_THRESHOLD
+    temp_l = lambda_[ind]
 
     B = material_dico["sellmeier"]["B"]
     C = material_dico["sellmeier"]["C"]
@@ -125,13 +125,20 @@ def sellmeier(lambda_, material_dico, pressure=None, temperature=None):
 
     chi = np.zeros_like(lambda_)  # = n^2 - 1
     if kind == 1:
+        logger.debug("materials : using Sellmeier 1st kind equation")
         for b, c in zip(B, C):
-            chi[lambda_ < WL_THRESHOLD] += temp_l ** 2 * b / (temp_l ** 2 - c)
+            chi[ind] += temp_l ** 2 * b / (temp_l ** 2 - c)
     elif kind == 2:  # gives n-1
+        logger.debug("materials : using Sellmeier 2nd kind equation")
         for b, c in zip(B, C):
-            chi[lambda_ < WL_THRESHOLD] += b / (c - 1 / temp_l ** 2)
+            chi[ind] += b / (c - 1 / temp_l ** 2)
         chi += const
         chi = (chi + 1) ** 2 - 1
+    elif kind == 3:  # Schott formula
+        logger.debug("materials : using Schott equation")
+        for i, b in reversed(list(enumerate(B))):
+            chi[ind] += b * temp_l ** (-2 * (i - 1))
+        chi[ind] = chi[ind] - 1
     else:
         raise ValueError(f"kind {kind} is not recognized.")
 

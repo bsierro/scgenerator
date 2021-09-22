@@ -17,11 +17,10 @@ from collections import abc
 from io import StringIO
 from pathlib import Path
 from string import printable as str_printable
+from functools import cache
 from typing import Any, Callable, Generator, Iterable, MutableMapping, Sequence, TypeVar, Union
 
 import numpy as np
-from numpy.lib.arraysetops import isin
-from numpy.lib.function_base import insert
 import pkg_resources as pkg
 import toml
 from tqdm import tqdm
@@ -37,8 +36,7 @@ PathTree = list[tuple[Path, ...]]
 
 class Paths:
     _data_files = [
-        "silica.toml",
-        "gas.toml",
+        "materials.toml",
         "hr_t.npz",
         "submit_job_template.txt",
         "start_worker.sh",
@@ -87,7 +85,12 @@ class Paths:
 def load_previous_spectrum(prev_data_dir: str) -> np.ndarray:
     prev_data_dir = Path(prev_data_dir)
     num = find_last_spectrum_num(prev_data_dir)
-    return np.load(prev_data_dir / SPEC1_FN.format(num))
+    return load_spectrum(prev_data_dir / SPEC1_FN.format(num))
+
+
+@cache
+def load_spectrum(folder: os.PathLike) -> np.ndarray:
+    return np.load(folder)
 
 
 def conform_toml_path(path: os.PathLike) -> str:
@@ -95,6 +98,12 @@ def conform_toml_path(path: os.PathLike) -> str:
     if not path.lower().endswith(".toml"):
         path = path + ".toml"
     return path
+
+
+def open_single_config(path: os.PathLike) -> dict[str, Any]:
+    d = open_config(path)
+    f = d.pop("Fiber")[0]
+    return d | f
 
 
 def open_config(path: os.PathLike):
@@ -215,10 +224,7 @@ def load_material_dico(name: str) -> dict[str, Any]:
     ----------
         material_dico : dict
     """
-    if name == "silica":
-        return toml.loads(Paths.gets("silica"))
-    else:
-        return toml.loads(Paths.gets("gas"))[name]
+    return toml.loads(Paths.gets("materials"))[name]
 
 
 def update_appended_params(source: Path, destination: Path, z: Sequence):

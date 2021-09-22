@@ -11,6 +11,7 @@ from scipy.optimize import minimize_scalar
 from .. import math
 from . import fiber, materials, units, pulse
 from .. import utils
+from ..utils import cache
 
 T = TypeVar("T")
 
@@ -21,8 +22,9 @@ def group_delay_to_gdd(wavelength: np.ndarray, group_delay: np.ndarray) -> np.nd
     return gdd
 
 
+@cache.np_cache
 def material_dispersion(
-    wavelengths,
+    wavelengths: np.ndarray,
     material: str,
     pressure=None,
     temperature=None,
@@ -52,17 +54,6 @@ def material_dispersion(
 
     w = units.m(wavelengths)
 
-    order = np.argsort(w)
-
-    material_dico = utils.load_material_dico(material)
-    if ideal:
-        n_gas_2 = materials.sellmeier(wavelengths, material_dico, pressure, temperature) + 1
-    else:
-        N_1 = materials.number_density_van_der_waals(
-            pressure=pressure, temperature=temperature, material_dico=material_dico
-        )
-        N_0 = materials.number_density_van_der_waals(material_dico=material_dico)
-        n_gas_2 = materials.sellmeier(wavelengths, material_dico) * N_1 / N_0 + 1
     if safe:
         disp = np.zeros(len(w))
         ind = w > 0
@@ -71,7 +62,18 @@ def material_dispersion(
         )
         return disp
     else:
-        return fiber.beta2(w[order], np.sqrt(n_gas_2[order]))[order]
+        material_dico = utils.load_material_dico(material)
+        if ideal:
+            n_gas_2 = materials.sellmeier(wavelengths, material_dico, pressure, temperature) + 1
+        else:
+            N_1 = materials.number_density_van_der_waals(
+                pressure=pressure, temperature=temperature, material_dico=material_dico
+            )
+            N_0 = materials.number_density_van_der_waals(material_dico=material_dico)
+            n_gas_2 = materials.sellmeier(wavelengths, material_dico) * N_1 / N_0 + 1
+        order = np.argsort(w)
+        unorder = np.argsort(order)
+        return fiber.beta2(w[order], np.sqrt(n_gas_2[order]))[unorder]
 
 
 def find_optimal_depth(
@@ -108,15 +110,30 @@ def find_optimal_depth(
     def score(z):
         return -np.nansum(integrate(z) ** 6)
 
-    # import matplotlib.pyplot as plt
-
-    # to_test = np.linspace(0, max_z, 200)
-    # scores = [score(z) for z in to_test]
-    # fig, ax = plt.subplots()
-    # ax.plot(to_test, scores / np.min(scores))
-    # plt.show()
-    # plt.close(fig)
-    # ama = np.argmin(scores)
-
     opti = minimize_scalar(score, method="bounded", bounds=(0, max_z))
     return propagate(opti.x), opti
+
+
+def propagate_field(t: np.ndarray, field: np.ndarray, z: float, material: str) -> np.ndarray:
+    """propagates a field through bulk material
+
+    Parameters
+    ----------
+    t : np.ndarray, shape (n,)
+        time grid
+    field : np.ndarray, shape (n,)
+        corresponding complex field
+    z : float
+        distance to propagate in m
+    material : str
+        material name
+
+    Returns
+    -------
+    np.ndarray, shape (n,)
+        propagated field
+    """
+    w_c = math.wspace(t)
+    l = units.m(w_c + units.nm(1540))
+    disp = material_dispersion(l, material)
+    return np.fft.ifft(np.fft.fft(field) * np.exp(0.5j * disp * w_c ** 2 * z))

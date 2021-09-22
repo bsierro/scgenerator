@@ -10,8 +10,9 @@ from copy import copy, deepcopy
 from dataclasses import asdict, dataclass, fields
 from functools import cache, lru_cache
 from pathlib import Path
-from typing import Any, Callable, Generator, Iterable, Literal, Optional, TypeVar, Union
+from typing import Any, Callable, Generator, Iterable, Literal, Optional, Sequence, TypeVar, Union
 import numpy as np
+from numpy.lib import isin
 
 from .. import math, utils
 from ..const import PARAM_FN, PARAM_SEPARATOR, __version__
@@ -287,14 +288,14 @@ class Parameter:
 
     def __set__(self, instance, value):
         if isinstance(value, Parameter):
-            # defaut = None if self.default is None else copy(self.default)
-            # instance.__dict__[self.name] = defaut
-            instance.__dict__[self.name] = None
+            defaut = None if self.default is None else copy(self.default)
+            instance.__dict__[self.name] = defaut
+            # instance.__dict__[self.name] = None
         else:
             if value is not None:
-                self.validator(self.name, value)
                 if self.converter is not None:
                     value = self.converter(value)
+                self.validator(self.name, value)
             instance.__dict__[self.name] = value
 
     def display(self, num: float):
@@ -308,8 +309,11 @@ class Parameter:
             return f"{num_str} {unit}"
 
 
-def fiber_map_converter(d: dict[str, str]) -> dict[float, str]:
-    return {float(k): v for k, v in d.items()}
+def fiber_map_converter(d: dict[str, str]) -> list[tuple[float, str]]:
+    if isinstance(d, dict):
+        return [(float(k), v) for k, v in d.items()]
+    else:
+        return [(float(k), v) for k, v in d]
 
 
 @dataclass
@@ -340,7 +344,7 @@ class Parameters:
     pitch_ratio: float = Parameter(in_range_excl(0, 1))
     core_radius: float = Parameter(in_range_excl(0, 1e-3))
     he_mode: tuple[int, int] = Parameter(int_pair, default=(1, 1))
-    fit_parameters: tuple[int, int] = Parameter(int_pair, default=(0.08, 200e-9))
+    fit_parameters: tuple[int, int] = Parameter(float_pair, default=(0.08, 200e-9))
     beta2_coefficients: Iterable[float] = Parameter(num_list)
     dispersion_file: str = Parameter(string)
     model: str = Parameter(
@@ -425,13 +429,15 @@ class Parameters:
     const_qty: np.ndarray = Parameter(type_checker(np.ndarray))
     beta_func: Callable[[float], list[float]] = Parameter(func_validator)
     gamma_func: Callable[[float], float] = Parameter(func_validator)
-    fiber_map: dict[float, str] = Parameter(type_checker(dict), converter=fiber_map_converter)
+    fiber_map: list[tuple[float, str]] = Parameter(
+        validator_list(type_checker(tuple)), converter=fiber_map_converter
+    )
     datetime: datetime_module.datetime = Parameter(type_checker(datetime_module.datetime))
     version: str = Parameter(string)
 
     def prepare_for_dump(self) -> dict[str, Any]:
         param = asdict(self)
-        param["fiber_map"] = {str(z): n for z, n in param.get("fiber_map", {}).items()}
+        param["fiber_map"] = [(str(z), n) for z, n in param.get("fiber_map", [])]
         param = Parameters.strip_params_dict(param)
         param["datetime"] = datetime_module.datetime.now()
         param["version"] = __version__
@@ -896,7 +902,7 @@ class Configuration:
                         length = 0.0
                     fiber_map.append((length, this_conf["name"]))
                 params.output_path = str(sim_config.output_path)
-                params.fiber_map = dict(fiber_map)
+                params.fiber_map = fiber_map
                 yield sim_config.vary_list, params
 
     def __iter_1_sim(
@@ -1020,7 +1026,7 @@ class DataPather:
     def __init__(self, dl: list[dict[str, Any]]):
         self.dict_list = dl
 
-    def dico_iterator(
+    def vary_list_iterator(
         self, index: int
     ) -> Generator[tuple[tuple[tuple[int, ...]], list[list[tuple[str, Any]]]], None, None]:
         """iterates through every possible combination of a list of dict of lists
@@ -1050,6 +1056,8 @@ class DataPather:
             [[(a, 57), (b, "!")], [(c, 1)]],
         ]
         """
+        if index < 0:
+            index = len(self.dict_list) - index
         d_tem_list = [el for d in self.dict_list[: index + 1] for el in d.items()]
         dict_pos = np.cumsum([0] + [len(d) for d in self.dict_list[: index + 1]])
         ranges = [range(len(l)) for _, l in d_tem_list]
@@ -1062,7 +1070,7 @@ class DataPather:
             yield pos, out
 
     def all_vary_list(self, index):
-        for sim_index, l in self.dico_iterator(index):
+        for sim_index, l in self.vary_list_iterator(index):
             unique_vary: list[tuple[str, Any]] = []
             for ll in l[: index + 1]:
                 for pname, pval in ll:
@@ -1072,14 +1080,14 @@ class DataPather:
                             break
                     unique_vary.append((pname, pval))
             yield sim_index, format_variable_list(
-                reduce_all_variable(l[:index])
-            ), format_variable_list(reduce_all_variable(l)), unique_vary
+                reduce_all_variable(l[:index]), add_iden=True
+            ), format_variable_list(reduce_all_variable(l), add_iden=True), unique_vary
 
     def __repr__(self):
         return f"DataPather([{', '.join(repr(d) for d in self.dict_list)}])"
 
 
-@dataclass
+@dataclass(frozen=True)
 class PlotRange:
     left: float = Parameter(type_checker(int, float))
     right: float = Parameter(type_checker(int, float))
@@ -1194,7 +1202,7 @@ def _mock_function(num_args: int, num_returns: int) -> Callable:
     return out_func
 
 
-def format_variable_list(l: list[tuple[str, Any]]) -> str:
+def format_variable_list(l: list[tuple[str, Any]], add_iden=False) -> str:
     """formats a variable list into a str such that each simulation has a unique
     directory name. A u_XXX unique identifier and b_XXX (ignoring repeat simulations)
     branch identifier are added at the beginning.
@@ -1203,6 +1211,8 @@ def format_variable_list(l: list[tuple[str, Any]]) -> str:
     ----------
     l : list[tuple[str, Any]]
         list of variable parameters
+    add_iden : bool
+        add unique simulation and parameter-set identifiers
 
     Returns
     -------
@@ -1215,6 +1225,8 @@ def format_variable_list(l: list[tuple[str, Any]]) -> str:
         vs = format_value(p_name, p_value).replace("/", "").replace(PARAM_SEPARATOR, "")
         str_list.append(ps + PARAM_SEPARATOR + vs)
     tmp_name = PARAM_SEPARATOR.join(str_list)
+    if not add_iden:
+        return tmp_name
     unique_id = "u_" + utils.to_62(hash(str(l)))
     branch_id = "b_" + utils.to_62(hash(str([el for el in l if el[0] != "num"])))
     return unique_id + PARAM_SEPARATOR + branch_id + PARAM_SEPARATOR + tmp_name
@@ -1322,6 +1334,17 @@ def reduce_all_variable(all_variable: list[list[tuple[str, Any]]]) -> list[tuple
     for n, variable_list in enumerate(all_variable):
         out += [("fiber", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[n % 26] * (n // 26 + 1)), *variable_list]
     return out
+
+
+def strip_vary_list(all_variable: T) -> T:
+    if len(all_variable) == 0:
+        return all_variable
+    elif isinstance(all_variable[0], Sequence) and (
+        len(all_variable[0]) == 0 or not isinstance(all_variable[0][0], str)
+    ):
+        return [strip_vary_list(el) for el in all_variable]
+    else:
+        return [el for el in all_variable if el[0] != "num"]
 
 
 default_rules: list[Rule] = [

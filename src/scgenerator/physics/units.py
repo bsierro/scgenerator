@@ -48,6 +48,7 @@ def unit(tpe: str, label: str, inv: Callable = None):
         setattr(To, name, inv.__call__)
         func.type = tpe
         func.label = label
+        func.name = name
         func.inv = inv
         if name in units_map:
             raise NameError(f"Two unit functions with the same name {name!r} were defined")

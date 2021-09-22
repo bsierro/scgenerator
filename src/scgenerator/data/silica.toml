@@ -1,4 +1,29 @@
-[sellmeier]
-B = [ 0.6961663, 0.4079426, 0.8974794,]
-C = [ 4.67914826e-15, 1.35120631e-14, 9.79340025e-11,]
+[silica.sellmeier]
+B = [0.6961663, 0.4079426, 0.8974794]
+C = [4.67914826e-15, 1.35120631e-14, 9.79340025e-11]
 kind = 1
+reference = [
+    "I. H. Malitson. Interspecimen comparison of the refractive index of fused silica, J. Opt. Soc. Am. 55, 1205-1208 (1965)",
+    "C. Z. Tan. Determination of refractive index of silica glass for infrared wavelengths by IR spectroscopy, J. Non-Cryst. Solids 223, 158-163 (1998)",
+]
+
+[nbk7.sellmeier]
+B = [1.03961212, 0.231792344, 1.01046945]
+C = [6.00069867e-15, 2.00179144e-14, 1.03560653e-10]
+kind = 1
+reference = [
+    "SCHOTT Zemax catalog 2017-01-20b (obtained from http://www.schott.com)",
+]
+
+[d-zlaf52la.sellmeier]
+B = [
+    -8.48750283e9,
+    3.1753525,
+    3.71301651e-14,
+    -1.09609062e-27,
+    2.4418582e-40,
+    -8.94583294e-54,
+]
+C = []
+kind = 3
+reference = ["CDGM Zemax catalog 2017-09 (obtained from http://www.cdgmgd.com)"]

@@ -44,6 +44,12 @@ class RK4IP:
         """
         self.set(params, save_data, job_identifier, task_id)
 
+    def __iter__(self) -> Generator[tuple[int, int, np.ndarray], None, None]:
+        yield from self.irun()
+
+    def __len__(self) -> int:
+        return self.len
+
     def set(
         self,
         params: Parameters,
@@ -73,6 +79,7 @@ class RK4IP:
         self.alpha = params.alpha_arr
         self.spec_0 = np.sqrt(params.input_transmission) * params.spec_0
         self.z_targets = params.z_targets
+        self.len = len(params.z_targets)
         self.z_final = params.length
         self.beta2_coefficients = (
             params.beta_func if params.beta_func is not None else params.beta2_coefficients
@@ -189,7 +196,7 @@ class RK4IP:
         """
         utils.save_data(data, self.data_dir, name)
 
-    def run(self):
+    def run(self) -> list[np.ndarray]:
         time_start = datetime.today()
 
         for step, num, _ in self.irun():
@@ -480,7 +487,7 @@ class Simulations:
 
     def _run_available(self):
         for variable, params in self.configuration:
-            v_list_str = format_variable_list(variable)
+            v_list_str = format_variable_list(variable, add_iden=True)
             utils.save_parameters(params.prepare_for_dump(), Path(params.output_path))
 
             self.new_sim(v_list_str, params)

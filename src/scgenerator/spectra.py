@@ -1,7 +1,7 @@
 import os
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Union
+from typing import Callable, Dict, Iterable, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,6 +17,7 @@ from .plotting import (
     transform_2D_propagation,
 )
 from .utils.parameter import Parameters, PlotRange
+from .utils import load_spectrum
 
 
 class Spectrum(np.ndarray):
@@ -152,7 +153,7 @@ class Pulse(Sequence):
         self.params = Parameters.load(self.path / "params.toml")
         self.params.compute(["name", "t", "l", "w_c", "w0", "z_targets"])
         if self.params.fiber_map is None:
-            self.params.fiber_map = {0.0: self.params.name}
+            self.params.fiber_map = [(0.0, self.params.name)]
 
         try:
             self.z = np.load(os.path.join(path, "z.npy"))
@@ -161,7 +162,6 @@ class Pulse(Sequence):
                 self.z = self.params.z_targets
             else:
                 raise
-        self.cache: Dict[int, Spectrum] = {}
         self.nmax = len(list(self.path.glob("spectra_*.npy")))
         if self.nmax <= 0:
             raise FileNotFoundError(f"No appropriate file in specified folder {self.path}")
@@ -306,12 +306,9 @@ class Pulse(Sequence):
     def _load1(self, i: int):
         if i < 0:
             i = self.nmax + i
-        if i in self.cache:
-            return self.cache[i]
-        spec = np.load(self.path / SPECN_FN.format(i))
+        spec = load_spectrum(self.path / SPECN_FN.format(i))
         spec = np.atleast_2d(spec)
         spec = Spectrum(spec, self.params)
-        self.cache[i] = spec
         return spec
 
     def plot_2D(
@@ -324,8 +321,9 @@ class Pulse(Sequence):
         sim_ind: int = 0,
         **kwargs,
     ):
-        plt_range, vals = self.retrieve_plot_values(left, right, unit, z_pos, sim_ind)
-        return propagation_plot(vals, plt_range, self.params, ax, **kwargs)
+        plot_range = PlotRange(left, right, unit)
+        vals = self.retrieve_plot_values(plot_range, z_pos, sim_ind)
+        return propagation_plot(vals, plot_range, self.params, ax, **kwargs)
 
     def plot_1D(
         self,
@@ -337,8 +335,9 @@ class Pulse(Sequence):
         sim_ind: int = 0,
         **kwargs,
     ):
-        plt_range, vals = self.retrieve_plot_values(left, right, unit, z_pos, sim_ind)
-        return single_position_plot(vals, plt_range, self.params, ax, **kwargs)
+        plot_range = PlotRange(left, right, unit)
+        vals = self.retrieve_plot_values(plot_range, z_pos, sim_ind)
+        return single_position_plot(vals, plot_range, self.params, ax, **kwargs)
 
     def plot_mean(
         self,
@@ -349,20 +348,25 @@ class Pulse(Sequence):
         z_pos: int,
         **kwargs,
     ):
-        plt_range, vals = self.retrieve_plot_values(left, right, unit, z_pos, slice(None))
-        return mean_values_plot(vals, plt_range, self.params, ax, **kwargs)
+        plot_range = PlotRange(left, right, unit)
+        vals = self.retrieve_plot_values(plot_range, z_pos, slice(None))
+        return mean_values_plot(vals, plot_range, self.params, ax, **kwargs)
 
-    def retrieve_plot_values(self, left, right, unit, z_pos, sim_ind):
-        plt_range = PlotRange(left, right, unit)
-        if plt_range.unit.type == "TIME":
+    def retrieve_plot_values(
+        self, plot_range: PlotRange, z_pos: Optional[Union[int, float]], sim_ind: Optional[int]
+    ):
+
+        if plot_range.unit.type == "TIME":
             vals = self.all_fields(ind=z_pos)
         else:
             vals = self.all_spectra(ind=z_pos)
-        if vals.ndim == 3:
-            vals = vals[:, sim_ind]
+
+        if sim_ind is None:
+            return vals
+        elif z_pos is None:
+            return vals[:, sim_ind]
         else:
-            vals = vals[sim_ind]
-        return plt_range, vals
+            return vals[sim_ind]
 
     def rin_propagation(
         self, left: float, right: float, unit: str

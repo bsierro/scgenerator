@@ -31,6 +31,8 @@ def plot_all(sim_dir: Path, limits: list[str], show=False, **opts):
     for k, v in opts.items():
         if k in ["skip"]:
             opts[k] = int(v)
+        if k in {"log", "renormalize"}:
+            opts[k] = True if v == "True" else False
     dir_list = list(p for p in sim_dir.glob("*") if p.is_dir())
     if len(dir_list) == 0:
         dir_list = [sim_dir]

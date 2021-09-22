@@ -186,7 +186,7 @@ def prep_ray():
 def plot_all(args):
     opts = {}
     if args.options is not None:
-        opts |= dict([o.split("=")[:2] for o in re.split("[, ]", args.options)])
+        opts |= dict([o.split("=")[:2] for o in re.split("[, ]+", args.options)])
     root = Path(args.sim_dir).resolve()
     scripts.plot_all(root, args.spectrum_limits, show=args.show, **opts)
 

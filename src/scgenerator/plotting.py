@@ -543,7 +543,7 @@ def transform_mean_values(
         values = abs2(values)
     new_axis, ind, ext = sort_axis(x_axis, plt_range)
     values = values[:, ind]
-    if plt_range.unit.type == "WL":
+    if plt_range.unit.type == "WL" and plt_range.conserved_quantity:
         values = np.apply_along_axis(units.to_WL, -1, values, new_axis)
 
     if isinstance(spacing, (float, np.floating)):
@@ -735,14 +735,13 @@ def transform_1D_values(
         x axis and values
     """
     if len(values.shape) != 1:
-        print(f"Shape was {values.shape}. Can only plot 1D arrays")
-        return
+        raise ValueError("Can only plot 1D values")
     is_complex, x_axis, plt_range = prep_plot_axis(values, plt_range, params)
     if is_complex:
         values = abs2(values)
     new_axis, ind, ext = sort_axis(x_axis, plt_range)
     values = values[ind]
-    if plt_range.unit.type == "WL":
+    if plt_range.unit.type == "WL" and plt_range.conserved_quantity:
         values = units.to_WL(values, new_axis)
 
     if isinstance(spacing, (float, np.floating)):
@@ -1000,3 +999,64 @@ def arrowstyle(direction=1, color="white"):
         color=color,
         backgroundcolor=(0.5, 0.5, 0.5, 0.5),
     )
+
+
+def measure_and_annotate_fwhm(
+    ax: plt.Axes,
+    t: np.ndarray,
+    field: np.ndarray,
+    side: Literal["left", "right"] = "right",
+    unit="fs",
+    arrow_length_pts: float = 20.0,
+    arrow_props: dict[str, Any] = None,
+) -> float:
+    """measured the FWHM of a pulse and plots it
+
+    Parameters
+    ----------
+    ax : plt.Axes
+        ax on which to plot
+    t : np.ndarray, shape (n,)
+        time in s
+    field : np.ndarray, shape (n,)
+        complex field
+    side : Literal["left", "right"]
+        whether to write the text on the right or left side
+    unit : str, optional
+        units of the plot, by default "fs"
+    arrow_length_pts : float, optional
+        length of the arrows in pts, by default 20.0
+    arrow_props : dict[str, Any], optional
+        style of the arrow to be passed to plt.annotate, by default None
+
+    Returns
+    -------
+    float
+        FWHM in units
+    """
+    unit = units.get_unit(unit)
+    if np.iscomplexobj(field):
+        field = abs2(field)
+    _, (left, right), *_ = pulse.find_lobe_limits(unit.inv(t), field)
+    arrow_label = f"{right - left:.1f} {unit.name}"
+    arrow_dict = dict(arrowstyle="->")
+    if arrow_props is not None:
+        arrow_dict |= arrow_props
+    ax.annotate(
+        "" if side == "right" else arrow_label,
+        (left, field.max() / 2),
+        xytext=(-arrow_length_pts, 0),
+        ha="right",
+        va="center",
+        textcoords="offset points",
+        arrowprops=arrow_dict,
+    )
+    ax.annotate(
+        "" if side == "left" else arrow_label,
+        (right, field.max() / 2),
+        xytext=(arrow_length_pts, 0),
+        textcoords="offset points",
+        arrowprops=arrow_dict,
+        va="center",
+    )
+    return right - left
