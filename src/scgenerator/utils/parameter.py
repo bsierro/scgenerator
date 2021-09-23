@@ -1227,9 +1227,19 @@ def format_variable_list(l: list[tuple[str, Any]], add_iden=False) -> str:
     tmp_name = PARAM_SEPARATOR.join(str_list)
     if not add_iden:
         return tmp_name
-    unique_id = "u_" + utils.to_62(hash(str(l)))
-    branch_id = "b_" + utils.to_62(hash(str([el for el in l if el[0] != "num"])))
+    unique_id = unique_identifier(l)
+    branch_id = branch_identifier(l)
     return unique_id + PARAM_SEPARATOR + branch_id + PARAM_SEPARATOR + tmp_name
+
+
+def branch_identifier(l):
+    branch_id = "b_" + utils.to_62(hash(str([el for el in l if el[0] != "num"])))
+    return branch_id
+
+
+def unique_identifier(l):
+    unique_id = "u_" + utils.to_62(hash(str(l)))
+    return unique_id
 
 
 def format_value(name: str, value) -> str:

@@ -116,7 +116,7 @@ def open_config(path: os.PathLike):
 
     dico.setdefault("variable", {})
     for key in {"simulation", "fiber", "gas", "pulse"} & dico.keys():
-        section = dico.pop(key, {})
+        section = dico.pop(key)
         dico["variable"].update(section.pop("variable", {}))
         dico.update(section)
     if len(dico["variable"]) == 0:
