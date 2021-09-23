@@ -52,7 +52,15 @@ class Variationer:
 
     Example
     -------
-    `var = Variationer([dict(a=[1, 2]), [dict(b=["000", "111"], c=["a", "-1"])]])`
+    `>> var = Variationer([dict(a=[1, 2]), [dict(b=["000", "111"], c=["a", "-1"])]])
+    list(v.raw_descr for v in var.iterate())
+
+    [
+        ((("a", 1),), (("b", "000"), ("c", "a"))),
+        ((("a", 1),), (("b", "111"), ("c", "-1"))),
+        ((("a", 2),), (("b", "000"), ("c", "a"))),
+        ((("a", 2),), (("b", "111"), ("c", "-1"))),
+    ]`
 
     """
 
@@ -70,6 +78,28 @@ class Variationer:
             self.append(el)
 
     def append(self, var_list: list[dict[str, list]]):
+        """append a list of variable parameter sets
+        each call to append creates a new group of parameters
+
+        Parameters
+        ----------
+        var_list : list[dict[str, list]]
+            each dict in the list is treated as an independent parameter
+            this means that if for one dict, len > 1, the lists of possible values
+            must be the same length
+
+        Example
+        -------
+        `>> append([dict(wavelength=[800e-9, 900e-9], power=[1e3, 2e3]), dict(length=[3e-2, 3.5e-2, 4e-2])])`
+
+        means that for every parameter variations, wavelength=800e-9 will always occur when power=1e3 and
+        vice versa, while length is free to vary independently
+
+        Raises
+        ------
+        VariationSpecsError
+            raised when possible values lists in a same dict are not the same length
+        """
         num_vars = []
         for d in var_list:
             values = list(d.values())
