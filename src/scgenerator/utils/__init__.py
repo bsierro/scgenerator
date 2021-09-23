@@ -238,17 +238,6 @@ def update_appended_params(source: Path, destination: Path, z: Sequence):
     save_toml(destination, params)
 
 
-def to_62(i: int) -> str:
-    arr = []
-    if i == 0:
-        return "0"
-    i = abs(i)
-    while i:
-        i, value = divmod(i, 62)
-        arr.append(str_printable[value])
-    return "".join(reversed(arr))
-
-
 def build_path_trees(sim_dir: Path) -> list[PathTree]:
     sim_dir = sim_dir.resolve()
     path_branches: list[tuple[Path, ...]] = []
