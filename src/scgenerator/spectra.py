@@ -16,7 +16,8 @@ from .plotting import (
     single_position_plot,
     transform_2D_propagation,
 )
-from .utils.parameter import Parameters, PlotRange
+from .utils.parameter import Parameters
+from .utils.utils import PlotRange
 from .utils import load_spectrum
 
 

@@ -1,45 +1,14 @@
-from pydantic import BaseModel, validator
-from typing import Union, Iterable, Generator, Any
-from collections.abc import Sequence, MutableMapping
+from math import prod
 import itertools
+from collections.abc import MutableMapping, Sequence
+from pathlib import Path
+from typing import Any, Callable, Generator, Iterable, Union
+
+import numpy as np
+from pydantic import validator
+
 from ..const import PARAM_SEPARATOR
 from . import utils
-import numpy as np
-from pathlib import Path
-
-
-def format_value(name: str, value) -> str:
-    if value is True or value is False:
-        return str(value)
-    elif isinstance(value, (float, int)):
-        try:
-            return getattr(Parameters, name).display(value)
-        except AttributeError:
-            return format(value, ".9g")
-    elif isinstance(value, (list, tuple, np.ndarray)):
-        return "-".join([str(v) for v in value])
-    elif isinstance(value, str):
-        p = Path(value)
-        if p.exists():
-            return p.stem
-    return str(value)
-
-
-def pretty_format_value(name: str, value) -> str:
-    try:
-        return getattr(Parameters, name).display(value)
-    except AttributeError:
-        return name + PARAM_SEPARATOR + str(value)
-
-
-class HashableBaseModel(BaseModel):
-    """Pydantic BaseModel that's immutable and can be hashed"""
-
-    def __hash__(self) -> int:
-        return hash(type(self)) + sum(hash(v) for v in self.__dict__.values())
-
-    class Config:
-        allow_mutation = False
 
 
 class VariationSpecsError(ValueError):
@@ -67,23 +36,20 @@ class Variationer:
     all_indices: list[list[int]]
     all_dicts: list[list[dict[str, list]]]
 
-    def __init__(self, variables: Iterable[Union[list[MutableMapping], MutableMapping]]):
+    def __init__(self, variables: Iterable[Union[list[MutableMapping], MutableMapping]] = None):
         self.all_indices = []
         self.all_dicts = []
-        for i, el in enumerate(variables):
-            if not isinstance(el, Sequence):
-                el = [{k: v} for k, v in el.items()]
-            else:
-                el = list(el)
-            self.append(el)
+        if variables is not None:
+            for i, el in enumerate(variables):
+                self.append(el)
 
-    def append(self, var_list: list[dict[str, list]]):
+    def append(self, var_list: Union[list[MutableMapping], MutableMapping]):
         """append a list of variable parameter sets
         each call to append creates a new group of parameters
 
         Parameters
         ----------
-        var_list : list[dict[str, list]]
+        var_list : Union[list[MutableMapping], MutableMapping]
             each dict in the list is treated as an independent parameter
             this means that if for one dict, len > 1, the lists of possible values
             must be the same length
@@ -100,6 +66,10 @@ class Variationer:
         VariationSpecsError
             raised when possible values lists in a same dict are not the same length
         """
+        if not isinstance(var_list, Sequence):
+            var_list = [{k: v} for k, v in var_list.items()]
+        else:
+            var_list = list(var_list)
         num_vars = []
         for d in var_list:
             values = list(d.values())
@@ -114,30 +84,43 @@ class Variationer:
         self.all_indices.append(num_vars)
         self.all_dicts.append(var_list)
 
-    def iterate(self, index: int = -1) -> Generator["SimulationDescriptor", None, None]:
-        if index < 0:
-            index = len(self.all_indices) + index + 1
-        flattened_indices = sum(self.all_indices[:index], [])
-        index_positions = np.cumsum([0] + [len(i) for i in self.all_indices[:index]])
+    def iterate(self, index: int = -1) -> Generator["VariationDescriptor", None, None]:
+        index = self.__index(index)
+        flattened_indices = sum(self.all_indices[: index + 1], [])
+        index_positions = np.cumsum([0] + [len(i) for i in self.all_indices[: index + 1]])
         ranges = [range(i) for i in flattened_indices]
         for r in itertools.product(*ranges):
             out: list[list[tuple[str, Any]]] = []
+            indicies: list[list[int]] = []
             for i, (start, end) in enumerate(zip(index_positions[:-1], index_positions[1:])):
                 out.append([])
+                indicies.append([])
                 for value_index, var_d in zip(r[start:end], self.all_dicts[i]):
                     for k, v in var_d.items():
                         out[-1].append((k, v[value_index]))
-            yield SimulationDescriptor(raw_descr=out)
+                        indicies[-1].append(value_index)
+            yield VariationDescriptor(raw_descr=out, index=indicies)
+
+    def __index(self, index: int) -> int:
+        if index < 0:
+            index = len(self.all_indices) + index
+        return index
+
+    def var_num(self, index: int = -1) -> int:
+        index = self.__index(index)
+        return max(1, prod(prod(el) for el in self.all_indices[: index + 1]))
 
 
-class SimulationDescriptor(HashableBaseModel):
+class VariationDescriptor(utils.HashableBaseModel):
     raw_descr: tuple[tuple[tuple[str, Any], ...], ...]
+    index: tuple[tuple[int, ...], ...]
     separator: str = "fiber"
+    _format_registry: dict[str, Callable[..., str]] = {}
 
     def __str__(self) -> str:
-        return self.descriptor(add_identifier=False)
+        return self.formatted_descriptor(add_identifier=False)
 
-    def descriptor(self, add_identifier=False) -> str:
+    def formatted_descriptor(self, add_identifier=False) -> str:
         """formats a variable list into a str such that each simulation has a unique
         directory name. A u_XXX unique identifier and b_XXX (ignoring repeat simulations)
         branch identifier can added at the beginning.
@@ -156,7 +139,7 @@ class SimulationDescriptor(HashableBaseModel):
 
         for p_name, p_value in self.flat:
             ps = p_name.replace("/", "").replace("\\", "").replace(PARAM_SEPARATOR, "")
-            vs = format_value(p_name, p_value).replace("/", "").replace(PARAM_SEPARATOR, "")
+            vs = self.format_value(p_name, p_value).replace("/", "").replace(PARAM_SEPARATOR, "")
             str_list.append(ps + PARAM_SEPARATOR + vs)
         tmp_name = PARAM_SEPARATOR.join(str_list)
         if not add_identifier:
@@ -164,6 +147,34 @@ class SimulationDescriptor(HashableBaseModel):
         return (
             self.identifier + PARAM_SEPARATOR + self.branch.identifier + PARAM_SEPARATOR + tmp_name
         )
+
+    @classmethod
+    def register_formatter(cls, p_name: str, func: Callable[..., str]):
+        cls._format_registry[p_name] = func
+
+    def format_value(self, name: str, value) -> str:
+        if value is True or value is False:
+            return str(value)
+        elif isinstance(value, (float, int)):
+            try:
+                return self._format_registry[name](value)
+            except KeyError:
+                return format(value, ".9g")
+        elif isinstance(value, (list, tuple, np.ndarray)):
+            return "-".join([str(v) for v in value])
+        elif isinstance(value, str):
+            p = Path(value)
+            if p.exists():
+                return p.stem
+        return str(value)
+
+    def __getitem__(self, key) -> "VariationDescriptor":
+        return VariationDescriptor(
+            raw_descr=self.raw_descr[key], index=self.index[key], separator=self.separator
+        )
+
+    def update_config(self, cfg: dict[str, Any]):
+        return cfg | {k: v for k, v in self.raw_descr[-1]}
 
     @property
     def flat(self) -> list[tuple[str, Any]]:
@@ -177,17 +188,27 @@ class SimulationDescriptor(HashableBaseModel):
 
     @property
     def branch(self) -> "BranchDescriptor":
-        return SimulationDescriptor(raw_descr=self.raw_descr, separator=self.separator)
+        for i in reversed(range(len(self.raw_descr))):
+            for j in reversed(range(len(self.raw_descr[i]))):
+                if self.raw_descr[i][j][0] == "num":
+                    del self.raw_descr[i][j]
+        return VariationDescriptor(
+            raw_descr=self.raw_descr, index=self.index, separator=self.separator
+        )
 
     @property
     def identifier(self) -> str:
         return "u_" + utils.to_62(hash(str(self.flat)))
 
 
-class BranchDescriptor(SimulationDescriptor):
+class BranchDescriptor(VariationDescriptor):
+    __ids: dict[int, int] = {}
+
     @property
     def identifier(self) -> str:
-        return "b_" + utils.to_62(hash(str(self.flat)))
+        branch_id = hash(str(self.flat))
+        self.__ids.setdefault(branch_id, len(self.__ids))
+        return str(self.__ids[branch_id])
 
     @validator("raw_descr")
     def validate_raw_descr(cls, v):

@@ -5,4 +5,5 @@ from .physics.simulate import RK4IP, parallel_RK4IP, run_simulation
 from .plotting import mean_values_plot, plot_spectrogram, propagation_plot, single_position_plot
 from .spectra import Pulse, Spectrum
 from .utils import Paths, open_config, parameter
-from .utils.parameter import Configuration, Parameters, PlotRange
+from .utils.parameter import Configuration, Parameters
+from .utils.utils import PlotRange

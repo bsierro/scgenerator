@@ -14,7 +14,8 @@ from .const import PARAM_SEPARATOR
 from .defaults import default_plotting as defaults
 from .math import abs2, span
 from .physics import pulse, units
-from .utils.parameter import Parameters, PlotRange, sort_axis
+from .utils.parameter import Parameters
+from .utils.utils import PlotRange, sort_axis
 
 RangeType = tuple[float, float, Union[str, Callable]]
 NO_LIM = object()

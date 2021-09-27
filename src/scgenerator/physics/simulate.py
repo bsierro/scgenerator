@@ -11,7 +11,7 @@ from send2trash import send2trash
 
 from .. import env, utils
 from ..logger import get_logger
-from ..utils.parameter import Configuration, Parameters, format_variable_list
+from ..utils.parameter import Configuration, Parameters
 from . import pulse
 from .fiber import create_non_linear_op, fast_dispersion_op
 
@@ -466,14 +466,14 @@ class Simulations:
 
         self.configuration = configuration
 
-        self.name = self.configuration.final_path
-        self.sim_dir = self.configuration.final_sim_dir
+        self.name = self.configuration.name
+        self.sim_dir = self.configuration.final_path
         self.configuration.save_parameters()
 
         self.sim_jobs_per_node = 1
 
     def finished_and_complete(self):
-        for sim in self.configuration.all_configs_dict.values():
+        for sim in self.configuration.all_configs.values():
             if (
                 self.configuration.sim_status(sim.output_path)[0]
                 != self.configuration.State.COMPLETE
@@ -487,7 +487,7 @@ class Simulations:
 
     def _run_available(self):
         for variable, params in self.configuration:
-            v_list_str = format_variable_list(variable, add_iden=True)
+            v_list_str = variable.formatted_descriptor(True)
             utils.save_parameters(params.prepare_for_dump(), Path(params.output_path))
 
             self.new_sim(v_list_str, params)
@@ -526,7 +526,9 @@ class SequencialSimulations(Simulations, priority=0):
     def __init__(self, configuration: Configuration, task_id):
         super().__init__(configuration, task_id=task_id)
         self.pbars = utils.PBars(
-            self.configuration.total_num_steps, "Simulating " + self.configuration.final_path, 1
+            self.configuration.total_num_steps,
+            "Simulating " + self.configuration.final_path.name,
+            1,
         )
         self.configuration.skip_callback = lambda num: self.pbars.update(0, num)
 
@@ -569,7 +571,7 @@ class MultiProcSimulations(Simulations, priority=1):
         self.p_worker = multiprocessing.Process(
             target=utils.progress_worker,
             args=(
-                self.configuration.final_path,
+                self.configuration.final_path.name,
                 self.sim_jobs_per_node,
                 self.configuration.total_num_steps,
                 self.progress_queue,
@@ -716,7 +718,7 @@ def run_simulation(
 
     sim = new_simulation(config, method)
     sim.run()
-    path_trees = utils.build_path_trees(config.sim_dirs[-1])
+    path_trees = utils.build_path_trees(config.fiber_paths[-1])
 
     final_name = env.get(env.OUTPUT_PATH)
     if final_name is None:
@@ -724,7 +726,7 @@ def run_simulation(
 
     utils.merge(final_name, path_trees)
     try:
-        send2trash(config.sim_dirs)
+        send2trash(config.fiber_paths)
     except (PermissionError, OSError):
         get_logger(__name__).error("Could not send temporary directories to trash")
 

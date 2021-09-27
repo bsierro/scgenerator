@@ -11,14 +11,18 @@ from dataclasses import asdict, dataclass, fields
 from functools import cache, lru_cache
 from pathlib import Path
 from typing import Any, Callable, Generator, Iterable, Literal, Optional, Sequence, TypeVar, Union
+
 import numpy as np
 from numpy.lib import isin
+from scgenerator.utils import ensure_folder, variationer
 
 from .. import math, utils
 from ..const import PARAM_FN, PARAM_SEPARATOR, __version__
 from ..errors import EvaluatorError, NoDefaultError
 from ..logger import get_logger
 from ..physics import fiber, materials, pulse, units
+from ..utils.variationer import VariationDescriptor, Variationer
+from .utils import func_rewrite, _mock_function, get_arg_names
 
 T = TypeVar("T")
 
@@ -256,7 +260,7 @@ class Parameter:
         ----------
         tpe : type
             type of the paramter
-        validators : Callable[[str, Any], None]
+        validator : Callable[[str, Any], None]
             signature : validator(name, value)
             must raise a ValueError when value doesn't fit the criteria checked by
             validator. name is passed to validator to be included in the error message
@@ -290,7 +294,6 @@ class Parameter:
         if isinstance(value, Parameter):
             defaut = None if self.default is None else copy(self.default)
             instance.__dict__[self.name] = defaut
-            # instance.__dict__[self.name] = None
         else:
             if value is not None:
                 if self.converter is not None:
@@ -768,9 +771,11 @@ class Configuration:
     obj with the output path of the simulation saved in its output_path attribute.
     """
 
-    master_configs: list[dict[str, Any]]
-    sim_dirs: list[Path]
+    fiber_configs: list[dict[str, Any]]
+    master_config: dict[str, Any]
+    fiber_paths: list[Path]
     num_sim: int
+    num_fibers: int
     repeat: int
     z_num: int
     total_num_steps: int
@@ -778,19 +783,17 @@ class Configuration:
     parallel: bool
     overwrite: bool
     final_path: str
-    all_configs_dict: dict[tuple[tuple[int, ...], ...], "Configuration.__SimConfig"]
-    all_configs_list: list[list["Configuration.__SimConfig"]]
+    all_configs: dict[tuple[tuple[int, ...], ...], "Configuration.__SimConfig"]
 
     @dataclass(frozen=True)
     class __SimConfig:
-        vary_list: list[tuple[str, Any]]
+        descriptor: VariationDescriptor
         config: dict[str, Any]
         output_path: Path
-        index: tuple[tuple[int, ...], ...]
 
         @property
         def sim_num(self) -> int:
-            return len(self.index)
+            return len(self.descriptor.index)
 
     class State(enum.Enum):
         COMPLETE = enum.auto()
@@ -810,48 +813,48 @@ class Configuration:
     ):
         self.logger = get_logger(__name__)
 
-        self.master_configs, self.final_path = utils.load_config_sequence(final_config_path)
-        if self.final_path is None:
-            self.final_path = Parameters.name.default
-        self.name = Path(self.final_path).name
+        self.overwrite = overwrite
+        self.final_path, self.fiber_configs = utils.load_config_sequence(final_config_path)
+        self.final_path = utils.ensure_folder(
+            self.final_path, mkdir=False, prevent_overwrite=not self.overwrite
+        )
+        self.master_config = self.fiber_configs[0]
+        self.name = self.final_path.name
         self.z_num = 0
         self.total_num_steps = 0
-        self.sim_dirs = []
-        self.overwrite = overwrite
+        self.fiber_paths = []
+        self.all_configs = {}
         self.skip_callback = skip_callback
-        self.worker_num = self.master_configs[0].get("worker_num", max(1, os.cpu_count() // 2))
-        self.repeat = self.master_configs[0].get("repeat", 1)
+        self.worker_num = self.master_config.get("worker_num", max(1, os.cpu_count() // 2))
+        self.repeat = self.master_config.get("repeat", 1)
+        self.variationer = Variationer()
 
-        names = set()
-        for i, config in enumerate(self.master_configs):
+        fiber_names = set()
+        self.num_fibers = 0
+        for i, config in enumerate(self.fiber_configs):
+            config.setdefault("name", Parameters.name.default)
             self.z_num += config["z_num"]
-            config.setdefault("name", f"{Parameters.name.default} {i}")
-            given_name = config["name"]
-            fn_i = 0
-            while config["name"] in names:
-                config["name"] = given_name + f"_{fn_i}"
-                fn_i += 1
-            names.add(config["name"])
-
-            self.sim_dirs.append(
+            fiber_names.add(config["name"])
+            self.variationer.append(config.pop("variable"))
+            self.fiber_paths.append(
                 utils.ensure_folder(
-                    Path("_".join(["_", self.name, Path(config["name"]).name, "_"])),
+                    self.fiber_path(i, config),
                     mkdir=False,
                     prevent_overwrite=not self.overwrite,
                 )
             )
             self.__validate_variable(config)
-        self.__compute_sim_dirs()
-        [Evaluator.evaluate_default(c[0].config, True) for c in self.all_configs_list]
-        self.num_sim = len(self.all_configs_list[-1])
+            self.num_fibers += 1
+            Evaluator.evaluate_default(config, True)
+        self.num_sim = self.variationer.var_num()
         self.total_num_steps = sum(
-            config["z_num"] * len(self.all_configs_list[i])
-            for i, config in enumerate(self.master_configs)
+            config["z_num"] * self.variationer.var_num(i)
+            for i, config in enumerate(self.fiber_configs)
         )
-        self.final_sim_dir = utils.ensure_folder(
-            Path(self.master_configs[-1]["name"]), mkdir=False, prevent_overwrite=not self.overwrite
-        )
-        self.parallel = self.master_configs[0].get("parallel", Parameters.parallel.default)
+        self.parallel = self.master_config.get("parallel", Parameters.parallel.default)
+
+    def fiber_path(self, i: int, full_config: dict[str, Any]) -> Path:
+        return self.final_path / PARAM_SEPARATOR.join([format(i), self.name, full_config["name"]])
 
     def __validate_variable(self, config: dict[str, Any]):
         for k, v in config.get("variable", {}).items():
@@ -862,76 +865,62 @@ class Configuration:
             if len(v) == 0:
                 raise ValueError(f"variable parameter {k!r} must not be empty")
 
-    def __compute_sim_dirs(self):
-        self.all_configs_dict = {}
-        self.all_configs_list = []
-        self.master_configs[0]["variable"]["num"] = list(
-            range(self.master_configs[0].get("repeat", 1))
-        )
-        dp = DataPather([c["variable"] for c in self.master_configs])
-        for i, conf in enumerate(self.master_configs):
-            self.all_configs_list.append([])
-            for sim_index, prev_path, this_path, this_vary in dp.all_vary_list(i):
-                this_conf = conf.copy()
+    def __iter__(self) -> Generator[tuple[VariationDescriptor, Parameters], None, None]:
+        for i in range(self.num_fibers):
+            for sim_config in self.iterate_single_fiber(i):
+
                 if i > 0:
-                    prev_path = utils.ensure_folder(
-                        self.sim_dirs[i - 1] / prev_path, not self.overwrite, False
+                    sim_config.config["prev_data_dir"] = str(
+                        self.fiber_paths[i - 1] / sim_config.descriptor[:i].formatted_descriptor()
                     )
-                    this_conf["prev_data_dir"] = str(prev_path)
-
-                this_path = utils.ensure_folder(
-                    self.sim_dirs[i] / this_path, not self.overwrite, False
-                )
-                this_conf.pop("variable")
-                conf_to_use = {k: v for k, v in this_vary if k != "num"} | this_conf
-                self.all_configs_dict[sim_index] = self.__SimConfig(
-                    this_vary, conf_to_use, this_path, sim_index
-                )
-                self.all_configs_list[i].append(self.all_configs_dict[sim_index])
-
-    def __iter__(self) -> Generator[tuple[list[tuple[str, Any]], Parameters], None, None]:
-        for i, sim_config_list in enumerate(self.all_configs_list):
-            for sim_config, params in self.__iter_1_sim(sim_config_list):
+                params = Parameters(**sim_config.config)
+                params.compute()
                 fiber_map = []
                 for j in range(i + 1):
-                    this_conf = self.all_configs_dict[sim_config.index[: j + 1]].config
+                    this_conf = self.all_configs[sim_config.descriptor.index[: j + 1]].config
                     if j > 0:
-                        prev_conf = self.all_configs_dict[sim_config.index[:j]].config
+                        prev_conf = self.all_configs[sim_config.descriptor.index[:j]].config
                         length = prev_conf["length"] + fiber_map[j - 1][0]
                     else:
                         length = 0.0
                     fiber_map.append((length, this_conf["name"]))
-                params.output_path = str(sim_config.output_path)
                 params.fiber_map = fiber_map
-                yield sim_config.vary_list, params
+                yield sim_config.descriptor, params
 
-    def __iter_1_sim(
-        self, configs: list["Configuration.__SimConfig"]
-    ) -> Generator[tuple["Configuration.__SimConfig", Parameters], None, None]:
+    def iterate_single_fiber(
+        self, index: int
+    ) -> Generator["Configuration.__SimConfig", None, None]:
         """iterates through the parameters of only one fiber. It takes care of recovering partially
         completed simulations, skipping complete ones and waiting for the previous fiber to finish
 
         Parameters
         ----------
-        configs : list[__SimConfig]
-            list of configuration obj
+        index : int
+            which fiber to iterate over
 
         Yields
         -------
         __SimConfig
             configuration obj
-        Parameters
-            computed Parameters obj
         """
-        sim_dict: dict[Path, Configuration.__SimConfig] = {s.output_path: s for s in configs}
+        sim_dict: dict[Path, self.__SimConfig] = {}
+        for descr in self.variationer.iterate(index):
+            cfg = descr.update_config(self.fiber_configs[index])
+            p = ensure_folder(
+                self.fiber_paths[index] / descr.formatted_descriptor(),
+                not self.overwrite,
+                False,
+            )
+            cfg["output_path"] = str(p)
+            sim_config = self.__SimConfig(descr, cfg, p)
+            sim_dict[p] = sim_config
+            self.all_configs[sim_config.descriptor.index] = sim_config
         while len(sim_dict) > 0:
             for data_dir, sim_config in sim_dict.items():
                 task, config_dict = self.__decide(sim_config)
                 if task == self.Action.RUN:
                     sim_dict.pop(data_dir)
-                    p = Parameters(**config_dict)
-                    p.compute()
-                    yield sim_config, p
+                    yield sim_config
                     if "recovery_last_stored" in config_dict and self.skip_callback is not None:
                         self.skip_callback(config_dict["recovery_last_stored"])
                     break
@@ -956,7 +945,7 @@ class Configuration:
 
         Returns
         -------
-        str : {'run', 'wait', 'skip'}
+        str : Configuration.Action
             what to do
         config_dict : dict[str, Any]
             config dictionary. The only key possibly modified is 'prev_data_dir', which
@@ -1012,7 +1001,7 @@ class Configuration:
             raise ValueError(f"Too many spectra in {data_dir}")
 
     def save_parameters(self):
-        for config, sim_dir in zip(self.master_configs, self.sim_dirs):
+        for config, sim_dir in zip(self.fiber_configs, self.fiber_paths):
             os.makedirs(sim_dir, exist_ok=True)
             utils.save_toml(sim_dir / f"initial_config.toml", config)
 
@@ -1020,144 +1009,6 @@ class Configuration:
     def first(self) -> Parameters:
         for _, param in self:
             return param
-
-
-@dataclass(frozen=True)
-class PlotRange:
-    left: float = Parameter(type_checker(int, float))
-    right: float = Parameter(type_checker(int, float))
-    unit: Callable[[float], float] = Parameter(units.is_unit, converter=units.get_unit)
-    conserved_quantity: bool = Parameter(boolean, default=True)
-
-    def __str__(self):
-        return f"{self.left:.1f}-{self.right:.1f} {self.unit.__name__}"
-
-    def sort_axis(self, axis: np.ndarray) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
-        return sort_axis(axis, self)
-
-    def __iter__(self):
-        yield self.left
-        yield self.right
-        yield self.unit.__name__
-
-
-def sort_axis(
-    axis: np.ndarray, plt_range: PlotRange
-) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
-    """
-    given an axis, returns this axis cropped according to the given range, converted and sorted
-
-    Parameters
-    ----------
-    axis : 1D array containing the original axis (usual the w or t array)
-    plt_range : tupple (min, max, conversion_function) used to crop the axis
-
-    Returns
-    -------
-    cropped : the axis cropped, converted and sorted
-    indices : indices to use to slice and sort other array in the same fashion
-    extent : tupple with min and max of cropped
-
-    Example
-    -------
-    w = np.append(np.linspace(0, -10, 20), np.linspace(0, 10, 20))
-    t = np.linspace(-10, 10, 400)
-    W, T = np.meshgrid(w, t)
-    y = np.exp(-W**2 - T**2)
-
-    # Define ranges
-    rw = (-4, 4, s)
-    rt = (-2, 6, s)
-
-    w, cw = sort_axis(w, rw)
-    t, ct = sort_axis(t, rt)
-
-    # slice y according to the given ranges
-    y = y[ct][:, cw]
-    """
-    if isinstance(plt_range, tuple):
-        plt_range = PlotRange(*plt_range)
-    r = np.array((plt_range.left, plt_range.right), dtype="float")
-
-    indices = np.arange(len(axis))[
-        (axis <= np.max(plt_range.unit(r))) & (axis >= np.min(plt_range.unit(r)))
-    ]
-    cropped = axis[indices]
-    order = np.argsort(plt_range.unit.inv(cropped))
-    indices = indices[order]
-    cropped = cropped[order]
-    out_ax = plt_range.unit.inv(cropped)
-
-    return out_ax, indices, (out_ax[0], out_ax[-1])
-
-
-def get_arg_names(func: Callable) -> list[str]:
-    spec = inspect.getfullargspec(func)
-    args = spec.args
-    if spec.defaults is not None and len(spec.defaults) > 0:
-        args = args[: -len(spec.defaults)]
-    return args
-
-
-def validate_arg_names(names: list[str]):
-    for n in names:
-        if re.match(r"^[^\s\-'\(\)\"\d][^\(\)\-\s'\"]*$", n) is None:
-            raise ValueError(f"{n} is an invalid parameter name")
-
-
-def func_rewrite(func: Callable, kwarg_names: list[str], arg_names: list[str] = None) -> Callable:
-    if arg_names is None:
-        arg_names = get_arg_names(func)
-    else:
-        validate_arg_names(arg_names)
-    validate_arg_names(kwarg_names)
-    sign_arg_str = ", ".join(arg_names + kwarg_names)
-    call_arg_str = ", ".join(arg_names + [f"{s}={s}" for s in kwarg_names])
-    tmp_name = f"{func.__name__}_0"
-    func_str = f"def {tmp_name}({sign_arg_str}):\n    return __func__({call_arg_str})"
-    scope = dict(__func__=func)
-    exec(func_str, scope)
-    out_func = scope[tmp_name]
-    out_func.__module__ = "evaluator"
-    return out_func
-
-
-@cache
-def _mock_function(num_args: int, num_returns: int) -> Callable:
-    if not isinstance(num_args, int) and isinstance(num_returns, int):
-        raise TypeError(f"num_args and num_returns must be int")
-    arg_str = ", ".join("a" * (n + 1) for n in range(num_args))
-    return_str = ", ".join("True" for _ in range(num_returns))
-    func_name = f"__mock_{num_args}_{num_returns}"
-    func_str = f"def {func_name}({arg_str}):\n    return {return_str}"
-    scope = {}
-    exec(func_str, scope)
-    out_func = scope[func_name]
-    out_func.__module__ = "evaluator"
-    return out_func
-
-
-def pretty_format_from_sim_name(name: str) -> str:
-    """formats a pretty version of a simulation directory
-
-    Parameters
-    ----------
-    name : str
-        name of the simulation (directory name)
-
-    Returns
-    -------
-    str
-        prettier name
-    """
-    s = name.split(PARAM_SEPARATOR)
-    out = []
-    for key, value in zip(s[::2], s[1::2]):
-        try:
-            out += [key.replace("_", " "), getattr(Parameters, key).display(float(value))]
-        except (AttributeError, ValueError):
-            out.append(key + PARAM_SEPARATOR + value)
-    return PARAM_SEPARATOR.join(out)
 
 
 default_rules: list[Rule] = [

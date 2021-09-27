@@ -161,29 +161,35 @@ def save_toml(path: os.PathLike, dico):
     return dico
 
 
-def load_config_sequence(final_config_path: os.PathLike) -> tuple[list[dict[str, Any]], str]:
-    loaded_config = open_config(final_config_path)
-    final_name = loaded_config.get("name")
-    fiber_list = loaded_config.pop("Fiber")
-    configs = []
-    if fiber_list is not None:
-        master_variable = loaded_config.get("variable", {})
-        for i, params in enumerate(fiber_list):
-            params.setdefault("variable", master_variable if i == 0 else {})
-            if i == 0:
-                params["variable"] |= master_variable
-            configs.append(loaded_config | params)
-    else:
-        configs.append(loaded_config)
-        while "previous_config_file" in configs[0]:
-            configs.insert(0, open_config(configs[0]["previous_config_file"]))
-        configs[0].setdefault("variable", {})
-        for pre, nex in zip(configs[:-1], configs[1:]):
-            variable = nex.pop("variable", {})
-            nex.update({k: v for k, v in pre.items() if k not in nex})
-            nex["variable"] = variable
+def load_config_sequence(path: os.PathLike) -> tuple[Path, list[dict[str, Any]]]:
+    """loads a configuration file
 
-    return configs, final_name
+    Parameters
+    ----------
+    path : os.PathLike
+        path to the config toml file
+
+    Returns
+    -------
+    final_path : Path
+        output name of the simulation
+    list[dict[str, Any]]
+        one config per fiber
+
+    """
+    loaded_config = open_config(path)
+
+    fiber_list: list[dict[str, Any]] = loaded_config.pop("Fiber")
+    if len(fiber_list) == 0:
+        raise ValueError(f"No fiber in config {path}")
+    final_path = loaded_config.get("name")
+    configs = []
+    for i, params in enumerate(fiber_list):
+        params.setdefault("variable", {})
+        configs.append(loaded_config | params)
+    configs[0]["variable"] = loaded_config.get("variable", {}) | configs[0]["variable"]
+
+    return Path(final_path), configs
 
 
 def save_parameters(

@@ -16,9 +16,8 @@ from ..utils import auto_crop, open_config, save_toml, translate_parameters
 from ..utils.parameter import (
     Configuration,
     Parameters,
-    pretty_format_from_sim_name,
-    pretty_format_value,
 )
+from ..utils.variationer import VariationDescriptor
 
 
 def fingerprint(params: Parameters):
@@ -46,7 +45,7 @@ def plot_all(sim_dir: Path, limits: list[str], show=False, **opts):
                 path, fig, ax = plot_setup(
                     pulse.path.parent
                     / (
-                        pretty_format_from_sim_name(pulse.path.name)
+                        pulse.path.name
                         + PARAM_SEPARATOR
                         + f"{left:.1f}{PARAM_SEPARATOR}{right:.1f}{PARAM_SEPARATOR}{unit}"
                     )
