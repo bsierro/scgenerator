@@ -1,12 +1,17 @@
 import inspect
+import os
 import re
+from collections import defaultdict
 from functools import cache
+from pathlib import Path
 from string import printable as str_printable
 from typing import Callable
 
 import numpy as np
 from pydantic import BaseModel
 
+from .._utils import load_toml, save_toml
+from ..const import PARAM_FN, Z_FN
 from ..physics.units import get_unit
 
 
@@ -144,3 +149,55 @@ def _mock_function(num_args: int, num_returns: int) -> Callable:
     out_func = scope[func_name]
     out_func.__module__ = "evaluator"
     return out_func
+
+
+def combine_simulations(path: Path, dest: Path = None):
+    """combines raw simulations into one folder per branch
+
+    Parameters
+    ----------
+    path : Path
+        source of the simulations (must contain u_xx directories)
+    dest : Path, optional
+        if given, moves the simulations to dest, by default None
+    """
+    paths: dict[str, list[Path]] = defaultdict(list)
+    if dest is None:
+        dest = path
+
+    for p in path.glob("u_*b_*"):
+        if p.is_dir():
+            paths[p.name.split()[1]].append(p)
+    for l in paths.values():
+        l.sort(key=lambda el: re.search(r"(?<=num )[0-9]+", el.name)[0])
+    for pulses in paths.values():
+        new_path = dest / update_path(pulses[0].name)
+        os.makedirs(new_path, exist_ok=True)
+        for num, pulse in enumerate(pulses):
+            params_ok = False
+            for file in pulse.glob("*"):
+                if file.name == PARAM_FN:
+                    if not params_ok:
+                        update_params(new_path, file)
+                        params_ok = True
+                    else:
+                        file.unlink()
+                elif file.name == Z_FN:
+                    file.rename(new_path / file.name)
+                else:
+                    file.rename(new_path / (file.stem + f"_{num}" + file.suffix))
+            pulse.rmdir()
+
+
+def update_params(new_path: Path, file: Path):
+    params = load_toml(file)
+    if (p := params.get("prev_data_dir")) is not None:
+        p = Path(p)
+        params["prev_data_dir"] = str(p.parent / update_path(p.name))
+    params["output_path"] = str(new_path)
+    save_toml(new_path / PARAM_FN, params)
+    file.unlink()
+
+
+def update_path(p: str) -> str:
+    return re.sub(r"( ?num [0-9]+)|(u_[0-9]+ )", "", p)

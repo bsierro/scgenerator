@@ -9,9 +9,11 @@ from typing import Any, Generator, Type, Union
 import numpy as np
 from send2trash import send2trash
 
-from .. import env, utils
+from .. import env
+from .. import _utils as utils
+from .._utils.utils import combine_simulations
 from ..logger import get_logger
-from ..utils.parameter import Configuration, Parameters
+from .._utils.parameter import Configuration, Parameters
 from . import pulse
 from .fiber import create_non_linear_op, fast_dispersion_op
 
@@ -718,17 +720,9 @@ def run_simulation(
 
     sim = new_simulation(config, method)
     sim.run()
-    path_trees = utils.build_path_trees(config.fiber_paths[-1])
 
-    final_name = env.get(env.OUTPUT_PATH)
-    if final_name is None:
-        final_name = config.final_path
-
-    utils.merge(final_name, path_trees)
-    try:
-        send2trash(config.fiber_paths)
-    except (PermissionError, OSError):
-        get_logger(__name__).error("Could not send temporary directories to trash")
+    for path in config.fiber_paths:
+        combine_simulations(path)
 
 
 def new_simulation(

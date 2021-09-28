@@ -23,8 +23,6 @@ from scipy.interpolate import UnivariateSpline
 from scipy.optimize import minimize_scalar
 from scipy.optimize.optimize import OptimizeResult
 
-from scgenerator import utils
-
 from ..defaults import default_plotting
 from ..logger import get_logger
 from ..math import *

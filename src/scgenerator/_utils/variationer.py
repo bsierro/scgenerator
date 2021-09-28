@@ -116,6 +116,7 @@ class VariationDescriptor(utils.HashableBaseModel):
     index: tuple[tuple[int, ...], ...]
     separator: str = "fiber"
     _format_registry: dict[str, Callable[..., str]] = {}
+    __ids: dict[int, int] = {}
 
     def __str__(self) -> str:
         return self.formatted_descriptor(add_identifier=False)
@@ -173,7 +174,19 @@ class VariationDescriptor(utils.HashableBaseModel):
             raw_descr=self.raw_descr[key], index=self.index[key], separator=self.separator
         )
 
-    def update_config(self, cfg: dict[str, Any]):
+    def update_config(self, cfg: dict[str, Any]) -> dict[str, Any]:
+        """updates a dictionary with the value of the descriptor
+
+        Parameters
+        ----------
+        cfg : dict[str, Any]
+            dict to be updated
+
+        Returns
+        -------
+        dict[str, Any]
+            same as cfg but with key from the descriptor added/updated.
+        """
         return cfg | {k: v for k, v in self.raw_descr[-1]}
 
     @property
@@ -188,17 +201,22 @@ class VariationDescriptor(utils.HashableBaseModel):
 
     @property
     def branch(self) -> "BranchDescriptor":
-        for i in reversed(range(len(self.raw_descr))):
-            for j in reversed(range(len(self.raw_descr[i]))):
-                if self.raw_descr[i][j][0] == "num":
-                    del self.raw_descr[i][j]
-        return VariationDescriptor(
-            raw_descr=self.raw_descr, index=self.index, separator=self.separator
-        )
+        descr = []
+        ind = []
+        for i, l in enumerate(self.raw_descr):
+            descr.append([])
+            ind.append([])
+            for j, (k, v) in enumerate(l):
+                if k != "num":
+                    descr[-1].append((k, v))
+                    ind[-1].append(self.index[i][j])
+        return BranchDescriptor(raw_descr=descr, index=ind, separator=self.separator)
 
     @property
     def identifier(self) -> str:
-        return "u_" + utils.to_62(hash(str(self.flat)))
+        unique_id = hash(str(self.flat))
+        self.__ids.setdefault(unique_id, len(self.__ids))
+        return "u_" + str(self.__ids[unique_id])
 
 
 class BranchDescriptor(VariationDescriptor):
@@ -208,7 +226,7 @@ class BranchDescriptor(VariationDescriptor):
     def identifier(self) -> str:
         branch_id = hash(str(self.flat))
         self.__ids.setdefault(branch_id, len(self.__ids))
-        return str(self.__ids[branch_id])
+        return "b_" + str(self.__ids[branch_id])
 
     @validator("raw_descr")
     def validate_raw_descr(cls, v):

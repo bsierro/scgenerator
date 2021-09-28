@@ -1,14 +1,13 @@
 import argparse
 import os
 import re
-import subprocess
-import sys
 from collections import ChainMap
 from pathlib import Path
 
 import numpy as np
 
-from .. import const, env, scripts, utils
+from .. import const, env, scripts
+from .. import _utils as utils
 from ..logger import get_logger
 from ..physics.fiber import dispersion_coefficients
 from ..physics.simulate import SequencialSimulations, run_simulation

@@ -25,7 +25,7 @@ import pkg_resources as pkg
 import toml
 from tqdm import tqdm
 
-from ..const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, SPECN_FN, Z_FN, __version__
+from ..const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, SPECN_FN1, Z_FN, __version__
 from ..env import pbar_policy
 from ..logger import get_logger
 
@@ -143,7 +143,8 @@ def resolve_loadfile_arg(dico: dict[str, Any]) -> dict[str, Any]:
     return dico
 
 
-def load_toml(descr: str) -> dict[str, Any]:
+def load_toml(descr: os.PathLike) -> dict[str, Any]:
+    descr = str(descr)
     if ":" in descr:
         path, entry = descr.split(":", 1)
         with open(path) as file:
@@ -188,6 +189,7 @@ def load_config_sequence(path: os.PathLike) -> tuple[Path, list[dict[str, Any]]]
         params.setdefault("variable", {})
         configs.append(loaded_config | params)
     configs[0]["variable"] = loaded_config.get("variable", {}) | configs[0]["variable"]
+    configs[0]["variable"]["num"] = list(range(configs[0].get("repeat", 1)))
 
     return Path(final_path), configs
 
@@ -341,7 +343,7 @@ def merge_path_tree(
 
     for i, (z, merged_spectra) in enumerate(merge_spectra(path_tree)):
         z_arr.append(z)
-        spec_out_name = SPECN_FN.format(i)
+        spec_out_name = SPECN_FN1.format(i)
         np.save(destination / spec_out_name, merged_spectra)
         if z_callback is not None:
             z_callback(i)

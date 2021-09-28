@@ -14,14 +14,15 @@ from typing import Any, Callable, Generator, Iterable, Literal, Optional, Sequen
 
 import numpy as np
 from numpy.lib import isin
-from scgenerator.utils import ensure_folder, variationer
 
-from .. import math, utils
+from .. import math
 from ..const import PARAM_FN, PARAM_SEPARATOR, __version__
 from ..errors import EvaluatorError, NoDefaultError
 from ..logger import get_logger
 from ..physics import fiber, materials, pulse, units
-from ..utils.variationer import VariationDescriptor, Variationer
+from .._utils.variationer import VariationDescriptor, Variationer
+from .. import _utils as utils
+from .. import env
 from .utils import func_rewrite, _mock_function, get_arg_names
 
 T = TypeVar("T")
@@ -312,13 +313,6 @@ class Parameter:
             return f"{num_str} {unit}"
 
 
-def fiber_map_converter(d: dict[str, str]) -> list[tuple[float, str]]:
-    if isinstance(d, dict):
-        return [(float(k), v) for k, v in d.items()]
-    else:
-        return [(float(k), v) for k, v in d]
-
-
 @dataclass
 class Parameters:
     """
@@ -432,15 +426,13 @@ class Parameters:
     const_qty: np.ndarray = Parameter(type_checker(np.ndarray))
     beta_func: Callable[[float], list[float]] = Parameter(func_validator)
     gamma_func: Callable[[float], float] = Parameter(func_validator)
-    fiber_map: list[tuple[float, str]] = Parameter(
-        validator_list(type_checker(tuple)), converter=fiber_map_converter
-    )
+
+    num: int = Parameter(non_negative(int))
     datetime: datetime_module.datetime = Parameter(type_checker(datetime_module.datetime))
     version: str = Parameter(string)
 
     def prepare_for_dump(self) -> dict[str, Any]:
         param = asdict(self)
-        param["fiber_map"] = [(str(z), n) for z, n in param.get("fiber_map", [])]
         param = Parameters.strip_params_dict(param)
         param["datetime"] = datetime_module.datetime.now()
         param["version"] = __version__
@@ -816,7 +808,9 @@ class Configuration:
         self.overwrite = overwrite
         self.final_path, self.fiber_configs = utils.load_config_sequence(final_config_path)
         self.final_path = utils.ensure_folder(
-            self.final_path, mkdir=False, prevent_overwrite=not self.overwrite
+            Path(env.get(env.OUTPUT_PATH, self.final_path)),
+            mkdir=False,
+            prevent_overwrite=not self.overwrite,
         )
         self.master_config = self.fiber_configs[0]
         self.name = self.final_path.name
@@ -868,23 +862,8 @@ class Configuration:
     def __iter__(self) -> Generator[tuple[VariationDescriptor, Parameters], None, None]:
         for i in range(self.num_fibers):
             for sim_config in self.iterate_single_fiber(i):
-
-                if i > 0:
-                    sim_config.config["prev_data_dir"] = str(
-                        self.fiber_paths[i - 1] / sim_config.descriptor[:i].formatted_descriptor()
-                    )
                 params = Parameters(**sim_config.config)
                 params.compute()
-                fiber_map = []
-                for j in range(i + 1):
-                    this_conf = self.all_configs[sim_config.descriptor.index[: j + 1]].config
-                    if j > 0:
-                        prev_conf = self.all_configs[sim_config.descriptor.index[:j]].config
-                        length = prev_conf["length"] + fiber_map[j - 1][0]
-                    else:
-                        length = 0.0
-                    fiber_map.append((length, this_conf["name"]))
-                params.fiber_map = fiber_map
                 yield sim_config.descriptor, params
 
     def iterate_single_fiber(
@@ -903,18 +882,21 @@ class Configuration:
         __SimConfig
             configuration obj
         """
-        sim_dict: dict[Path, self.__SimConfig] = {}
-        for descr in self.variationer.iterate(index):
-            cfg = descr.update_config(self.fiber_configs[index])
-            p = ensure_folder(
-                self.fiber_paths[index] / descr.formatted_descriptor(),
+        sim_dict: dict[Path, Configuration.__SimConfig] = {}
+        for descriptor in self.variationer.iterate(index):
+            cfg = descriptor.update_config(self.fiber_configs[index])
+            if index > 0:
+                cfg["prev_data_dir"] = str(
+                    self.fiber_paths[index - 1] / descriptor[:index].formatted_descriptor(True)
+                )
+            p = utils.ensure_folder(
+                self.fiber_paths[index] / descriptor.formatted_descriptor(True),
                 not self.overwrite,
                 False,
             )
             cfg["output_path"] = str(p)
-            sim_config = self.__SimConfig(descr, cfg, p)
-            sim_dict[p] = sim_config
-            self.all_configs[sim_config.descriptor.index] = sim_config
+            sim_config = self.__SimConfig(descriptor, cfg, p)
+            sim_dict[p] = self.all_configs[sim_config.descriptor.index] = sim_config
         while len(sim_dict) > 0:
             for data_dir, sim_config in sim_dict.items():
                 task, config_dict = self.__decide(sim_config)
@@ -1001,9 +983,12 @@ class Configuration:
             raise ValueError(f"Too many spectra in {data_dir}")
 
     def save_parameters(self):
-        for config, sim_dir in zip(self.fiber_configs, self.fiber_paths):
-            os.makedirs(sim_dir, exist_ok=True)
-            utils.save_toml(sim_dir / f"initial_config.toml", config)
+        os.makedirs(self.final_path, exist_ok=True)
+        cfgs = [
+            cfg | dict(variable=self.variationer.all_dicts[i])
+            for i, cfg in enumerate(self.fiber_configs)
+        ]
+        utils.save_toml(self.final_path / f"initial_config.toml", dict(name=self.name, Fiber=cfgs))
 
     @property
     def first(self) -> Parameters:

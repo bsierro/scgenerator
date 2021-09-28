@@ -1,13 +1,19 @@
+from __future__ import annotations
+
 import os
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Optional, Union
+from typing import Any, Callable, Dict, Iterable, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
+from pydantic import BaseModel, DirectoryPath, root_validator
 
 from . import math
-from .const import SPECN_FN
+from ._utils import load_spectrum
+from ._utils.parameter import Parameters
+from ._utils.utils import PlotRange
+from .const import SPECN_FN1, PARAM_FN, SPEC1_FN_N
 from .logger import get_logger
 from .physics import pulse, units
 from .plotting import (
@@ -16,9 +22,87 @@ from .plotting import (
     single_position_plot,
     transform_2D_propagation,
 )
-from .utils.parameter import Parameters
-from .utils.utils import PlotRange
-from .utils import load_spectrum
+
+
+class SimulationSeries:
+    path: Path
+    params: Parameters
+    total_length: float
+    total_num_steps: int
+    previous: SimulationSeries = None
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    def __init__(self, path: os.PathLike):
+        self.path = Path(path)
+        self.params = Parameters.load(self.path / PARAM_FN)
+        if self.params.prev_data_dir is not None:
+            self.previous = SimulationSeries(self.params.prev_data_dir)
+        self.total_length = self.accumulate_params("length")
+        self.total_num_steps = self.accumulate_params("z_num")
+
+    def fiber_map(self):
+        lengths = self.all_params("length")
+        return [
+            (this[0], following[1]) for this, following in zip(lengths, [(None, 0.0)] + lengths)
+        ]
+
+    def all_params(self, key: str) -> list[tuple[str, Any]]:
+        """returns the value of a parameter for each fiber
+
+        Parameters
+        ----------
+        key : str
+            name of the parameter
+
+        Returns
+        -------
+        list[tuple[str, Any]]
+            list of (fiber_name, param_value) tuples
+        """
+        return list(reversed(self._all_params(key, [])))
+
+    def accumulate_params(self, key: str) -> Any:
+        """returns the sum of all the values a parameter takes. Useful to
+        get the total length of the fiber, the total number of steps, etc.
+
+        Parameters
+        ----------
+        key : str
+            name of the parameter
+
+        Returns
+        -------
+        Any
+            final sum
+        """
+        return sum(el[1] for el in self.all_params(key))
+
+    def _load_1(self, z_ind: int, sim_ind=0) -> np.ndarray:
+        return load_spectrum(self.path / SPEC1_FN_N.format(z_ind, sim_ind))
+
+    def _all_params(self, key: str, l: list) -> list:
+        l.append((self.params.name, getattr(self.params, key)))
+        if self.previous is not None:
+            return self.previous._all_params(key, l)
+        return l
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(path={self.path}, previous={self.previous!r})"
+
+    def __eq__(self, other: SimulationSeries) -> bool:
+        return (
+            self.path == other.path
+            and self.params == other.params
+            and self.previous == other.previous
+        )
+
+    def __contains__(self, other: SimulationSeries) -> bool:
+        if other is self or other == self:
+            return True
+        if self.previous is not None:
+            return other in self.previous
 
 
 class Spectrum(np.ndarray):
@@ -129,6 +213,23 @@ class Spectrum(np.ndarray):
 
 
 class Pulse(Sequence):
+    path: Path
+    default_ind: Optional[int]
+    params: Parameters
+    z: np.ndarray
+    namx: int
+    t: np.ndarray
+    w: np.ndarray
+    w_order: np.ndarray
+
+    def __new__(cls, path: os.PathLike, *args, **kwargs) -> "Pulse":
+        try:
+            if load_spectrum(Path(path) / SPECN_FN1.format(0)).ndim == 2:
+                return super().__new__(LegacyPulse)
+        except FileNotFoundError:
+            pass
+        return super().__new__(cls)
+
     def __init__(self, path: os.PathLike, default_ind: Union[int, Iterable[int]] = None):
         """load a data folder as a pulse
 
@@ -144,36 +245,6 @@ class Pulse(Sequence):
         FileNotFoundError
             path does not contain proper data
         """
-        self.logger = get_logger(__name__)
-        self.path = Path(path)
-        self.default_ind = default_ind
-
-        if not self.path.is_dir():
-            raise FileNotFoundError(f"Folder {self.path} does not exist")
-
-        self.params = Parameters.load(self.path / "params.toml")
-        self.params.compute(["name", "t", "l", "w_c", "w0", "z_targets"])
-        if self.params.fiber_map is None:
-            self.params.fiber_map = [(0.0, self.params.name)]
-
-        try:
-            self.z = np.load(os.path.join(path, "z.npy"))
-        except FileNotFoundError:
-            if self.params is not None:
-                self.z = self.params.z_targets
-            else:
-                raise
-        self.nmax = len(list(self.path.glob("spectra_*.npy")))
-        if self.nmax <= 0:
-            raise FileNotFoundError(f"No appropriate file in specified folder {self.path}")
-
-        self.t = self.params.t
-        w = math.wspace(self.t) + units.m(self.params.wavelength)
-        self.w_order = np.argsort(w)
-        self.w = w
-        self.wl = units.m.inv(self.w)
-        self.params.w = self.w
-        self.params.z_targets = self.z
 
     def __iter__(self):
         """
@@ -189,73 +260,6 @@ class Pulse(Sequence):
 
     def __getitem__(self, key) -> Spectrum:
         return self.all_spectra(key)
-
-    def intensity(self, unit):
-        if unit.type in ["WL", "FREQ", "AFREQ"]:
-            x_axis = unit.inv(self.w)
-        else:
-            x_axis = unit.inv(self.t)
-
-        order = np.argsort(x_axis)
-        func = dict(
-            WL=self._to_wl_int,
-            FREQ=self._to_freq_int,
-            AFREQ=self._to_afreq_int,
-            TIME=self._to_time_int,
-        )[unit.type]
-
-        for spec in self:
-            yield x_axis[order], func(spec)[:, order]
-
-    def _to_wl_int(self, spectrum):
-        return units.to_WL(math.abs2(spectrum), spectrum.wl)
-
-    def _to_freq_int(self, spectrum):
-        return math.abs2(spectrum)
-
-    def _to_afreq_int(self, spectrum):
-        return math.abs2(spectrum)
-
-    def _to_time_int(self, spectrum):
-        return math.abs2(np.fft.ifft(spectrum))
-
-    def amplitude(self, unit):
-        if unit.type in ["WL", "FREQ", "AFREQ"]:
-            x_axis = unit.inv(self.w)
-        else:
-            x_axis = unit.inv(self.t)
-
-        order = np.argsort(x_axis)
-        func = dict(
-            WL=self._to_wl_amp,
-            FREQ=self._to_freq_amp,
-            AFREQ=self._to_afreq_amp,
-            TIME=self._to_time_amp,
-        )[unit.type]
-
-        for spec in self:
-            yield x_axis[order], func(spec)[:, order]
-
-    def _to_wl_amp(self, spectrum):
-        return (
-            np.sqrt(
-                units.to_WL(
-                    math.abs2(spectrum),
-                    spectrum.wl,
-                )
-            )
-            * spectrum
-            / np.abs(spectrum)
-        )
-
-    def _to_freq_amp(self, spectrum):
-        return spectrum
-
-    def _to_afreq_amp(self, spectrum):
-        return spectrum
-
-    def _to_time_amp(self, spectrum):
-        return np.fft.ifft(spectrum)
 
     def all_spectra(self, ind=None) -> Spectrum:
         """
@@ -305,12 +309,7 @@ class Pulse(Sequence):
         return np.fft.ifft(self.all_spectra(ind=ind), axis=-1)
 
     def _load1(self, i: int):
-        if i < 0:
-            i = self.nmax + i
-        spec = load_spectrum(self.path / SPECN_FN.format(i))
-        spec = np.atleast_2d(spec)
-        spec = Spectrum(spec, self.params)
-        return spec
+        pass
 
     def plot_2D(
         self,
@@ -412,3 +411,46 @@ class Pulse(Sequence):
             index
         """
         return math.argclosest(self.z, z)
+
+
+class LegacyPulse(Pulse):
+    def __init__(self, path: os.PathLike, default_ind: Union[int, Iterable[int]] = None):
+        print("old init called", path, default_ind)
+        self.logger = get_logger(__name__)
+        self.path = Path(path)
+        self.default_ind = default_ind
+
+        if not self.path.is_dir():
+            raise FileNotFoundError(f"Folder {self.path} does not exist")
+
+        self.params = Parameters.load(self.path / "params.toml")
+        self.params.compute(["name", "t", "l", "w_c", "w0", "z_targets"])
+        if self.params.fiber_map is None:
+            self.params.fiber_map = [(0.0, self.params.name)]
+
+        try:
+            self.z = np.load(os.path.join(path, "z.npy"))
+        except FileNotFoundError:
+            if self.params is not None:
+                self.z = self.params.z_targets
+            else:
+                raise
+        self.nmax = len(list(self.path.glob("spectra_*.npy")))
+        if self.nmax <= 0:
+            raise FileNotFoundError(f"No appropriate file in specified folder {self.path}")
+
+        self.t = self.params.t
+        w = math.wspace(self.t) + units.m(self.params.wavelength)
+        self.w_order = np.argsort(w)
+        self.w = w
+        self.wl = units.m.inv(self.w)
+        self.params.w = self.w
+        self.params.z_targets = self.z
+
+    def _load1(self, i: int):
+        if i < 0:
+            i = self.nmax + i
+        spec = load_spectrum(self.path / SPECN_FN1.format(i))
+        spec = np.atleast_2d(spec)
+        spec = Spectrum(spec, self.params)
+        return spec

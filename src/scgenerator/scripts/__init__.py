@@ -12,12 +12,11 @@ from ..const import PARAM_FN, PARAM_SEPARATOR
 from ..physics import fiber, units
 from ..plotting import plot_setup
 from ..spectra import Pulse
-from ..utils import auto_crop, open_config, save_toml, translate_parameters
-from ..utils.parameter import (
+from .._utils import auto_crop, open_config, save_toml, translate_parameters
+from .._utils.parameter import (
     Configuration,
     Parameters,
 )
-from ..utils.variationer import VariationDescriptor
 
 
 def fingerprint(params: Parameters):

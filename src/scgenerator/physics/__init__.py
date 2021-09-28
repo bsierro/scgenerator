@@ -10,8 +10,8 @@ from scipy.optimize import minimize_scalar
 
 from .. import math
 from . import fiber, materials, units, pulse
-from .. import utils
-from ..utils import cache
+from .. import _utils
+from .._utils import cache
 
 T = TypeVar("T")
 

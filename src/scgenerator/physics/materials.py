@@ -5,7 +5,7 @@ from scipy.integrate import cumulative_trapezoid
 
 from ..logger import get_logger
 from . import units
-from .. import utils
+from .. import _utils
 from .units import NA, c, kB, me, e, hbar
 
 

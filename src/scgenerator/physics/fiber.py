@@ -7,9 +7,9 @@ from scipy.interpolate import interp1d
 
 from ..logger import get_logger
 
-from .. import utils
+from .. import _utils
 from ..math import abs2, argclosest, power_fact, u_nm
-from ..utils.cache import np_cache
+from .._utils.cache import np_cache
 from . import materials as mat
 from . import units
 from .units import c, pi
