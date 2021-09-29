@@ -114,7 +114,9 @@ def find_optimal_depth(
     return propagate(opti.x), opti
 
 
-def propagate_field(t: np.ndarray, field: np.ndarray, z: float, material: str) -> np.ndarray:
+def propagate_field(
+    t: np.ndarray, field: np.ndarray, z: float, material: str, center_wl_nm: float = 1540.0
+) -> np.ndarray:
     """propagates a field through bulk material
 
     Parameters
@@ -127,6 +129,8 @@ def propagate_field(t: np.ndarray, field: np.ndarray, z: float, material: str) -
         distance to propagate in m
     material : str
         material name
+    center_wl_nm : float, optional
+        center wavelength of the grid in nm, by default 1540
 
     Returns
     -------
@@ -134,6 +138,6 @@ def propagate_field(t: np.ndarray, field: np.ndarray, z: float, material: str) -
         propagated field
     """
     w_c = math.wspace(t)
-    l = units.m(w_c + units.nm(1540))
+    l = units.m(w_c + units.nm(center_wl_nm))
     disp = material_dispersion(l, material)
     return np.fft.ifft(np.fft.fft(field) * np.exp(0.5j * disp * w_c ** 2 * z))

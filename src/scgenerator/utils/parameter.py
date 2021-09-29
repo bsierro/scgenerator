@@ -376,6 +376,7 @@ class Parameters:
     energy: float = Parameter(positive(float, int), display_info=(1e6, "μJ"))
     soliton_num: float = Parameter(non_negative(float, int))
     quantum_noise: bool = Parameter(boolean, default=False)
+    additional_noise_factor: float = Parameter(positive(float, int), default=1)
     shape: str = Parameter(literal("gaussian", "sech"), default="gaussian")
     wavelength: float = Parameter(in_range_incl(100e-9, 3000e-9), display_info=(1e9, "nm"))
     intensity_noise: float = Parameter(in_range_incl(0, 1), display_info=(1e2, "%"), default=0)
@@ -1383,7 +1384,15 @@ default_rules: list[Rule] = [
     Rule(
         "field_0",
         pulse.add_shot_noise,
-        ["pre_field_0", "quantum_noise", "w_c", "w0", "time_window", "dt"],
+        [
+            "pre_field_0",
+            "quantum_noise",
+            "w_c",
+            "w0",
+            "time_window",
+            "dt",
+            "additional_noise_factor",
+        ],
     ),
     Rule("peak_power", pulse.E0_to_P0, ["energy", "t0", "shape"]),
     Rule("peak_power", pulse.soliton_num_to_peak_power),

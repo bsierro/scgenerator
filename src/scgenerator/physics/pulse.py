@@ -414,7 +414,7 @@ def technical_noise(rms_noise, noise_correlation=-0.4):
     return psy, 1 + noise_correlation * (psy - 1)
 
 
-def shot_noise(w_c, w0, T, dt):
+def shot_noise(w_c, w0, T, dt, additional_noise_factor=1.0):
     """
 
     Parameters
@@ -427,23 +427,31 @@ def shot_noise(w_c, w0, T, dt):
             length of the time windows
         dt : float
             resolution of time grid
+        additional_noise_factor : float
+            resulting noise spectrum is multiplied by this number
 
     Returns
-    ----------
+    -------
         out : 1D array of size len(w_c)
             noise field to be added on top of initial field in time domain
     """
     rand_phase = np.random.rand(len(w_c)) * 2 * pi
     A_oppm = np.sqrt(hbar * (np.abs(w_c + w0)) * T) * np.exp(-1j * rand_phase)
     out = ifft(A_oppm / dt * np.sqrt(2 * pi))
-    return out
+    return out * additional_noise_factor
 
 
 def add_shot_noise(
-    field_0: np.ndarray, quantum_noise: bool, w_c: bool, w0: float, time_window: float, dt: float
+    field_0: np.ndarray,
+    quantum_noise: bool,
+    w_c: bool,
+    w0: float,
+    time_window: float,
+    dt: float,
+    additional_noise_factor: float,
 ) -> np.ndarray:
     if quantum_noise:
-        field_0 = field_0 + shot_noise(w_c, w0, time_window, dt)
+        field_0 = field_0 + shot_noise(w_c, w0, time_window, dt, additional_noise_factor)
     return field_0
 
 
