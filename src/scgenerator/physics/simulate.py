@@ -569,7 +569,7 @@ class MultiProcSimulations(Simulations, priority=1):
         self.p_worker = multiprocessing.Process(
             target=utils.progress_worker,
             args=(
-                self.configuration.final_path,
+                Path(self.configuration.final_path).name,
                 self.sim_jobs_per_node,
                 self.configuration.total_num_steps,
                 self.progress_queue,
