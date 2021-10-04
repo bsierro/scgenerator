@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime as datetime_module
 import enum
 import inspect
@@ -15,15 +17,14 @@ from typing import Any, Callable, Generator, Iterable, Literal, Optional, Sequen
 import numpy as np
 from numpy.lib import isin
 
-from .. import math
+from .. import _utils as utils
+from .. import env, math
+from .._utils.variationer import VariationDescriptor, Variationer
 from ..const import PARAM_FN, PARAM_SEPARATOR, __version__
 from ..errors import EvaluatorError, NoDefaultError
 from ..logger import get_logger
 from ..physics import fiber, materials, pulse, units
-from .._utils.variationer import VariationDescriptor, Variationer
-from .. import _utils as utils
-from .. import env
-from .utils import func_rewrite, _mock_function, get_arg_names
+from .utils import _mock_function, fiber_folder, func_rewrite, get_arg_names
 
 T = TypeVar("T")
 
@@ -302,7 +303,7 @@ class Parameter:
                 self.validator(self.name, value)
             instance.__dict__[self.name] = value
 
-    def display(self, num: float):
+    def display(self, num: float) -> str:
         if self.display_info is None:
             return str(num)
         else:
@@ -314,10 +315,22 @@ class Parameter:
 
 
 @dataclass
-class Parameters:
+class _AbstractParameters:
+    @classmethod
+    def __init_subclass__(cls):
+        cls.register_param_formatters()
+
+    @classmethod
+    def register_param_formatters(cls):
+        for k, v in cls.__dict__.items():
+            if isinstance(v, Parameter):
+                VariationDescriptor.register_formatter(k, v.display)
+
+
+@dataclass
+class Parameters(_AbstractParameters):
     """
-    This class defines each valid parameter's name, type and valid value. Initializing
-    such an obj will automatically compute all possible parameters
+    This class defines each valid parameter's name, type and valid value.
     """
 
     # root
@@ -832,7 +845,7 @@ class Configuration:
             self.variationer.append(config.pop("variable"))
             self.fiber_paths.append(
                 utils.ensure_folder(
-                    self.fiber_path(i, config),
+                    self.final_path / fiber_folder(i, self.name, config["name"]),
                     mkdir=False,
                     prevent_overwrite=not self.overwrite,
                 )
@@ -846,9 +859,6 @@ class Configuration:
             for i, config in enumerate(self.fiber_configs)
         )
         self.parallel = self.master_config.get("parallel", Parameters.parallel.default)
-
-    def fiber_path(self, i: int, full_config: dict[str, Any]) -> Path:
-        return self.final_path / PARAM_SEPARATOR.join([format(i), self.name, full_config["name"]])
 
     def __validate_variable(self, config: dict[str, Any]):
         for k, v in config.get("variable", {}).items():

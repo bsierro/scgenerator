@@ -2,7 +2,7 @@ from math import prod
 import itertools
 from collections.abc import MutableMapping, Sequence
 from pathlib import Path
-from typing import Any, Callable, Generator, Iterable, Union
+from typing import Any, Callable, Generator, Iterable, Optional, Union
 
 import numpy as np
 from pydantic import validator
@@ -151,6 +151,15 @@ class VariationDescriptor(utils.HashableBaseModel):
 
     @classmethod
     def register_formatter(cls, p_name: str, func: Callable[..., str]):
+        """register a function that formats a particular parameter
+
+        Parameters
+        ----------
+        p_name : str
+            name of the parameter
+        func : Callable[..., str]
+            function that takes as single argument the value of the parameter and returns a string
+        """
         cls._format_registry[p_name] = func
 
     def format_value(self, name: str, value) -> str:
@@ -174,20 +183,24 @@ class VariationDescriptor(utils.HashableBaseModel):
             raw_descr=self.raw_descr[key], index=self.index[key], separator=self.separator
         )
 
-    def update_config(self, cfg: dict[str, Any]) -> dict[str, Any]:
+    def update_config(self, cfg: dict[str, Any], index=-1) -> dict[str, Any]:
         """updates a dictionary with the value of the descriptor
 
         Parameters
         ----------
         cfg : dict[str, Any]
             dict to be updated
+        index : int, optional
+            index of the fiber from which to apply the parameters, by default -1
 
         Returns
         -------
         dict[str, Any]
             same as cfg but with key from the descriptor added/updated.
         """
-        return cfg | {k: v for k, v in self.raw_descr[-1]}
+        out_cfg = cfg.copy()
+        out_cfg.pop("variable", None)
+        return out_cfg | {k: v for k, v in self.raw_descr[index]}
 
     @property
     def flat(self) -> list[tuple[str, Any]]:
@@ -201,8 +214,8 @@ class VariationDescriptor(utils.HashableBaseModel):
 
     @property
     def branch(self) -> "BranchDescriptor":
-        descr = []
-        ind = []
+        descr: list[list[tuple[str, Any]]] = []
+        ind: list[list[int]] = []
         for i, l in enumerate(self.raw_descr):
             descr.append([])
             ind.append([])
@@ -217,6 +230,14 @@ class VariationDescriptor(utils.HashableBaseModel):
         unique_id = hash(str(self.flat))
         self.__ids.setdefault(unique_id, len(self.__ids))
         return "u_" + str(self.__ids[unique_id])
+
+    @property
+    def parent(self) -> Optional["VariationDescriptor"]:
+        if len(self.raw_descr) < 2:
+            return None
+        return VariationDescriptor(
+            raw_descr=self.raw_descr[:-1], index=self.index[:-1], separator=self.separator
+        )
 
 
 class BranchDescriptor(VariationDescriptor):

@@ -11,7 +11,7 @@ from .. import env, math
 from ..const import PARAM_FN, PARAM_SEPARATOR
 from ..physics import fiber, units
 from ..plotting import plot_setup
-from ..spectra import Pulse
+from ..spectra import Pulse, SimulationSeries
 from .._utils import auto_crop, open_config, save_toml, translate_parameters
 from .._utils.parameter import (
     Configuration,
@@ -39,7 +39,7 @@ def plot_all(sim_dir: Path, limits: list[str], show=False, **opts):
     ]
     with tqdm(total=len(dir_list) * len(limits)) as bar:
         for p in dir_list:
-            pulse = Pulse(p)
+            pulse = SimulationSeries(p)
             for left, right, unit in limits:
                 path, fig, ax = plot_setup(
                     pulse.path.parent

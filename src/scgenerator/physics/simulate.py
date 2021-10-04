@@ -11,11 +11,13 @@ from send2trash import send2trash
 
 from .. import env
 from .. import _utils as utils
-from .._utils.utils import combine_simulations
+from .._utils.utils import combine_simulations, save_parameters
 from ..logger import get_logger
 from .._utils.parameter import Configuration, Parameters
+from .._utils.pbar import PBars, ProgressBarActor, progress_worker
 from . import pulse
 from .fiber import create_non_linear_op, fast_dispersion_op
+from scgenerator._utils import pbar
 
 try:
     import ray
@@ -334,7 +336,7 @@ class SequentialRK4IP(RK4IP):
     def __init__(
         self,
         params: Parameters,
-        pbars: utils.PBars,
+        pbars: PBars,
         save_data=False,
         job_identifier="",
         task_id=0,
@@ -490,7 +492,7 @@ class Simulations:
     def _run_available(self):
         for variable, params in self.configuration:
             v_list_str = variable.formatted_descriptor(True)
-            utils.save_parameters(params.prepare_for_dump(), Path(params.output_path))
+            save_parameters(params.prepare_for_dump(), Path(params.output_path))
 
             self.new_sim(v_list_str, params)
         self.finish()
@@ -527,7 +529,7 @@ class SequencialSimulations(Simulations, priority=0):
 
     def __init__(self, configuration: Configuration, task_id):
         super().__init__(configuration, task_id=task_id)
-        self.pbars = utils.PBars(
+        self.pbars = PBars(
             self.configuration.total_num_steps,
             "Simulating " + self.configuration.final_path.name,
             1,
@@ -571,7 +573,7 @@ class MultiProcSimulations(Simulations, priority=1):
             for i in range(self.sim_jobs_per_node)
         ]
         self.p_worker = multiprocessing.Process(
-            target=utils.progress_worker,
+            target=progress_worker,
             args=(
                 self.configuration.final_path.name,
                 self.sim_jobs_per_node,
@@ -660,7 +662,7 @@ class RaySimulations(Simulations, priority=2):
         self.pool = ray.util.ActorPool(self.propagator.remote() for _ in range(self.sim_jobs_total))
         self.num_submitted = 0
         self.rolling_id = 0
-        self.p_actor = ray.remote(utils.ProgressBarActor).remote(
+        self.p_actor = ray.remote(ProgressBarActor).remote(
             self.configuration.final_path, self.sim_jobs_total, self.configuration.total_num_steps
         )
         self.configuration.skip_callback = lambda num: ray.get(self.p_actor.update.remote(0, num))

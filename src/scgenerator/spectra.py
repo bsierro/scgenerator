@@ -13,7 +13,7 @@ from . import math
 from ._utils import load_spectrum
 from ._utils.parameter import Parameters
 from ._utils.utils import PlotRange
-from .const import SPECN_FN1, PARAM_FN, SPEC1_FN_N
+from .const import SPECN_FN1, PARAM_FN, SPEC1_FN_N, SPEC1_FN
 from .logger import get_logger
 from .physics import pulse, units
 from .plotting import (
@@ -22,6 +22,101 @@ from .plotting import (
     single_position_plot,
     transform_2D_propagation,
 )
+
+
+class Spectrum(np.ndarray):
+    params: Parameters
+
+    def __new__(cls, input_array, params: Parameters):
+        # Input array is an already formed ndarray instance
+        # We first cast to be our class type
+        obj = np.asarray(input_array).view(cls)
+        # add the new attribute to the created instance
+        obj.params = params
+
+        # Finally, we must return the newly created object:
+        return obj
+
+    def __array_finalize__(self, obj):
+        # see InfoArray.__array_finalize__ for comments
+        if obj is None:
+            return
+        self.params = getattr(obj, "params", None)
+
+    def __getitem__(self, key) -> "Spectrum":
+        return super().__getitem__(key)
+
+    @property
+    def wl_int(self):
+        return units.to_WL(math.abs2(self), self.params.l)
+
+    @property
+    def freq_int(self):
+        return math.abs2(self)
+
+    @property
+    def afreq_int(self):
+        return math.abs2(self)
+
+    @property
+    def time_int(self):
+        return math.abs2(np.fft.ifft(self))
+
+    def amplitude(self, unit):
+        if unit.type in ["WL", "FREQ", "AFREQ"]:
+            x_axis = unit.inv(self.params.w)
+        else:
+            x_axis = unit.inv(self.params.t)
+
+        order = np.argsort(x_axis)
+        func = dict(
+            WL=self.wl_amp,
+            FREQ=self.freq_amp,
+            AFREQ=self.afreq_amp,
+            TIME=self.time_amp,
+        )[unit.type]
+
+        for spec in self:
+            yield x_axis[order], func(spec)[:, order]
+
+    @property
+    def wl_amp(self):
+        return (
+            np.sqrt(
+                units.to_WL(
+                    math.abs2(self),
+                    self.params.l,
+                )
+            )
+            * self
+            / np.abs(self)
+        )
+
+    @property
+    def freq_amp(self):
+        return self
+
+    @property
+    def afreq_amp(self):
+        return self
+
+    @property
+    def time_amp(self):
+        return np.fft.ifft(self)
+
+    @property
+    def wl_max(self):
+        if self.ndim == 1:
+            return self.params.l[np.argmax(self.wl_int, axis=-1)]
+        return np.array([s.wl_max for s in self])
+
+    def mask_wl(self, pos: float, width: float) -> "Spectrum":
+        return self * np.exp(
+            -(((self.params.l - pos) / (pulse.fwhm_to_T0_fac["gaussian"] * width)) ** 2)
+        )
+
+    def measure(self) -> tuple[float, float, float]:
+        return pulse.measure_field(self.params.t, self.time_amp)
 
 
 class SimulationSeries:
@@ -34,11 +129,13 @@ class SimulationSeries:
     fiber_positions: list[tuple[str, float]]
     z_inds: np.ndarray
 
-    class Config:
-        arbitrary_types_allowed = True
-
     def __init__(self, path: os.PathLike):
-        self.path = Path(path)
+        self.logger = get_logger()
+        path = Path(path)
+        subdirs = [el for el in path.glob("*") if (el / PARAM_FN).exists()]
+        while not (path / PARAM_FN).exists() and len(subdirs) == 1:
+            path = subdirs[0]
+        self.path = path
         self.params = Parameters.load(self.path / PARAM_FN)
         self.params.compute(["name", "t", "l", "w_c", "w0", "z_targets"])
         self.t = self.params.t
@@ -50,11 +147,9 @@ class SimulationSeries:
         self.z_inds = np.arange(len(self.params.z_targets))
         self.z = self.params.z_targets
         if self.previous is not None:
-            print(f"{self.params.z_targets=}")
             self.z += self.previous.params.z_targets[-1]
             self.params.z_targets = np.concatenate((self.previous.z, self.params.z_targets))
             self.z_inds += self.previous.z_inds[-1] + 1
-        print(f"{self.z=}")
         self.fiber_lengths = self.all_params("length")
         self.fiber_positions = [
             (this[0], following[1])
@@ -220,7 +315,10 @@ class SimulationSeries:
         np.ndarray
             loaded spectrum file
         """
-        return load_spectrum(self.path / SPEC1_FN_N.format(z_ind - self.z_inds[0], sim_ind))
+        if sim_ind > 0:
+            return load_spectrum(self.path / SPEC1_FN_N.format(z_ind - self.z_inds[0], sim_ind))
+        else:
+            return load_spectrum(self.path / SPEC1_FN.format(z_ind - self.z_inds[0]))
 
     def _all_params(self, key: str, l: list) -> list:
         l.append((self.params.name, getattr(self.params, key)))
@@ -250,100 +348,11 @@ class SimulationSeries:
         if self.previous is not None:
             return other in self.previous
 
-
-class Spectrum(np.ndarray):
-    params: Parameters
-
-    def __new__(cls, input_array, params: Parameters):
-        # Input array is an already formed ndarray instance
-        # We first cast to be our class type
-        obj = np.asarray(input_array).view(cls)
-        # add the new attribute to the created instance
-        obj.params = params
-
-        # Finally, we must return the newly created object:
-        return obj
-
-    def __array_finalize__(self, obj):
-        # see InfoArray.__array_finalize__ for comments
-        if obj is None:
-            return
-        self.params = getattr(obj, "params", None)
-
-    def __getitem__(self, key) -> "Spectrum":
-        return super().__getitem__(key)
-
-    @property
-    def wl_int(self):
-        return units.to_WL(math.abs2(self), self.params.l)
-
-    @property
-    def freq_int(self):
-        return math.abs2(self)
-
-    @property
-    def afreq_int(self):
-        return math.abs2(self)
-
-    @property
-    def time_int(self):
-        return math.abs2(np.fft.ifft(self))
-
-    def amplitude(self, unit):
-        if unit.type in ["WL", "FREQ", "AFREQ"]:
-            x_axis = unit.inv(self.params.w)
+    def __getitem__(self, key) -> Spectrum:
+        if isinstance(key, tuple):
+            return self.spectra(*key)
         else:
-            x_axis = unit.inv(self.params.t)
-
-        order = np.argsort(x_axis)
-        func = dict(
-            WL=self.wl_amp,
-            FREQ=self.freq_amp,
-            AFREQ=self.afreq_amp,
-            TIME=self.time_amp,
-        )[unit.type]
-
-        for spec in self:
-            yield x_axis[order], func(spec)[:, order]
-
-    @property
-    def wl_amp(self):
-        return (
-            np.sqrt(
-                units.to_WL(
-                    math.abs2(self),
-                    self.params.l,
-                )
-            )
-            * self
-            / np.abs(self)
-        )
-
-    @property
-    def freq_amp(self):
-        return self
-
-    @property
-    def afreq_amp(self):
-        return self
-
-    @property
-    def time_amp(self):
-        return np.fft.ifft(self)
-
-    @property
-    def wl_max(self):
-        if self.ndim == 1:
-            return self.params.l[np.argmax(self.wl_int, axis=-1)]
-        return np.array([s.wl_max for s in self])
-
-    def mask_wl(self, pos: float, width: float) -> "Spectrum":
-        return self * np.exp(
-            -(((self.params.l - pos) / (pulse.fwhm_to_T0_fac["gaussian"] * width)) ** 2)
-        )
-
-    def measure(self) -> tuple[float, float, float]:
-        return pulse.measure_field(self.params.t, self.time_amp)
+            return self.spectra(key, None)
 
 
 class Pulse(Sequence):

@@ -5,13 +5,14 @@ from collections import defaultdict
 from functools import cache
 from pathlib import Path
 from string import printable as str_printable
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
+import toml
 from pydantic import BaseModel
 
 from .._utils import load_toml, save_toml
-from ..const import PARAM_FN, Z_FN
+from ..const import PARAM_FN, PARAM_SEPARATOR, Z_FN
 from ..physics.units import get_unit
 
 
@@ -184,6 +185,8 @@ def combine_simulations(path: Path, dest: Path = None):
                         file.unlink()
                 elif file.name == Z_FN:
                     file.rename(new_path / file.name)
+                elif file.name.startswith("spectr") and num == 0:
+                    file.rename(new_path / file.name)
                 else:
                     file.rename(new_path / (file.stem + f"_{num}" + file.suffix))
             pulse.rmdir()
@@ -199,5 +202,37 @@ def update_params(new_path: Path, file: Path):
     file.unlink()
 
 
+def save_parameters(
+    params: dict[str, Any], destination_dir: Path, file_name: str = PARAM_FN
+) -> Path:
+    """saves a parameter dictionary. Note that is does remove some entries, particularly
+    those that take a lot of space ("t", "w", ...)
+
+    Parameters
+    ----------
+    params : dict[str, Any]
+        dictionary to save
+    destination_dir : Path
+        destination directory
+
+    Returns
+    -------
+    Path
+        path to newly created the paramter file
+    """
+    file_path = destination_dir / file_name
+    os.makedirs(file_path.parent, exist_ok=True)
+
+    # save toml of the simulation
+    with open(file_path, "w") as file:
+        toml.dump(params, file, encoder=toml.TomlNumpyEncoder())
+
+    return file_path
+
+
 def update_path(p: str) -> str:
     return re.sub(r"( ?num [0-9]+)|(u_[0-9]+ )", "", p)
+
+
+def fiber_folder(i: int, sim_name: str, fiber_name: str) -> str:
+    return PARAM_SEPARATOR.join([format(i), sim_name, fiber_name])
