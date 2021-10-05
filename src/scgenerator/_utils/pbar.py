@@ -1,9 +1,9 @@
-import abc
+import multiprocessing
 import os
 import random
-import multiprocessing
 import threading
 import typing
+from collections import abc
 from io import StringIO
 from pathlib import Path
 from typing import Iterable, Union
@@ -24,7 +24,19 @@ class PBars:
         head_kwargs=None,
         worker_kwargs=None,
     ) -> "PBars":
+        """creates a PBars obj
 
+        Parameters
+        ----------
+        task : int | Iterable
+            if int : total length of the main task
+            if Iterable : behaves like tqdm
+        desc : str
+            description of the main task
+        num_sub_bars : int
+            number of sub-tasks
+
+        """
         self.id = random.randint(100000, 999999)
         try:
             self.width = os.get_terminal_size().columns

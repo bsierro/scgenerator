@@ -2,13 +2,16 @@ from math import prod
 import itertools
 from collections.abc import MutableMapping, Sequence
 from pathlib import Path
-from typing import Any, Callable, Generator, Iterable, Optional, Union
+from typing import Any, Callable, Generator, Generic, Iterable, Iterator, Optional, TypeVar, Union
 
 import numpy as np
 from pydantic import validator
+from pydantic.main import BaseModel
 
 from ..const import PARAM_SEPARATOR
 from . import utils
+
+T = TypeVar("T")
 
 
 class VariationSpecsError(ValueError):
@@ -111,15 +114,15 @@ class Variationer:
         return max(1, prod(prod(el) for el in self.all_indices[: index + 1]))
 
 
-class VariationDescriptor(utils.HashableBaseModel):
+class VariationDescriptor(BaseModel):
     raw_descr: tuple[tuple[tuple[str, Any], ...], ...]
     index: tuple[tuple[int, ...], ...]
     separator: str = "fiber"
     _format_registry: dict[str, Callable[..., str]] = {}
     __ids: dict[int, int] = {}
 
-    def __str__(self) -> str:
-        return self.formatted_descriptor(add_identifier=False)
+    class Config:
+        allow_mutation = False
 
     def formatted_descriptor(self, add_identifier=False) -> str:
         """formats a variable list into a str such that each simulation has a unique
@@ -182,6 +185,24 @@ class VariationDescriptor(utils.HashableBaseModel):
         return VariationDescriptor(
             raw_descr=self.raw_descr[key], index=self.index[key], separator=self.separator
         )
+
+    def __str__(self) -> str:
+        return self.formatted_descriptor(add_identifier=False)
+
+    def __lt__(self, other: "VariationDescriptor") -> bool:
+        return self.raw_descr < other.raw_descr
+
+    def __le__(self, other: "VariationDescriptor") -> bool:
+        return self.raw_descr <= other.raw_descr
+
+    def __gt__(self, other: "VariationDescriptor") -> bool:
+        return self.raw_descr > other.raw_descr
+
+    def __ge__(self, other: "VariationDescriptor") -> bool:
+        return self.raw_descr >= other.raw_descr
+
+    def __hash__(self) -> int:
+        return hash(self.raw_descr)
 
     def update_config(self, cfg: dict[str, Any], index=-1) -> dict[str, Any]:
         """updates a dictionary with the value of the descriptor
@@ -252,3 +273,34 @@ class BranchDescriptor(VariationDescriptor):
     @validator("raw_descr")
     def validate_raw_descr(cls, v):
         return tuple(tuple(el for el in variable if el[0] != "num") for variable in v)
+
+
+class DescriptorDict(Generic[T]):
+    def __init__(self, dico: dict[VariationDescriptor, T] = None):
+        self.dico: dict[tuple[tuple[tuple[str, Any], ...], ...], tuple[VariationDescriptor, T]] = {}
+        if dico is not None:
+            for k, v in dico.items():
+                self[k] = v
+
+    def __setitem__(self, key: VariationDescriptor, value: T):
+        if not isinstance(key, VariationDescriptor):
+            raise TypeError("key must be a VariationDescriptor instance")
+        self.dico[key.raw_descr] = (key, value)
+
+    def __getitem__(
+        self, key: Union[VariationDescriptor, tuple[tuple[tuple[str, Any], ...], ...]]
+    ) -> T:
+        if isinstance(key, VariationDescriptor):
+            return self.dico[key.raw_descr][1]
+        else:
+            return self.dico[key][1]
+
+    def items(self) -> Iterator[tuple[VariationDescriptor, T]]:
+        for k, v in self.dico.items():
+            yield k, v[1]
+
+    def keys(self) -> list[VariationDescriptor]:
+        return [v[0] for v in self.dico.values()]
+
+    def values(self) -> list[T]:
+        return [v[1] for v in self.dico.values()]

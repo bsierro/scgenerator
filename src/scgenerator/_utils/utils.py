@@ -5,7 +5,7 @@ from collections import defaultdict
 from functools import cache
 from pathlib import Path
 from string import printable as str_printable
-from typing import Any, Callable
+from typing import Any, Callable, Iterator, Set
 
 import numpy as np
 import toml
@@ -236,3 +236,24 @@ def update_path(p: str) -> str:
 
 def fiber_folder(i: int, sim_name: str, fiber_name: str) -> str:
     return PARAM_SEPARATOR.join([format(i), sim_name, fiber_name])
+
+
+def iter_simulations(path: os.PathLike) -> list[Path]:
+    """finds simulations folders contained in a parent directory
+
+    Parameters
+    ----------
+    path : os.PathLike
+        parent path
+
+    Yields
+    -------
+    Path
+        Absolute Path to the simulation folder
+    """
+    paths: list[Path] = []
+    for pwd, _, files in os.walk(path):
+        if PARAM_FN in files:
+            paths.append(Path(pwd))
+    paths.sort(key=lambda el: el.parent.name)
+    return [p for p in paths if p.parent.name == paths[-1].parent.name]

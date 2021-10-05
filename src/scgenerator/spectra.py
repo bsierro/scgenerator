@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, Optional, Union
@@ -12,8 +13,8 @@ from pydantic import BaseModel, DirectoryPath, root_validator
 from . import math
 from ._utils import load_spectrum
 from ._utils.parameter import Parameters
-from ._utils.utils import PlotRange
-from .const import SPECN_FN1, PARAM_FN, SPEC1_FN_N, SPEC1_FN
+from ._utils.utils import PlotRange, iter_simulations
+from .const import PARAM_FN, SPEC1_FN, SPEC1_FN_N, SPECN_FN1
 from .logger import get_logger
 from .physics import pulse, units
 from .plotting import (
@@ -131,11 +132,10 @@ class SimulationSeries:
 
     def __init__(self, path: os.PathLike):
         self.logger = get_logger()
-        path = Path(path)
-        subdirs = [el for el in path.glob("*") if (el / PARAM_FN).exists()]
-        while not (path / PARAM_FN).exists() and len(subdirs) == 1:
-            path = subdirs[0]
-        self.path = path
+        for self.path in iter_simulations(path):
+            break
+        else:
+            raise FileNotFoundError(f"No simulation in {path}")
         self.params = Parameters.load(self.path / PARAM_FN)
         self.params.compute(["name", "t", "l", "w_c", "w0", "z_targets"])
         self.t = self.params.t
@@ -356,24 +356,22 @@ class SimulationSeries:
 
 
 class Pulse(Sequence):
-    path: Path
-    default_ind: Optional[int]
-    params: Parameters
-    z: np.ndarray
-    namx: int
-    t: np.ndarray
-    w: np.ndarray
-    w_order: np.ndarray
+    def __new__(cls, path: os.PathLike):
+        warnings.warn(
+            "You are using the legacy version of the pulse loader. "
+            "Please consider updating your data with scgenerator.convert_sim_folder "
+            "and loading data with the SimulationSeries class"
+        )
+        if (Path(path) / SPECN_FN1.format(0)).exists():
+            return LegacyPulse(path)
+        return SimulationSeries(path)
 
-    def __new__(cls, path: os.PathLike, *args, **kwargs) -> "Pulse":
-        try:
-            if load_spectrum(Path(path) / SPECN_FN1.format(0)).ndim == 2:
-                return super().__new__(LegacyPulse)
-        except FileNotFoundError:
-            pass
-        return super().__new__(cls)
+    def __getitem__(self, key) -> Spectrum:
+        raise NotImplementedError()
 
-    def __init__(self, path: os.PathLike, default_ind: Union[int, Iterable[int]] = None):
+
+class LegacyPulse(Sequence):
+    def __init__(self, path: os.PathLike):
         """load a data folder as a pulse
 
         Parameters
@@ -388,6 +386,35 @@ class Pulse(Sequence):
         FileNotFoundError
             path does not contain proper data
         """
+        self.logger = get_logger(__name__)
+        self.path = Path(path)
+
+        if not self.path.is_dir():
+            raise FileNotFoundError(f"Folder {self.path} does not exist")
+
+        self.params = Parameters.load(self.path / "params.toml")
+        self.params.compute(["name", "t", "l", "w_c", "w0", "z_targets"])
+        if self.params.fiber_map is None:
+            self.params.fiber_map = [(0.0, self.params.name)]
+
+        try:
+            self.z = np.load(os.path.join(path, "z.npy"))
+        except FileNotFoundError:
+            if self.params is not None:
+                self.z = self.params.z_targets
+            else:
+                raise
+        self.nmax = len(list(self.path.glob("spectra_*.npy")))
+        if self.nmax <= 0:
+            raise FileNotFoundError(f"No appropriate file in specified folder {self.path}")
+
+        self.t = self.params.t
+        w = math.wspace(self.t) + units.m(self.params.wavelength)
+        self.w_order = np.argsort(w)
+        self.w = w
+        self.wl = units.m.inv(self.w)
+        self.params.w = self.w
+        self.params.z_targets = self.z
 
     def __iter__(self):
         """
@@ -403,6 +430,73 @@ class Pulse(Sequence):
 
     def __getitem__(self, key) -> Spectrum:
         return self.all_spectra(key)
+
+    def intensity(self, unit):
+        if unit.type in ["WL", "FREQ", "AFREQ"]:
+            x_axis = unit.inv(self.w)
+        else:
+            x_axis = unit.inv(self.t)
+
+        order = np.argsort(x_axis)
+        func = dict(
+            WL=self._to_wl_int,
+            FREQ=self._to_freq_int,
+            AFREQ=self._to_afreq_int,
+            TIME=self._to_time_int,
+        )[unit.type]
+
+        for spec in self:
+            yield x_axis[order], func(spec)[:, order]
+
+    def _to_wl_int(self, spectrum):
+        return units.to_WL(math.abs2(spectrum), spectrum.wl)
+
+    def _to_freq_int(self, spectrum):
+        return math.abs2(spectrum)
+
+    def _to_afreq_int(self, spectrum):
+        return math.abs2(spectrum)
+
+    def _to_time_int(self, spectrum):
+        return math.abs2(np.fft.ifft(spectrum))
+
+    def amplitude(self, unit):
+        if unit.type in ["WL", "FREQ", "AFREQ"]:
+            x_axis = unit.inv(self.w)
+        else:
+            x_axis = unit.inv(self.t)
+
+        order = np.argsort(x_axis)
+        func = dict(
+            WL=self._to_wl_amp,
+            FREQ=self._to_freq_amp,
+            AFREQ=self._to_afreq_amp,
+            TIME=self._to_time_amp,
+        )[unit.type]
+
+        for spec in self:
+            yield x_axis[order], func(spec)[:, order]
+
+    def _to_wl_amp(self, spectrum):
+        return (
+            np.sqrt(
+                units.to_WL(
+                    math.abs2(spectrum),
+                    spectrum.wl,
+                )
+            )
+            * spectrum
+            / np.abs(spectrum)
+        )
+
+    def _to_freq_amp(self, spectrum):
+        return spectrum
+
+    def _to_afreq_amp(self, spectrum):
+        return spectrum
+
+    def _to_time_amp(self, spectrum):
+        return np.fft.ifft(spectrum)
 
     def all_spectra(self, ind=None) -> Spectrum:
         """
@@ -425,10 +519,7 @@ class Pulse(Sequence):
         # Check if file exists and assert how many z positions there are
 
         if ind is None:
-            if self.default_ind is None:
-                ind = range(self.nmax)
-            else:
-                ind = self.default_ind
+            ind = range(self.nmax)
         if isinstance(ind, (int, np.integer)):
             ind = [ind]
         elif isinstance(ind, (float, np.floating)):
@@ -452,7 +543,12 @@ class Pulse(Sequence):
         return np.fft.ifft(self.all_spectra(ind=ind), axis=-1)
 
     def _load1(self, i: int):
-        pass
+        if i < 0:
+            i = self.nmax + i
+        spec = load_spectrum(self.path / SPECN_FN1.format(i))
+        spec = np.atleast_2d(spec)
+        spec = Spectrum(spec, self.params)
+        return spec
 
     def plot_2D(
         self,
@@ -554,46 +650,3 @@ class Pulse(Sequence):
             index
         """
         return math.argclosest(self.z, z)
-
-
-class LegacyPulse(Pulse):
-    def __init__(self, path: os.PathLike, default_ind: Union[int, Iterable[int]] = None):
-        print("old init called", path, default_ind)
-        self.logger = get_logger(__name__)
-        self.path = Path(path)
-        self.default_ind = default_ind
-
-        if not self.path.is_dir():
-            raise FileNotFoundError(f"Folder {self.path} does not exist")
-
-        self.params = Parameters.load(self.path / "params.toml")
-        self.params.compute(["name", "t", "l", "w_c", "w0", "z_targets"])
-        if self.params.fiber_map is None:
-            self.params.fiber_map = [(0.0, self.params.name)]
-
-        try:
-            self.z = np.load(os.path.join(path, "z.npy"))
-        except FileNotFoundError:
-            if self.params is not None:
-                self.z = self.params.z_targets
-            else:
-                raise
-        self.nmax = len(list(self.path.glob("spectra_*.npy")))
-        if self.nmax <= 0:
-            raise FileNotFoundError(f"No appropriate file in specified folder {self.path}")
-
-        self.t = self.params.t
-        w = math.wspace(self.t) + units.m(self.params.wavelength)
-        self.w_order = np.argsort(w)
-        self.w = w
-        self.wl = units.m.inv(self.w)
-        self.params.w = self.w
-        self.params.z_targets = self.z
-
-    def _load1(self, i: int):
-        if i < 0:
-            i = self.nmax + i
-        spec = load_spectrum(self.path / SPECN_FN1.format(i))
-        spec = np.atleast_2d(spec)
-        spec = Spectrum(spec, self.params)
-        return spec

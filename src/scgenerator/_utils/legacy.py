@@ -8,8 +8,9 @@ import numpy as np
 import toml
 
 from ..const import PARAM_FN, SPEC1_FN, SPEC1_FN_N, SPECN_FN1, Z_FN
-from .parameter import Parameters
-from .utils import fiber_folder, update_path, save_parameters
+from .parameter import Configuration, Parameters
+from .utils import fiber_folder, save_parameters
+from .pbar import PBars
 from .variationer import VariationDescriptor, Variationer
 
 
@@ -29,21 +30,32 @@ def convert_sim_folder(path: os.PathLike):
     path = Path(path)
     config_paths, configs = load_config_sequence(path)
     master_config = dict(name=path.name, Fiber=configs)
+    with open(path / "initial_config.toml", "w") as f:
+        toml.dump(master_config, f, encoder=toml.TomlNumpyEncoder())
+    configuration = Configuration(path / "initial_config.toml")
     new_fiber_paths: list[Path] = [
         path / fiber_folder(i, path.name, cfg["name"]) for i, cfg in enumerate(configs)
     ]
     for p in new_fiber_paths:
         p.mkdir(exist_ok=True)
-    var = Variationer(c["variable"] for c in configs)
+    repeat = configs[0].get("repeat", 1)
 
-    paths: dict[Path, VariationDescriptor] = {
-        path / descr.branch.formatted_descriptor(): descr for descr in var.iterate()
+    pbar = PBars(configuration.total_num_steps, "Converting")
+
+    old_paths: dict[Path, VariationDescriptor] = {
+        path / descr.branch.formatted_descriptor(): (descr, param.final_path)
+        for descr, param in configuration
     }
-    for p in paths:
+
+    # create map from old to new path
+
+    pprint(old_paths)
+    quit()
+    for p in old_paths:
         if not p.is_dir():
             raise FileNotFoundError(f"missing {p} from {path}")
     processed_paths: Set[Path] = set()
-    for old_variation_path, descriptor in paths.items():  # fiberA=0, fiber B=0
+    for old_variation_path, descriptor in old_paths.items():  # fiberA=0, fiber B=0
         vary_parts = old_variation_path.name.split("fiber")[1:]
         identifiers = [
             "".join("fiber" + el for el in vary_parts[: i + 1]).strip()
@@ -72,6 +84,9 @@ def convert_sim_folder(path: os.PathLike):
                                 new_variation_path / SPEC1_FN_N.format(spec_num - cum_z_num, j),
                                 spec1,
                             )
+                        pbar.update()
+                else:
+                    pbar.update(value=repeat)
                 old_spec.unlink()
             if move:
                 if i > 0:
@@ -88,8 +103,6 @@ def convert_sim_folder(path: os.PathLike):
 
     for cp in config_paths:
         cp.unlink()
-    with open(path / "initial_config.toml", "w") as f:
-        toml.dump(master_config, f, encoder=toml.TomlNumpyEncoder())
 
 
 def main():

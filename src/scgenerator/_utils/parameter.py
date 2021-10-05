@@ -24,7 +24,7 @@ from ..const import PARAM_FN, PARAM_SEPARATOR, __version__
 from ..errors import EvaluatorError, NoDefaultError
 from ..logger import get_logger
 from ..physics import fiber, materials, pulse, units
-from .utils import _mock_function, fiber_folder, func_rewrite, get_arg_names
+from .utils import _mock_function, fiber_folder, func_rewrite, get_arg_names, update_path
 
 T = TypeVar("T")
 
@@ -75,6 +75,7 @@ VALID_VARIABLE = {
     "interpolation_degree",
     "ideal_gas",
     "length",
+    "num",
 }
 
 MANDATORY_PARAMETERS = [
@@ -519,6 +520,12 @@ class Parameters(_AbstractParameters):
 
         return out
 
+    @property
+    def final_path(self) -> Path:
+        if self.output_path is not None:
+            return update_path(self.output_path)
+        return None
+
 
 class Rule:
     def __init__(
@@ -777,6 +784,7 @@ class Configuration:
     """
 
     fiber_configs: list[dict[str, Any]]
+    vary_dicts: list[dict[str, list]]
     master_config: dict[str, Any]
     fiber_paths: list[Path]
     num_sim: int
@@ -814,9 +822,11 @@ class Configuration:
         self,
         final_config_path: os.PathLike,
         overwrite: bool = True,
+        wait: bool = False,
         skip_callback: Callable[[int], None] = None,
     ):
         self.logger = get_logger(__name__)
+        self.wait = wait
 
         self.overwrite = overwrite
         self.final_path, self.fiber_configs = utils.load_config_sequence(final_config_path)
@@ -842,7 +852,8 @@ class Configuration:
             config.setdefault("name", Parameters.name.default)
             self.z_num += config["z_num"]
             fiber_names.add(config["name"])
-            self.variationer.append(config.pop("variable"))
+            vary_dict = config.pop("variable")
+            self.variationer.append(vary_dict)
             self.fiber_paths.append(
                 utils.ensure_folder(
                     self.final_path / fiber_folder(i, self.name, config["name"]),
@@ -850,9 +861,11 @@ class Configuration:
                     prevent_overwrite=not self.overwrite,
                 )
             )
-            self.__validate_variable(config)
+            self.__validate_variable(vary_dict)
             self.num_fibers += 1
-            Evaluator.evaluate_default(config, True)
+            Evaluator.evaluate_default(
+                self.__build_base_config() | config | {k: v[0] for k, v in vary_dict.items()}, True
+            )
         self.num_sim = self.variationer.var_num()
         self.total_num_steps = sum(
             config["z_num"] * self.variationer.var_num(i)
@@ -860,8 +873,13 @@ class Configuration:
         )
         self.parallel = self.master_config.get("parallel", Parameters.parallel.default)
 
-    def __validate_variable(self, config: dict[str, Any]):
-        for k, v in config.get("variable", {}).items():
+    def __build_base_config(self):
+        cfg = self.fiber_configs[0].copy()
+        vary = cfg.pop("variable", {})
+        return cfg | {k: v[0] for k, v in vary.items()}
+
+    def __validate_variable(self, vary_dict: dict[str, list]):
+        for k, v in vary_dict.items():
             p = getattr(Parameters, k)
             validator_list(p.validator)("variable " + k, v)
             if k not in VALID_VARIABLE:
@@ -873,7 +891,6 @@ class Configuration:
         for i in range(self.num_fibers):
             for sim_config in self.iterate_single_fiber(i):
                 params = Parameters(**sim_config.config)
-                params.compute()
                 yield sim_config.descriptor, params
 
     def iterate_single_fiber(
@@ -943,6 +960,8 @@ class Configuration:
             config dictionary. The only key possibly modified is 'prev_data_dir', which
             gets set if the simulation is partially completed
         """
+        if not self.wait:
+            return self.Action.RUN, sim_config.config
         out_status, num = self.sim_status(sim_config.output_path, sim_config.config)
         if out_status == self.State.COMPLETE:
             return self.Action.SKIP, sim_config.config
