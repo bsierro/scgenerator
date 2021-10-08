@@ -2,6 +2,7 @@ from typing import Any, Iterable, Literal, TypeVar
 
 import numpy as np
 from numpy.fft import fft, ifft
+from numpy import e
 from numpy.polynomial.chebyshev import Chebyshev, cheb2poly
 from scipy.interpolate import interp1d
 
@@ -792,7 +793,7 @@ def compute_capillary_loss(
     interpolation_range: tuple[float, float],
     he_mode: tuple[int, int],
 ) -> np.ndarray:
-    mask = l < interpolation_range[1]
+    mask = (l < interpolation_range[1]) & (l > 0)
     alpha = capillary_loss(l[mask], he_mode, core_radius)
     out = np.zeros_like(l)
     out[mask] = alpha
@@ -1099,14 +1100,12 @@ def effective_radius_HCARF(core_radius, t, f1, f2, wl_for_disp):
     return f1 * core_radius * (1 - f2 * wl_for_disp ** 2 / (core_radius * t))
 
 
-def capillary_loss(
-    wl_for_disp: np.ndarray, he_mode: tuple[int, int], core_radius: float
-) -> np.ndarray:
+def capillary_loss(wl: np.ndarray, he_mode: tuple[int, int], core_radius: float) -> np.ndarray:
     """computes the wavelenth dependent capillary loss according to Marcatili
 
     Parameters
     ----------
-    wl_for_disp : np.ndarray, shape (n, )
+    wl : np.ndarray, shape (n, )
         wavelength array
     he_mode : tuple[int, int]
         tuple of mode (n, m)
@@ -1118,9 +1117,10 @@ def capillary_loss(
     np.ndarray
         loss in 1/m
     """
-    alpha = np.zeros_like(wl_for_disp)
-    mask = wl_for_disp > 0
-    chi_silica = mat.sellmeier(wl_for_disp[mask], utils.load_material_dico("silica"))
+    chi_silica = mat.sellmeier(wl, utils.load_material_dico("silica"))
     nu_n = 0.5 * (chi_silica + 2) / np.sqrt(chi_silica)
-    alpha[mask] = nu_n * (u_nm(*he_mode) * wl_for_disp[mask] / pipi) ** 2 * core_radius ** -3
-    return alpha
+    return nu_n * (u_nm(*he_mode) * wl / pipi) ** 2 * core_radius ** -3
+
+
+def extinction_distance(loss: T, ratio=1 / e) -> T:
+    return np.log(ratio) / -loss

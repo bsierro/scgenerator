@@ -275,7 +275,7 @@ def conform_pulse_params(
         return width, t0, peak_power, energy
     else:
         if soliton_num is None:
-            soliton_num = np.sqrt(peak_power * gamma * t0 ** 2 / abs(beta2))
+            soliton_num = np.sqrt(peak_power * gamma * L_D(t0, beta2))
         return width, t0, peak_power, energy, soliton_num
 
 

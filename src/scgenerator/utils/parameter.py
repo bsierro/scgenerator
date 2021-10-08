@@ -1095,6 +1095,12 @@ class PlotRange:
     unit: Callable[[float], float] = Parameter(units.is_unit, converter=units.get_unit)
     conserved_quantity: bool = Parameter(boolean, default=True)
 
+    def __post_init__(self):
+        if self.left >= self.right:
+            raise ValueError(
+                f"left value {self.left!r} must be strictly smaller than right value {self.right!r}"
+            )
+
     def __str__(self):
         return f"{self.left:.1f}-{self.right:.1f} {self.unit.__name__}"
 
@@ -1110,51 +1116,40 @@ class PlotRange:
 def sort_axis(
     axis: np.ndarray, plt_range: PlotRange
 ) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
-    """
-    given an axis, returns this axis cropped according to the given range, converted and sorted
+    """convert an array according to the given range
 
     Parameters
     ----------
-    axis : 1D array containing the original axis (usual the w or t array)
-    plt_range : tupple (min, max, conversion_function) used to crop the axis
+    axis : np.ndarray, shape (n,)
+        array
+    plt_range : PlotRange
+        range to crop in
 
     Returns
     -------
-    cropped : the axis cropped, converted and sorted
-    indices : indices to use to slice and sort other array in the same fashion
-    extent : tupple with min and max of cropped
+    np.ndarray
+        new array converted to the desired unit and cropped in the given range
+    np.ndarray
+        indices of the concerved values
+    tuple[float, float]
+        actual minimum and maximum of the new axis
 
     Example
     -------
-    w = np.append(np.linspace(0, -10, 20), np.linspace(0, 10, 20))
-    t = np.linspace(-10, 10, 400)
-    W, T = np.meshgrid(w, t)
-    y = np.exp(-W**2 - T**2)
-
-    # Define ranges
-    rw = (-4, 4, s)
-    rt = (-2, 6, s)
-
-    w, cw = sort_axis(w, rw)
-    t, ct = sort_axis(t, rt)
-
-    # slice y according to the given ranges
-    y = y[ct][:, cw]
+    >> sort_axis([18.0, 19.0, 20.0, 13.0, 15.2], PlotRange(1400, 1900, "cm"))
+    ([1520.0, 1800.0, 1900.0], [4, 0, 1], (1520.0, 1900.0))
     """
     if isinstance(plt_range, tuple):
         plt_range = PlotRange(*plt_range)
-    r = np.array((plt_range.left, plt_range.right), dtype="float")
 
-    indices = np.arange(len(axis))[
-        (axis <= np.max(plt_range.unit(r))) & (axis >= np.min(plt_range.unit(r)))
-    ]
-    cropped = axis[indices]
-    order = np.argsort(plt_range.unit.inv(cropped))
-    indices = indices[order]
-    cropped = cropped[order]
-    out_ax = plt_range.unit.inv(cropped)
+    masked = np.ma.array(axis, mask=~np.isfinite(axis))
+    converted = plt_range.unit.inv(masked)
+    converted[(converted < plt_range.left) | (converted > plt_range.right)] = np.ma.masked
+    indices = np.arange(len(axis))[~converted.mask]
+    cropped = converted.compressed()
+    order = cropped.argsort()
 
-    return out_ax, indices, (out_ax[0], out_ax[-1])
+    return cropped[order], indices[order], (cropped.min(), cropped.max())
 
 
 def get_arg_names(func: Callable) -> list[str]:
