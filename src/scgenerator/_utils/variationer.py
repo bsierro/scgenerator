@@ -121,6 +121,19 @@ class VariationDescriptor(BaseModel):
     _format_registry: dict[str, Callable[..., str]] = {}
     __ids: dict[int, int] = {}
 
+    @classmethod
+    def register_formatter(cls, p_name: str, func: Callable[..., str]):
+        """register a function that formats a particular parameter
+
+        Parameters
+        ----------
+        p_name : str
+            name of the parameter
+        func : Callable[..., str]
+            function that takes as single argument the value of the parameter and returns a string
+        """
+        cls._format_registry[p_name] = func
+
     class Config:
         allow_mutation = False
 
@@ -151,19 +164,6 @@ class VariationDescriptor(BaseModel):
         return (
             self.identifier + PARAM_SEPARATOR + self.branch.identifier + PARAM_SEPARATOR + tmp_name
         )
-
-    @classmethod
-    def register_formatter(cls, p_name: str, func: Callable[..., str]):
-        """register a function that formats a particular parameter
-
-        Parameters
-        ----------
-        p_name : str
-            name of the parameter
-        func : Callable[..., str]
-            function that takes as single argument the value of the parameter and returns a string
-        """
-        cls._format_registry[p_name] = func
 
     def format_value(self, name: str, value) -> str:
         if value is True or value is False:
@@ -201,8 +201,14 @@ class VariationDescriptor(BaseModel):
     def __ge__(self, other: "VariationDescriptor") -> bool:
         return self.raw_descr >= other.raw_descr
 
+    def __eq__(self, other: "VariationDescriptor") -> bool:
+        return self.raw_descr == other.raw_descr
+
     def __hash__(self) -> int:
         return hash(self.raw_descr)
+
+    def __contains__(self, other: "VariationDescriptor") -> bool:
+        return all(el in self.raw_descr for el in other.raw_descr)
 
     def update_config(self, cfg: dict[str, Any], index=-1) -> dict[str, Any]:
         """updates a dictionary with the value of the descriptor
@@ -222,6 +228,11 @@ class VariationDescriptor(BaseModel):
         out_cfg = cfg.copy()
         out_cfg.pop("variable", None)
         return out_cfg | {k: v for k, v in self.raw_descr[index]}
+
+    def iter_parents(self) -> Iterator["VariationDescriptor"]:
+        if (p := self.parent) is not None:
+            yield from p.iter_parents()
+        yield self
 
     @property
     def flat(self) -> list[tuple[str, Any]]:
@@ -259,6 +270,10 @@ class VariationDescriptor(BaseModel):
         return VariationDescriptor(
             raw_descr=self.raw_descr[:-1], index=self.index[:-1], separator=self.separator
         )
+
+    @property
+    def num_fibers(self) -> int:
+        return len(self.raw_descr)
 
 
 class BranchDescriptor(VariationDescriptor):

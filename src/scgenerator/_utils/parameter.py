@@ -12,7 +12,18 @@ from copy import copy, deepcopy
 from dataclasses import asdict, dataclass, fields
 from functools import cache, lru_cache
 from pathlib import Path
-from typing import Any, Callable, Generator, Iterable, Literal, Optional, Sequence, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Generator,
+    Iterable,
+    Iterator,
+    Literal,
+    Optional,
+    Sequence,
+    TypeVar,
+    Union,
+)
 
 import numpy as np
 from numpy.lib import isin
@@ -523,7 +534,7 @@ class Parameters(_AbstractParameters):
     @property
     def final_path(self) -> Path:
         if self.output_path is not None:
-            return update_path(self.output_path)
+            return Path(update_path(self.output_path))
         return None
 
 
@@ -820,22 +831,26 @@ class Configuration:
 
     def __init__(
         self,
-        final_config_path: os.PathLike,
+        config_path: os.PathLike,
         overwrite: bool = True,
         wait: bool = False,
         skip_callback: Callable[[int], None] = None,
+        final_output_path: os.PathLike = None,
     ):
         self.logger = get_logger(__name__)
         self.wait = wait
 
         self.overwrite = overwrite
-        self.final_path, self.fiber_configs = utils.load_config_sequence(final_config_path)
+        self.final_path, self.fiber_configs = utils.load_config_sequence(config_path)
+        self.final_path = env.get(env.OUTPUT_PATH, self.final_path)
+        if final_output_path is not None:
+            self.final_path = final_output_path
         self.final_path = utils.ensure_folder(
-            Path(env.get(env.OUTPUT_PATH, self.final_path)),
+            Path(self.final_path),
             mkdir=False,
             prevent_overwrite=not self.overwrite,
         )
-        self.master_config = self.fiber_configs[0]
+        self.master_config = self.fiber_configs[0].copy()
         self.name = self.final_path.name
         self.z_num = 0
         self.total_num_steps = 0
@@ -874,7 +889,7 @@ class Configuration:
         self.parallel = self.master_config.get("parallel", Parameters.parallel.default)
 
     def __build_base_config(self):
-        cfg = self.fiber_configs[0].copy()
+        cfg = self.master_config.copy()
         vary = cfg.pop("variable", {})
         return cfg | {k: v[0] for k, v in vary.items()}
 
@@ -887,15 +902,11 @@ class Configuration:
             if len(v) == 0:
                 raise ValueError(f"variable parameter {k!r} must not be empty")
 
-    def __iter__(self) -> Generator[tuple[VariationDescriptor, Parameters], None, None]:
+    def __iter__(self) -> Iterator[tuple[VariationDescriptor, Parameters]]:
         for i in range(self.num_fibers):
-            for sim_config in self.iterate_single_fiber(i):
-                params = Parameters(**sim_config.config)
-                yield sim_config.descriptor, params
+            yield from self.iterate_single_fiber(i)
 
-    def iterate_single_fiber(
-        self, index: int
-    ) -> Generator["Configuration.__SimConfig", None, None]:
+    def iterate_single_fiber(self, index: int) -> Iterator[tuple[VariationDescriptor, Parameters]]:
         """iterates through the parameters of only one fiber. It takes care of recovering partially
         completed simulations, skipping complete ones and waiting for the previous fiber to finish
 
@@ -909,6 +920,8 @@ class Configuration:
         __SimConfig
             configuration obj
         """
+        if index < 0:
+            index = self.num_fibers + index
         sim_dict: dict[Path, Configuration.__SimConfig] = {}
         for descriptor in self.variationer.iterate(index):
             cfg = descriptor.update_config(self.fiber_configs[index])
@@ -929,7 +942,7 @@ class Configuration:
                 task, config_dict = self.__decide(sim_config)
                 if task == self.Action.RUN:
                     sim_dict.pop(data_dir)
-                    yield sim_config
+                    yield sim_config.descriptor, Parameters(**sim_config.config)
                     if "recovery_last_stored" in config_dict and self.skip_callback is not None:
                         self.skip_callback(config_dict["recovery_last_stored"])
                     break

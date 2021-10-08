@@ -27,82 +27,65 @@ def load_config_sequence(path: os.PathLike) -> tuple[list[Path], list[dict[str, 
 
 
 def convert_sim_folder(path: os.PathLike):
-    path = Path(path)
+    path = Path(path).resolve()
     config_paths, configs = load_config_sequence(path)
     master_config = dict(name=path.name, Fiber=configs)
     with open(path / "initial_config.toml", "w") as f:
         toml.dump(master_config, f, encoder=toml.TomlNumpyEncoder())
-    configuration = Configuration(path / "initial_config.toml")
-    new_fiber_paths: list[Path] = [
-        path / fiber_folder(i, path.name, cfg["name"]) for i, cfg in enumerate(configs)
-    ]
-    for p in new_fiber_paths:
-        p.mkdir(exist_ok=True)
-    repeat = configs[0].get("repeat", 1)
-
+    configuration = Configuration(path / "initial_config.toml", final_output_path=path)
     pbar = PBars(configuration.total_num_steps, "Converting")
 
-    old_paths: dict[Path, VariationDescriptor] = {
-        path / descr.branch.formatted_descriptor(): (descr, param.final_path)
-        for descr, param in configuration
-    }
+    new_paths: dict[VariationDescriptor, Parameters] = dict(configuration)
+    old_paths: Set[Path] = set()
+    old2new: list[tuple[Path, VariationDescriptor, Parameters, tuple[int, int]]] = []
+    for descriptor, params in configuration.iterate_single_fiber(-1):
+        old_path = path / descriptor.branch.formatted_descriptor()
+        if not Path(old_path).is_dir():
+            raise FileNotFoundError(f"missing {old_path} from {path}. Aborting.")
+        old_paths.add(old_path)
+        for d in descriptor.iter_parents():
+            z_num_start = sum(c["z_num"] for c in configs[: d.num_fibers - 1])
+            z_limits = (z_num_start, z_num_start + params.z_num)
+            old2new.append((old_path, d, new_paths[d], z_limits))
 
-    # create map from old to new path
-
-    pprint(old_paths)
-    quit()
-    for p in old_paths:
-        if not p.is_dir():
-            raise FileNotFoundError(f"missing {p} from {path}")
     processed_paths: Set[Path] = set()
-    for old_variation_path, descriptor in old_paths.items():  # fiberA=0, fiber B=0
-        vary_parts = old_variation_path.name.split("fiber")[1:]
-        identifiers = [
-            "".join("fiber" + el for el in vary_parts[: i + 1]).strip()
-            for i in range(len(vary_parts))
-        ]
-        cum_z_num = 0
-        for i, (fiber_path, new_identifier) in enumerate(zip(new_fiber_paths, identifiers)):
-            config = descriptor.update_config(configs[i], i)
-            new_variation_path = fiber_path / new_identifier
-            z_num = config["z_num"]
-            move = new_variation_path not in processed_paths
-            os.makedirs(new_variation_path, exist_ok=True)
-            processed_paths.add(new_variation_path)
+    processed_specs: Set[VariationDescriptor] = set()
 
-            for spec_num in range(cum_z_num, cum_z_num + z_num):
-                old_spec = old_variation_path / SPECN_FN1.format(spec_num)
-                if move:
-                    spec_data = np.load(old_spec)
-                    for j, spec1 in enumerate(spec_data):
-                        if j == 0:
-                            np.save(
-                                new_variation_path / SPEC1_FN.format(spec_num - cum_z_num), spec1
-                            )
-                        else:
-                            np.save(
-                                new_variation_path / SPEC1_FN_N.format(spec_num - cum_z_num, j),
-                                spec1,
-                            )
-                        pbar.update()
-                else:
-                    pbar.update(value=repeat)
-                old_spec.unlink()
-            if move:
-                if i > 0:
-                    config["prev_data_dir"] = str(
-                        (new_fiber_paths[i - 1] / identifiers[i - 1]).resolve()
-                    )
-                params = Parameters(**config)
-                params.compute()
-                save_parameters(params.prepare_for_dump(), new_variation_path)
-            cum_z_num += z_num
-        (old_variation_path / PARAM_FN).unlink()
-        (old_variation_path / Z_FN).unlink()
-        old_variation_path.rmdir()
+    for old_path, descr, new_params, (start_z, end_z) in old2new:
+        move_specs = descr not in processed_specs
+        processed_specs.add(descr)
+        if (parent := descr.parent) is not None:
+            new_params.prev_data_dir = str(new_paths[parent].final_path)
+        save_parameters(new_params.prepare_for_dump(), new_params.final_path)
+        for spec_num in range(start_z, end_z):
+            old_spec = old_path / SPECN_FN1.format(spec_num)
+            if move_specs:
+                _mv_specs(pbar, new_params, start_z, spec_num, old_spec)
+            old_spec.unlink()
+        if old_path not in processed_paths:
+            (old_path / PARAM_FN).unlink()
+            (old_path / Z_FN).unlink()
+            processed_paths.add(old_path)
+
+    for old_path in processed_paths:
+        old_path.rmdir()
 
     for cp in config_paths:
         cp.unlink()
+
+
+def _mv_specs(pbar: PBars, new_params: Parameters, start_z: int, spec_num: int, old_spec: Path):
+    os.makedirs(new_params.final_path, exist_ok=True)
+    spec_data = np.load(old_spec)
+    for j, spec1 in enumerate(spec_data):
+        if j == 0:
+            np.save(new_params.final_path / SPEC1_FN.format(spec_num - start_z), spec1)
+        else:
+            np.save(
+                new_params.final_path / SPEC1_FN_N.format(spec_num - start_z, j),
+                spec1,
+            )
+        pbar.update()
 
 
 def main():
