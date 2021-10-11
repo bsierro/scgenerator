@@ -11,7 +11,7 @@ from .. import env, math
 from ..const import PARAM_FN, PARAM_SEPARATOR
 from ..physics import fiber, units
 from ..plotting import plot_setup
-from ..spectra import Pulse, SimulationSeries
+from ..spectra import SimulationSeries
 from .._utils import auto_crop, open_config, save_toml, translate_parameters
 from .._utils.parameter import (
     Configuration,

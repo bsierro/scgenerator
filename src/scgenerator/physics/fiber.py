@@ -192,6 +192,22 @@ def n_eff_marcatili_adjusted(wl_for_disp, n_gas_2, core_radius, he_mode=(1, 1), 
     return np.sqrt(n_gas_2 - (wl_for_disp * u / (pipi * corrected_radius)) ** 2)
 
 
+def A_eff_marcatili(core_radius: float) -> float:
+    """Effective mode-field area for fundamental mode hollow capillaries
+
+    Parameters
+    ----------
+    core_radius : float
+        radius of the core
+
+    Returns
+    -------
+    float
+        effective mode field area
+    """
+    return 1.5 * core_radius ** 2
+
+
 @np_cache
 def n_eff_hasan(
     wl_for_disp: np.ndarray,

@@ -10,9 +10,9 @@ from .units import NA, c, kB, me, e, hbar
 
 
 def n_gas_2(
-    wl_for_disp: np.ndarray, gas: str, pressure: float, temperature: float, ideal_gas: bool
+    wl_for_disp: np.ndarray, gas_name: str, pressure: float, temperature: float, ideal_gas: bool
 ):
-    material_dico = utils.load_material_dico(gas)
+    material_dico = _utils.load_material_dico(gas_name)
 
     if ideal_gas:
         n_gas_2 = sellmeier(wl_for_disp, material_dico, pressure, temperature) + 1

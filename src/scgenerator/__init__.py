@@ -12,7 +12,7 @@ from .plotting import (
     transform_mean_values,
     get_extent,
 )
-from .spectra import Pulse, Spectrum, SimulationSeries
+from .spectra import Spectrum, SimulationSeries
 from ._utils import Paths, open_config, parameter
 from ._utils.parameter import Configuration, Parameters
 from ._utils.utils import PlotRange
