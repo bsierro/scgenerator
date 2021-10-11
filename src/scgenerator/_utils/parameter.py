@@ -55,7 +55,7 @@ VALID_VARIABLE = {
     "effective_mode_diameter",
     "core_radius",
     "capillary_num",
-    "capillary_outer_d",
+    "capillary_radius",
     "capillary_thickness",
     "capillary_spacing",
     "capillary_resonance_strengths",
@@ -374,7 +374,7 @@ class Parameters(_AbstractParameters):
     )
     length: float = Parameter(non_negative(float, int))
     capillary_num: int = Parameter(positive(int))
-    capillary_outer_d: float = Parameter(in_range_excl(0, 1e-3))
+    capillary_radius: float = Parameter(in_range_excl(0, 1e-3))
     capillary_thickness: float = Parameter(in_range_excl(0, 1e-3))
     capillary_spacing: float = Parameter(in_range_excl(0, 1e-3))
     capillary_resonance_strengths: Iterable[float] = Parameter(num_list, default=[])
@@ -1104,7 +1104,7 @@ default_rules: list[Rule] = [
         ["wl_for_disp", "pitch", "pitch_ratio"],
         conditions=dict(model="pcf"),
     ),
-    Rule("capillary_spacing", fiber.HCARF_gap),
+    Rule("capillary_spacing", fiber.capillary_spacing_hasan),
     # Fiber nonlinearity
     Rule("A_eff", fiber.A_eff_from_V),
     Rule("A_eff", fiber.A_eff_from_diam),

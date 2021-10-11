@@ -17,6 +17,7 @@ from .._utils.parameter import (
     Configuration,
     Parameters,
 )
+from .._utils.utils import simulations_list
 
 
 def fingerprint(params: Parameters):
@@ -31,7 +32,7 @@ def plot_all(sim_dir: Path, limits: list[str], show=False, **opts):
             opts[k] = int(v)
         if k in {"log", "renormalize"}:
             opts[k] = True if v == "True" else False
-    dir_list = list(p for p in sim_dir.glob("*") if p.is_dir())
+    dir_list = simulations_list(sim_dir)
     if len(dir_list) == 0:
         dir_list = [sim_dir]
     limits = [

@@ -109,11 +109,12 @@ def sort_axis(
 
 
 def get_arg_names(func: Callable) -> list[str]:
-    spec = inspect.getfullargspec(func)
-    args = spec.args
-    if spec.defaults is not None and len(spec.defaults) > 0:
-        args = args[: -len(spec.defaults)]
-    return args
+    # spec = inspect.getfullargspec(func)
+    # args = spec.args
+    # if spec.defaults is not None and len(spec.defaults) > 0:
+    #     args = args[: -len(spec.defaults)]
+    # return args
+    return [k for k, v in inspect.signature(func).parameters.items() if v.default is inspect._empty]
 
 
 def validate_arg_names(names: list[str]):
@@ -238,7 +239,7 @@ def fiber_folder(i: int, sim_name: str, fiber_name: str) -> str:
     return PARAM_SEPARATOR.join([format(i), sim_name, fiber_name])
 
 
-def iter_simulations(path: os.PathLike) -> list[Path]:
+def simulations_list(path: os.PathLike) -> list[Path]:
     """finds simulations folders contained in a parent directory
 
     Parameters
@@ -246,9 +247,9 @@ def iter_simulations(path: os.PathLike) -> list[Path]:
     path : os.PathLike
         parent path
 
-    Yields
+    Returns
     -------
-    Path
+    list[Path]
         Absolute Path to the simulation folder
     """
     paths: list[Path] = []

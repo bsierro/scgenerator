@@ -141,8 +141,8 @@ hasan :
 capillary_num : int
     number of capillaries
 
-capillary_outer_d : float, optional if g is specified
-    outer diameter of the capillaries
+capillary_radius : float, optional if g is specified
+    outer radius of the capillaries
 
 capillary_thickness : float
     thickness of the capillary walls

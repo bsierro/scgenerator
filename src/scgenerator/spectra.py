@@ -10,7 +10,7 @@ import numpy as np
 from . import math
 from ._utils import load_spectrum
 from ._utils.parameter import Parameters
-from ._utils.utils import PlotRange, iter_simulations
+from ._utils.utils import PlotRange, simulations_list
 from .const import PARAM_FN, SPEC1_FN, SPEC1_FN_N
 from .logger import get_logger
 from .physics import pulse, units
@@ -129,7 +129,7 @@ class SimulationSeries:
 
     def __init__(self, path: os.PathLike):
         self.logger = get_logger()
-        for self.path in iter_simulations(path):
+        for self.path in simulations_list(path):
             break
         else:
             raise FileNotFoundError(f"No simulation in {path}")
