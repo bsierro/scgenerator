@@ -10,8 +10,7 @@ from scipy.optimize import minimize_scalar
 
 from .. import math
 from . import fiber, materials, units, pulse
-from .. import _utils
-from .._utils import cache
+from .._utils import cache, load_material_dico
 
 T = TypeVar("T")
 
@@ -62,7 +61,7 @@ def material_dispersion(
         )
         return disp
     else:
-        material_dico = utils.load_material_dico(material)
+        material_dico = load_material_dico(material)
         if ideal:
             n_gas_2 = materials.sellmeier(wavelengths, material_dico, pressure, temperature) + 1
         else:

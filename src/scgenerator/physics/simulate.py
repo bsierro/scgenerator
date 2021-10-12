@@ -219,6 +219,17 @@ class RK4IP:
         return self.stored_spectra
 
     def irun(self) -> Generator[tuple[int, int, np.ndarray], None, None]:
+        """run the simulation as a generator obj
+
+        Yields
+        -------
+        int
+            current simulation step
+        int
+            current number of spectra returned
+        np.ndarray
+            spectrum
+        """
 
         # Print introduction
         self.logger.debug(

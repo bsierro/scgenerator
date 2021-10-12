@@ -480,7 +480,7 @@ class Parameters(_AbstractParameters):
 
     @classmethod
     def load(cls, path: os.PathLike) -> "Parameters":
-        return cls(**utils.open_config(path))
+        return cls(**utils._open_config(path))
 
     @classmethod
     def load_and_compute(cls, path: os.PathLike) -> "Parameters":
@@ -1011,7 +1011,7 @@ class Configuration:
         num = utils.find_last_spectrum_num(data_dir)
         if config_dict is None:
             try:
-                config_dict = utils.open_config(data_dir / PARAM_FN)
+                config_dict = utils._open_config(data_dir / PARAM_FN)
             except FileNotFoundError:
                 self.logger.warning(f"did not find {PARAM_FN!r} in {data_dir}")
                 return self.State.ABSENT, 0

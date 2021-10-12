@@ -1,3 +1,4 @@
+from genericpath import exists
 import os
 import sys
 from pathlib import Path
@@ -28,11 +29,13 @@ def load_config_sequence(path: os.PathLike) -> tuple[list[Path], list[dict[str, 
 
 def convert_sim_folder(path: os.PathLike):
     path = Path(path).resolve()
+    new_root = path.parent / "sc_legagy_converter" / path.name
+    os.makedirs(new_root, exist_ok=True)
     config_paths, configs = load_config_sequence(path)
     master_config = dict(name=path.name, Fiber=configs)
-    with open(path / "initial_config.toml", "w") as f:
+    with open(new_root / "initial_config.toml", "w") as f:
         toml.dump(master_config, f, encoder=toml.TomlNumpyEncoder())
-    configuration = Configuration(path / "initial_config.toml", final_output_path=path)
+    configuration = Configuration(path, final_output_path=new_root)
     pbar = PBars(configuration.total_num_steps, "Converting")
 
     new_paths: dict[VariationDescriptor, Parameters] = dict(configuration)

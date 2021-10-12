@@ -13,7 +13,7 @@ from .plotting import (
     get_extent,
 )
 from .spectra import Spectrum, SimulationSeries
-from ._utils import Paths, open_config, parameter
+from ._utils import Paths, _open_config, parameter, open_single_config
 from ._utils.parameter import Configuration, Parameters
 from ._utils.utils import PlotRange
 from ._utils.legacy import convert_sim_folder

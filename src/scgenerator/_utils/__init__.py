@@ -103,12 +103,12 @@ def conform_toml_path(path: os.PathLike) -> str:
 
 
 def open_single_config(path: os.PathLike) -> dict[str, Any]:
-    d = open_config(path)
+    d = _open_config(path)
     f = d.pop("Fiber")[0]
     return d | f
 
 
-def open_config(path: os.PathLike):
+def _open_config(path: os.PathLike):
     """returns a dictionary parsed from the specified toml file
     This also handle having a 'INCLUDE' argument that will fill
     otherwise unspecified keys with what's in the INCLUDE file(s)"""
@@ -170,7 +170,7 @@ def load_config_sequence(path: os.PathLike) -> tuple[Path, list[dict[str, Any]]]
     Parameters
     ----------
     path : os.PathLike
-        path to the config toml file
+        path to the config toml file or a directory containing config files
 
     Returns
     -------
@@ -180,9 +180,15 @@ def load_config_sequence(path: os.PathLike) -> tuple[Path, list[dict[str, Any]]]
         one config per fiber
 
     """
-    loaded_config = open_config(path)
+    path = Path(path)
+    fiber_list: list[dict[str, Any]]
+    if path.name.lower().endswith(".toml"):
+        loaded_config = _open_config(path)
+        fiber_list = loaded_config.pop("Fiber")
+    else:
+        loaded_config = dict(name=path.name)
+        fiber_list = [_open_config(p) for p in sorted(path.glob("initial_config*.toml"))]
 
-    fiber_list: list[dict[str, Any]] = loaded_config.pop("Fiber")
     if len(fiber_list) == 0:
         raise ValueError(f"No fiber in config {path}")
     final_path = loaded_config.get("name")
