@@ -11,14 +11,13 @@ from .. import env, math
 from ..const import PARAM_FN, PARAM_SEPARATOR
 from ..physics import fiber, units
 from ..plotting import plot_setup
-from ..spectra import Pulse
-from ..utils import auto_crop, open_config, save_toml, translate_parameters
-from ..utils.parameter import (
+from ..spectra import SimulationSeries
+from .._utils import auto_crop, _open_config, save_toml, translate_parameters
+from .._utils.parameter import (
     Configuration,
     Parameters,
-    pretty_format_from_sim_name,
-    pretty_format_value,
 )
+from .._utils.utils import simulations_list
 
 
 def fingerprint(params: Parameters):
@@ -33,7 +32,7 @@ def plot_all(sim_dir: Path, limits: list[str], show=False, **opts):
             opts[k] = int(v)
         if k in {"log", "renormalize"}:
             opts[k] = True if v == "True" else False
-    dir_list = list(p for p in sim_dir.glob("*") if p.is_dir())
+    dir_list = simulations_list(sim_dir)
     if len(dir_list) == 0:
         dir_list = [sim_dir]
     limits = [
@@ -41,12 +40,12 @@ def plot_all(sim_dir: Path, limits: list[str], show=False, **opts):
     ]
     with tqdm(total=len(dir_list) * len(limits)) as bar:
         for p in dir_list:
-            pulse = Pulse(p)
+            pulse = SimulationSeries(p)
             for left, right, unit in limits:
                 path, fig, ax = plot_setup(
                     pulse.path.parent
                     / (
-                        pretty_format_from_sim_name(pulse.path.name)
+                        pulse.path.name
                         + PARAM_SEPARATOR
                         + f"{left:.1f}{PARAM_SEPARATOR}{right:.1f}{PARAM_SEPARATOR}{unit}"
                     )
@@ -259,7 +258,7 @@ def finish_plot(fig, legend_axes, all_labels, params):
 
 def plot_helper(config_path: Path) -> Iterable[tuple[dict, list[str], Parameters]]:
     cc = cycler(color=[f"C{i}" for i in range(10)]) * cycler(ls=["-", "--"])
-    pseq = Configuration(open_config(config_path))
+    pseq = Configuration(_open_config(config_path))
     for style, (variables, params) in zip(cc, pseq):
         lbl = [pretty_format_value(name, value) for name, value in variables[1:-1]]
         yield style, lbl, params
@@ -268,7 +267,7 @@ def plot_helper(config_path: Path) -> Iterable[tuple[dict, list[str], Parameters
 def convert_params(params_file: os.PathLike):
     p = Path(params_file)
     if p.name == PARAM_FN:
-        d = open_config(params_file)
+        d = _open_config(params_file)
         d = translate_parameters(d)
         save_toml(params_file, d)
         print(f"converted {p}")

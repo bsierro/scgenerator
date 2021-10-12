@@ -2,7 +2,6 @@
 # For example, nm(X) means "I give the number X in nm, figure out the ang. freq."
 # to be used especially when giving plotting ranges : (400, 1400, nm), (-4, 8, ps), ...
 
-from dataclasses import dataclass
 from typing import Callable, TypeVar, Union
 
 import numpy as np

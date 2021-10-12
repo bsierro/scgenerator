@@ -8,9 +8,9 @@ from scipy.interpolate import interp1d
 
 from ..logger import get_logger
 
-from .. import utils
+from .. import _utils as utils
 from ..math import abs2, argclosest, power_fact, u_nm
-from ..utils.cache import np_cache
+from .._utils.cache import np_cache
 from . import materials as mat
 from . import units
 from .units import c, pi
@@ -47,27 +47,6 @@ def is_dynamic_dispersion(pressure=None):
         out |= isinstance(pressure, (tuple, list)) and len(pressure) == 2
 
     return out
-
-
-def HCARF_gap(core_radius: float, capillary_num: int, capillary_outer_d: float):
-    """computes the gap length between capillaries of a hollow core anti-resonance fiber
-
-    Parameters
-    ----------
-    core_radius : float
-        radius of the core (m) (from cented to edge of a capillary)
-    capillary_num : int
-        number of capillaries
-    capillary_outer_d : float
-        diameter of the capillaries including the wall thickness(m). The core together with the microstructure has a diameter of 2R + 2d
-
-    Returns
-    -------
-    gap : float
-    """
-    return (core_radius + capillary_outer_d / 2) * 2 * np.sin(
-        pi / capillary_num
-    ) - capillary_outer_d
 
 
 def gvd_from_n_eff(n_eff: np.ndarray, wl_for_disp: np.ndarray):
@@ -191,6 +170,30 @@ def n_eff_marcatili_adjusted(wl_for_disp, n_gas_2, core_radius, he_mode=(1, 1), 
     corrected_radius = effective_core_radius(wl_for_disp, core_radius, *fit_parameters)
 
     return np.sqrt(n_gas_2 - (wl_for_disp * u / (pipi * corrected_radius)) ** 2)
+
+
+def A_eff_marcatili(core_radius: float) -> float:
+    """Effective mode-field area for fundamental mode hollow capillaries
+
+    Parameters
+    ----------
+    core_radius : float
+        radius of the core
+
+    Returns
+    -------
+    float
+        effective mode field area
+    """
+    return 1.5 * core_radius ** 2
+
+
+def capillary_spacing_hasan(
+    capillary_num: int, capillary_radius: float, core_radius: float
+) -> float:
+    return (
+        2 * (capillary_radius + core_radius) * np.sin(np.pi / capillary_num) - 2 * capillary_radius
+    )
 
 
 @np_cache

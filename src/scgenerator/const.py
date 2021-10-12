@@ -20,7 +20,8 @@ def pbar_format(worker_id: int):
 
 
 SPEC1_FN = "spectrum_{}.npy"
-SPECN_FN = "spectra_{}.npy"
+SPECN_FN1 = "spectra_{}.npy"
+SPEC1_FN_N = "spectrum_{}_{}.npy"
 Z_FN = "z.npy"
 PARAM_FN = "params.toml"
 PARAM_SEPARATOR = " "

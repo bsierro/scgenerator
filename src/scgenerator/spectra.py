@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import os
-from collections.abc import Sequence
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Optional, Union
+from typing import Any, Callable, Iterator, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from . import math
-from .const import SPECN_FN
+from ._utils import load_spectrum
+from ._utils.parameter import Parameters
+from ._utils.utils import PlotRange, simulations_list
+from .const import PARAM_FN, SPEC1_FN, SPEC1_FN_N
 from .logger import get_logger
 from .physics import pulse, units
 from .plotting import (
@@ -16,8 +20,6 @@ from .plotting import (
     single_position_plot,
     transform_2D_propagation,
 )
-from .utils.parameter import Parameters, PlotRange
-from .utils import load_spectrum
 
 
 class Spectrum(np.ndarray):
@@ -41,18 +43,6 @@ class Spectrum(np.ndarray):
 
     def __getitem__(self, key) -> "Spectrum":
         return super().__getitem__(key)
-
-    def energy(self) -> Union[np.ndarray, float]:
-        if self.ndim == 1:
-            m = np.argwhere(self.params.l > 0)[:, 0]
-            m = np.array(sorted(m, key=lambda el: self.params.l[el]))
-            return np.trapz(self.wl_int[m], self.params.l[m])
-        else:
-            return np.array([s.energy() for s in self])
-
-    def crop_wl(self, left: float, right: float) -> np.ndarray:
-        cond = (self.params.l >= left) & (self.params.l <= right)
-        return cond
 
     @property
     def wl_int(self):
@@ -118,7 +108,7 @@ class Spectrum(np.ndarray):
             return self.params.l[np.argmax(self.wl_int, axis=-1)]
         return np.array([s.wl_max for s in self])
 
-    def mask_wl(self, pos: float, width: float) -> "Spectrum":
+    def mask_wl(self, pos: float, width: float) -> Spectrum:
         return self * np.exp(
             -(((self.params.l - pos) / (pulse.fwhm_to_T0_fac["gaussian"] * width)) ** 2)
         )
@@ -127,189 +117,105 @@ class Spectrum(np.ndarray):
         return pulse.measure_field(self.params.t, self.time_amp)
 
 
-class Pulse(Sequence):
-    def __init__(self, path: os.PathLike, default_ind: Union[int, Iterable[int]] = None):
-        """load a data folder as a pulse
+class SimulationSeries:
+    path: Path
+    params: Parameters
+    total_length: float
+    total_num_steps: int
+    previous: SimulationSeries = None
+    fiber_lengths: list[tuple[str, float]]
+    fiber_positions: list[tuple[str, float]]
+    z_inds: np.ndarray
 
-        Parameters
-        ----------
-        path : os.PathLike
-            path to the data (folder containing .npy files)
-        default_ind : int | Iterable[int], optional
-            default indices to be loaded, by default None
-
-        Raises
-        ------
-        FileNotFoundError
-            path does not contain proper data
-        """
-        self.logger = get_logger(__name__)
-        self.path = Path(path)
-        self.default_ind = default_ind
-
-        if not self.path.is_dir():
-            raise FileNotFoundError(f"Folder {self.path} does not exist")
-
-        self.params = Parameters.load(self.path / "params.toml")
+    def __init__(self, path: os.PathLike):
+        self.logger = get_logger()
+        for self.path in simulations_list(path):
+            break
+        else:
+            raise FileNotFoundError(f"No simulation in {path}")
+        self.params = Parameters.load(self.path / PARAM_FN)
         self.params.compute(["name", "t", "l", "w_c", "w0", "z_targets"])
-        if self.params.fiber_map is None:
-            self.params.fiber_map = [(0.0, self.params.name)]
-
-        try:
-            self.z = np.load(os.path.join(path, "z.npy"))
-        except FileNotFoundError:
-            if self.params is not None:
-                self.z = self.params.z_targets
-            else:
-                raise
-        self.nmax = len(list(self.path.glob("spectra_*.npy")))
-        if self.nmax <= 0:
-            raise FileNotFoundError(f"No appropriate file in specified folder {self.path}")
-
         self.t = self.params.t
-        w = math.wspace(self.t) + units.m(self.params.wavelength)
-        self.w_order = np.argsort(w)
-        self.w = w
-        self.wl = units.m.inv(self.w)
-        self.params.w = self.w
-        self.params.z_targets = self.z
+        self.w = self.params.w
+        if self.params.prev_data_dir is not None:
+            self.previous = SimulationSeries(self.params.prev_data_dir)
+        self.total_length = self.accumulate_params("length")
+        self.total_num_steps = self.accumulate_params("z_num")
+        self.z_inds = np.arange(len(self.params.z_targets))
+        self.z = self.params.z_targets
+        if self.previous is not None:
+            self.z += self.previous.params.z_targets[-1]
+            self.params.z_targets = np.concatenate((self.previous.z, self.params.z_targets))
+            self.z_inds += self.previous.z_inds[-1] + 1
+        self.fiber_lengths = self.all_params("length")
+        self.fiber_positions = [
+            (this[0], following[1])
+            for this, following in zip(self.fiber_lengths, [(None, 0.0)] + self.fiber_lengths)
+        ]
 
-    def __iter__(self):
-        """
-        similar to all_spectra but works as an iterator
-        """
-
-        self.logger.debug(f"iterating through {self.path}")
-        for i in range(self.nmax):
-            yield self._load1(i)
-
-    def __len__(self):
-        return self.nmax
-
-    def __getitem__(self, key) -> Spectrum:
-        return self.all_spectra(key)
-
-    def intensity(self, unit):
-        if unit.type in ["WL", "FREQ", "AFREQ"]:
-            x_axis = unit.inv(self.w)
-        else:
-            x_axis = unit.inv(self.t)
-
-        order = np.argsort(x_axis)
-        func = dict(
-            WL=self._to_wl_int,
-            FREQ=self._to_freq_int,
-            AFREQ=self._to_afreq_int,
-            TIME=self._to_time_int,
-        )[unit.type]
-
-        for spec in self:
-            yield x_axis[order], func(spec)[:, order]
-
-    def _to_wl_int(self, spectrum):
-        return units.to_WL(math.abs2(spectrum), spectrum.wl)
-
-    def _to_freq_int(self, spectrum):
-        return math.abs2(spectrum)
-
-    def _to_afreq_int(self, spectrum):
-        return math.abs2(spectrum)
-
-    def _to_time_int(self, spectrum):
-        return math.abs2(np.fft.ifft(spectrum))
-
-    def amplitude(self, unit):
-        if unit.type in ["WL", "FREQ", "AFREQ"]:
-            x_axis = unit.inv(self.w)
-        else:
-            x_axis = unit.inv(self.t)
-
-        order = np.argsort(x_axis)
-        func = dict(
-            WL=self._to_wl_amp,
-            FREQ=self._to_freq_amp,
-            AFREQ=self._to_afreq_amp,
-            TIME=self._to_time_amp,
-        )[unit.type]
-
-        for spec in self:
-            yield x_axis[order], func(spec)[:, order]
-
-    def _to_wl_amp(self, spectrum):
-        return (
-            np.sqrt(
-                units.to_WL(
-                    math.abs2(spectrum),
-                    spectrum.wl,
-                )
-            )
-            * spectrum
-            / np.abs(spectrum)
-        )
-
-    def _to_freq_amp(self, spectrum):
-        return spectrum
-
-    def _to_afreq_amp(self, spectrum):
-        return spectrum
-
-    def _to_time_amp(self, spectrum):
-        return np.fft.ifft(spectrum)
-
-    def all_spectra(self, ind=None) -> Spectrum:
-        """
-        loads the data already simulated.
-        defauft shape is (z_targets, n, nt)
+    def all_params(self, key: str) -> list[tuple[str, Any]]:
+        """returns the value of a parameter for each fiber
 
         Parameters
         ----------
-        ind : int or list of int
-            if only certain spectra are desired
+        key : str
+            name of the parameter
+
         Returns
-        ----------
-        spectra : array of shape (nz, m, nt)
-            array of complex spectra (pulse at nz positions consisting
-            of nm simulation on a nt size grid)
+        -------
+        list[tuple[str, Any]]
+            list of (fiber_name, param_value) tuples
         """
+        return list(reversed(self._all_params(key, [])))
 
-        self.logger.debug(f"opening {self.path}")
+    def accumulate_params(self, key: str) -> Any:
+        """returns the sum of all the values a parameter takes. Useful to
+        get the total length of the fiber, the total number of steps, etc.
 
-        # Check if file exists and assert how many z positions there are
+        Parameters
+        ----------
+        key : str
+            name of the parameter
 
-        if ind is None:
-            if self.default_ind is None:
-                ind = range(self.nmax)
-            else:
-                ind = self.default_ind
-        if isinstance(ind, (int, np.integer)):
-            ind = [ind]
-        elif isinstance(ind, (float, np.floating)):
-            ind = [self.z_ind(ind)]
-        elif isinstance(ind[0], (float, np.floating)):
-            ind = [self.z_ind(ii) for ii in ind]
+        Returns
+        -------
+        Any
+            final sum
+        """
+        return sum(el[1] for el in self.all_params(key))
 
-        # Load the spectra
-        spectra = []
-        for i in ind:
-            spectra.append(self._load1(i))
-        spectra = Spectrum(spectra, self.params)
-
-        self.logger.debug(f"all spectra from {self.path} successfully loaded")
-        if len(ind) == 1:
-            return spectra[0]
+    def spectra(
+        self, z_descr: Union[float, int, None] = None, sim_ind: Optional[int] = 0
+    ) -> Spectrum:
+        if z_descr is None:
+            out = [self.spectra(i, sim_ind) for i in range(self.total_num_steps)]
         else:
-            return spectra
+            if isinstance(z_descr, (float, np.floating)):
+                if self.z[0] <= z_descr <= self.z[-1]:
+                    z_ind = self.z_inds[np.argmin(np.abs(self.z - z_descr))]
+                elif 0 <= z_descr < self.z[0]:
+                    return self.previous.spectra(z_descr, sim_ind)
+                else:
+                    raise ValueError(
+                        f"cannot match z={z_descr} with max length of {self.total_length}"
+                    )
+            else:
+                z_ind = z_descr
 
-    def all_fields(self, ind=None):
-        return np.fft.ifft(self.all_spectra(ind=ind), axis=-1)
+            if z_ind < self.z_inds[0]:
+                return self.previous.spectra(z_ind, sim_ind)
+            if sim_ind is None:
+                out = [self._load_1(z_ind, i) for i in range(self.params.repeat)]
+            else:
+                out = self._load_1(z_ind)
+        return Spectrum(out, self.params)
 
-    def _load1(self, i: int):
-        if i < 0:
-            i = self.nmax + i
-        spec = load_spectrum(self.path / SPECN_FN.format(i))
-        spec = np.atleast_2d(spec)
-        spec = Spectrum(spec, self.params)
-        return spec
+    def fields(
+        self, z_descr: Union[float, int, None] = None, sim_ind: Optional[int] = 0
+    ) -> Spectrum:
+        return np.fft.ifft(self.spectra(z_descr, sim_ind))
+
+    # Plotting
 
     def plot_2D(
         self,
@@ -317,12 +223,11 @@ class Pulse(Sequence):
         right: float,
         unit: Union[Callable[[float], float], str],
         ax: plt.Axes,
-        z_pos: Union[int, Iterable[int]] = None,
         sim_ind: int = 0,
         **kwargs,
     ):
         plot_range = PlotRange(left, right, unit)
-        vals = self.retrieve_plot_values(plot_range, z_pos, sim_ind)
+        vals = self.retrieve_plot_values(plot_range, None, sim_ind)
         return propagation_plot(vals, plot_range, self.params, ax, **kwargs)
 
     def plot_1D(
@@ -349,7 +254,7 @@ class Pulse(Sequence):
         **kwargs,
     ):
         plot_range = PlotRange(left, right, unit)
-        vals = self.retrieve_plot_values(plot_range, z_pos, slice(None))
+        vals = self.retrieve_plot_values(plot_range, z_pos, None)
         return mean_values_plot(vals, plot_range, self.params, ax, **kwargs)
 
     def retrieve_plot_values(
@@ -357,16 +262,9 @@ class Pulse(Sequence):
     ):
 
         if plot_range.unit.type == "TIME":
-            vals = self.all_fields(ind=z_pos)
+            return self.fields(z_pos, sim_ind)
         else:
-            vals = self.all_spectra(ind=z_pos)
-
-        if sim_ind is None:
-            return vals
-        elif z_pos is None:
-            return vals[:, sim_ind]
-        else:
-            return vals[sim_ind]
+            return self.spectra(z_pos, sim_ind)
 
     def rin_propagation(
         self, left: float, right: float, unit: str
@@ -392,22 +290,63 @@ class Pulse(Sequence):
             RIN
         """
         spectra = []
-        for spec in np.moveaxis(self.all_spectra(), 1, 0):
+        for spec in np.moveaxis(self.spectra(None, None), 1, 0):
             x, z, tmp = transform_2D_propagation(spec, (left, right, unit), self.params, False)
             spectra.append(tmp)
         return x, z, pulse.rin_curve(np.moveaxis(spectra, 0, 1))
 
-    def z_ind(self, z: float) -> int:
-        """return the closest z index to the given target
+    # Private
+
+    def _load_1(self, z_ind: int, sim_ind=0) -> np.ndarray:
+        """loads a spectrum file
 
         Parameters
         ----------
-        z : float
-            target
+        z_ind : int
+            z_index relative to the entire simulation
+        sim_ind : int, optional
+            simulation index, used when repeated simulations with same parameters are ran, by default 0
 
         Returns
         -------
-        int
-            index
+        np.ndarray
+            loaded spectrum file
         """
-        return math.argclosest(self.z, z)
+        if sim_ind > 0:
+            return load_spectrum(self.path / SPEC1_FN_N.format(z_ind - self.z_inds[0], sim_ind))
+        else:
+            return load_spectrum(self.path / SPEC1_FN.format(z_ind - self.z_inds[0]))
+
+    def _all_params(self, key: str, l: list) -> list:
+        l.append((self.params.name, getattr(self.params, key)))
+        if self.previous is not None:
+            return self.previous._all_params(key, l)
+        return l
+
+    # Magic methods
+
+    def __iter__(self) -> Iterator[Spectrum]:
+        for i in range(self.total_num_steps):
+            yield self.spectra(i, None)
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(path={self.path}, previous={self.previous!r})"
+
+    def __eq__(self, other: SimulationSeries) -> bool:
+        return (
+            self.path == other.path
+            and self.params == other.params
+            and self.previous == other.previous
+        )
+
+    def __contains__(self, other: SimulationSeries) -> bool:
+        if other is self or other == self:
+            return True
+        if self.previous is not None:
+            return other in self.previous
+
+    def __getitem__(self, key) -> Spectrum:
+        if isinstance(key, tuple):
+            return self.spectra(*key)
+        else:
+            return self.spectra(key, None)

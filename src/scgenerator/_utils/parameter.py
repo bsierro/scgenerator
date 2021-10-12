@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime as datetime_module
 import enum
 import inspect
@@ -10,15 +12,30 @@ from copy import copy, deepcopy
 from dataclasses import asdict, dataclass, fields
 from functools import cache, lru_cache
 from pathlib import Path
-from typing import Any, Callable, Generator, Iterable, Literal, Optional, Sequence, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Generator,
+    Iterable,
+    Iterator,
+    Literal,
+    Optional,
+    Sequence,
+    TypeVar,
+    Union,
+)
+
 import numpy as np
 from numpy.lib import isin
 
-from .. import math, utils
+from .. import _utils as utils
+from .. import env, math
+from .._utils.variationer import VariationDescriptor, Variationer
 from ..const import PARAM_FN, PARAM_SEPARATOR, __version__
 from ..errors import EvaluatorError, NoDefaultError
 from ..logger import get_logger
 from ..physics import fiber, materials, pulse, units
+from .utils import _mock_function, fiber_folder, func_rewrite, get_arg_names, update_path
 
 T = TypeVar("T")
 
@@ -38,7 +55,7 @@ VALID_VARIABLE = {
     "effective_mode_diameter",
     "core_radius",
     "capillary_num",
-    "capillary_outer_d",
+    "capillary_radius",
     "capillary_thickness",
     "capillary_spacing",
     "capillary_resonance_strengths",
@@ -69,6 +86,7 @@ VALID_VARIABLE = {
     "interpolation_degree",
     "ideal_gas",
     "length",
+    "num",
 }
 
 MANDATORY_PARAMETERS = [
@@ -256,7 +274,7 @@ class Parameter:
         ----------
         tpe : type
             type of the paramter
-        validators : Callable[[str, Any], None]
+        validator : Callable[[str, Any], None]
             signature : validator(name, value)
             must raise a ValueError when value doesn't fit the criteria checked by
             validator. name is passed to validator to be included in the error message
@@ -290,7 +308,6 @@ class Parameter:
         if isinstance(value, Parameter):
             defaut = None if self.default is None else copy(self.default)
             instance.__dict__[self.name] = defaut
-            # instance.__dict__[self.name] = None
         else:
             if value is not None:
                 if self.converter is not None:
@@ -298,7 +315,7 @@ class Parameter:
                 self.validator(self.name, value)
             instance.__dict__[self.name] = value
 
-    def display(self, num: float):
+    def display(self, num: float) -> str:
         if self.display_info is None:
             return str(num)
         else:
@@ -309,18 +326,23 @@ class Parameter:
             return f"{num_str} {unit}"
 
 
-def fiber_map_converter(d: dict[str, str]) -> list[tuple[float, str]]:
-    if isinstance(d, dict):
-        return [(float(k), v) for k, v in d.items()]
-    else:
-        return [(float(k), v) for k, v in d]
+@dataclass
+class _AbstractParameters:
+    @classmethod
+    def __init_subclass__(cls):
+        cls.register_param_formatters()
+
+    @classmethod
+    def register_param_formatters(cls):
+        for k, v in cls.__dict__.items():
+            if isinstance(v, Parameter):
+                VariationDescriptor.register_formatter(k, v.display)
 
 
 @dataclass
-class Parameters:
+class Parameters(_AbstractParameters):
     """
-    This class defines each valid parameter's name, type and valid value. Initializing
-    such an obj will automatically compute all possible parameters
+    This class defines each valid parameter's name, type and valid value.
     """
 
     # root
@@ -352,7 +374,7 @@ class Parameters:
     )
     length: float = Parameter(non_negative(float, int))
     capillary_num: int = Parameter(positive(int))
-    capillary_outer_d: float = Parameter(in_range_excl(0, 1e-3))
+    capillary_radius: float = Parameter(in_range_excl(0, 1e-3))
     capillary_thickness: float = Parameter(in_range_excl(0, 1e-3))
     capillary_spacing: float = Parameter(in_range_excl(0, 1e-3))
     capillary_resonance_strengths: Iterable[float] = Parameter(num_list, default=[])
@@ -430,15 +452,13 @@ class Parameters:
     const_qty: np.ndarray = Parameter(type_checker(np.ndarray))
     beta_func: Callable[[float], list[float]] = Parameter(func_validator)
     gamma_func: Callable[[float], float] = Parameter(func_validator)
-    fiber_map: list[tuple[float, str]] = Parameter(
-        validator_list(type_checker(tuple)), converter=fiber_map_converter
-    )
+
+    num: int = Parameter(non_negative(int))
     datetime: datetime_module.datetime = Parameter(type_checker(datetime_module.datetime))
     version: str = Parameter(string)
 
     def prepare_for_dump(self) -> dict[str, Any]:
         param = asdict(self)
-        param["fiber_map"] = [(str(z), n) for z, n in param.get("fiber_map", [])]
         param = Parameters.strip_params_dict(param)
         param["datetime"] = datetime_module.datetime.now()
         param["version"] = __version__
@@ -461,7 +481,7 @@ class Parameters:
 
     @classmethod
     def load(cls, path: os.PathLike) -> "Parameters":
-        return cls(**utils.open_config(path))
+        return cls(**utils._open_config(path))
 
     @classmethod
     def load_and_compute(cls, path: os.PathLike) -> "Parameters":
@@ -511,6 +531,12 @@ class Parameters:
             del out["variable"]
 
         return out
+
+    @property
+    def final_path(self) -> Path:
+        if self.output_path is not None:
+            return Path(update_path(self.output_path))
+        return None
 
 
 class Rule:
@@ -769,9 +795,12 @@ class Configuration:
     obj with the output path of the simulation saved in its output_path attribute.
     """
 
-    master_configs: list[dict[str, Any]]
-    sim_dirs: list[Path]
+    fiber_configs: list[dict[str, Any]]
+    vary_dicts: list[dict[str, list]]
+    master_config: dict[str, Any]
+    fiber_paths: list[Path]
     num_sim: int
+    num_fibers: int
     repeat: int
     z_num: int
     total_num_steps: int
@@ -779,19 +808,17 @@ class Configuration:
     parallel: bool
     overwrite: bool
     final_path: str
-    all_configs_dict: dict[tuple[tuple[int, ...], ...], "Configuration.__SimConfig"]
-    all_configs_list: list[list["Configuration.__SimConfig"]]
+    all_configs: dict[tuple[tuple[int, ...], ...], "Configuration.__SimConfig"]
 
     @dataclass(frozen=True)
     class __SimConfig:
-        vary_list: list[tuple[str, Any]]
+        descriptor: VariationDescriptor
         config: dict[str, Any]
         output_path: Path
-        index: tuple[tuple[int, ...], ...]
 
         @property
         def sim_num(self) -> int:
-            return len(self.index)
+            return len(self.descriptor.index)
 
     class State(enum.Enum):
         COMPLETE = enum.auto()
@@ -805,57 +832,70 @@ class Configuration:
 
     def __init__(
         self,
-        final_config_path: os.PathLike,
+        config_path: os.PathLike,
         overwrite: bool = True,
+        wait: bool = False,
         skip_callback: Callable[[int], None] = None,
+        final_output_path: os.PathLike = None,
     ):
         self.logger = get_logger(__name__)
+        self.wait = wait
 
-        self.master_configs, self.final_path = utils.load_config_sequence(final_config_path)
-        if self.final_path is None:
-            self.final_path = Parameters.name.default
-        self.name = Path(self.final_path).name
+        self.overwrite = overwrite
+        self.final_path, self.fiber_configs = utils.load_config_sequence(config_path)
+        self.final_path = env.get(env.OUTPUT_PATH, self.final_path)
+        if final_output_path is not None:
+            self.final_path = final_output_path
+        self.final_path = utils.ensure_folder(
+            Path(self.final_path),
+            mkdir=False,
+            prevent_overwrite=not self.overwrite,
+        )
+        self.master_config = self.fiber_configs[0].copy()
+        self.name = self.final_path.name
         self.z_num = 0
         self.total_num_steps = 0
-        self.sim_dirs = []
-        self.overwrite = overwrite
+        self.fiber_paths = []
+        self.all_configs = {}
         self.skip_callback = skip_callback
-        self.worker_num = self.master_configs[0].get("worker_num", max(1, os.cpu_count() // 2))
-        self.repeat = self.master_configs[0].get("repeat", 1)
+        self.worker_num = self.master_config.get("worker_num", max(1, os.cpu_count() // 2))
+        self.repeat = self.master_config.get("repeat", 1)
+        self.variationer = Variationer()
 
-        names = set()
-        for i, config in enumerate(self.master_configs):
+        fiber_names = set()
+        self.num_fibers = 0
+        for i, config in enumerate(self.fiber_configs):
+            config.setdefault("name", Parameters.name.default)
             self.z_num += config["z_num"]
-            config.setdefault("name", f"{Parameters.name.default} {i}")
-            given_name = config["name"]
-            fn_i = 0
-            while config["name"] in names:
-                config["name"] = given_name + f"_{fn_i}"
-                fn_i += 1
-            names.add(config["name"])
-
-            self.sim_dirs.append(
+            fiber_names.add(config["name"])
+            vary_dict = config.pop("variable")
+            self.variationer.append(vary_dict)
+            self.fiber_paths.append(
                 utils.ensure_folder(
-                    Path("_".join(["_", self.name, Path(config["name"]).name, "_"])),
+                    self.final_path / fiber_folder(i, self.name, config["name"]),
                     mkdir=False,
                     prevent_overwrite=not self.overwrite,
                 )
             )
-            self.__validate_variable(config)
-        self.__compute_sim_dirs()
-        [Evaluator.evaluate_default(c[0].config, True) for c in self.all_configs_list]
-        self.num_sim = len(self.all_configs_list[-1])
+            self.__validate_variable(vary_dict)
+            self.num_fibers += 1
+            Evaluator.evaluate_default(
+                self.__build_base_config() | config | {k: v[0] for k, v in vary_dict.items()}, True
+            )
+        self.num_sim = self.variationer.var_num()
         self.total_num_steps = sum(
-            config["z_num"] * len(self.all_configs_list[i])
-            for i, config in enumerate(self.master_configs)
+            config["z_num"] * self.variationer.var_num(i)
+            for i, config in enumerate(self.fiber_configs)
         )
-        self.final_sim_dir = utils.ensure_folder(
-            Path(self.master_configs[-1]["name"]), mkdir=False, prevent_overwrite=not self.overwrite
-        )
-        self.parallel = self.master_configs[0].get("parallel", Parameters.parallel.default)
+        self.parallel = self.master_config.get("parallel", Parameters.parallel.default)
 
-    def __validate_variable(self, config: dict[str, Any]):
-        for k, v in config.get("variable", {}).items():
+    def __build_base_config(self):
+        cfg = self.master_config.copy()
+        vary = cfg.pop("variable", {})
+        return cfg | {k: v[0] for k, v in vary.items()}
+
+    def __validate_variable(self, vary_dict: dict[str, list]):
+        for k, v in vary_dict.items():
             p = getattr(Parameters, k)
             validator_list(p.validator)("variable " + k, v)
             if k not in VALID_VARIABLE:
@@ -863,76 +903,47 @@ class Configuration:
             if len(v) == 0:
                 raise ValueError(f"variable parameter {k!r} must not be empty")
 
-    def __compute_sim_dirs(self):
-        self.all_configs_dict = {}
-        self.all_configs_list = []
-        self.master_configs[0]["variable"]["num"] = list(
-            range(self.master_configs[0].get("repeat", 1))
-        )
-        dp = DataPather([c["variable"] for c in self.master_configs])
-        for i, conf in enumerate(self.master_configs):
-            self.all_configs_list.append([])
-            for sim_index, prev_path, this_path, this_vary in dp.all_vary_list(i):
-                this_conf = conf.copy()
-                if i > 0:
-                    prev_path = utils.ensure_folder(
-                        self.sim_dirs[i - 1] / prev_path, not self.overwrite, False
-                    )
-                    this_conf["prev_data_dir"] = str(prev_path)
+    def __iter__(self) -> Iterator[tuple[VariationDescriptor, Parameters]]:
+        for i in range(self.num_fibers):
+            yield from self.iterate_single_fiber(i)
 
-                this_path = utils.ensure_folder(
-                    self.sim_dirs[i] / this_path, not self.overwrite, False
-                )
-                this_conf.pop("variable")
-                conf_to_use = {k: v for k, v in this_vary if k != "num"} | this_conf
-                self.all_configs_dict[sim_index] = self.__SimConfig(
-                    this_vary, conf_to_use, this_path, sim_index
-                )
-                self.all_configs_list[i].append(self.all_configs_dict[sim_index])
-
-    def __iter__(self) -> Generator[tuple[list[tuple[str, Any]], Parameters], None, None]:
-        for i, sim_config_list in enumerate(self.all_configs_list):
-            for sim_config, params in self.__iter_1_sim(sim_config_list):
-                fiber_map = []
-                for j in range(i + 1):
-                    this_conf = self.all_configs_dict[sim_config.index[: j + 1]].config
-                    if j > 0:
-                        prev_conf = self.all_configs_dict[sim_config.index[:j]].config
-                        length = prev_conf["length"] + fiber_map[j - 1][0]
-                    else:
-                        length = 0.0
-                    fiber_map.append((length, this_conf["name"]))
-                params.output_path = str(sim_config.output_path)
-                params.fiber_map = fiber_map
-                yield sim_config.vary_list, params
-
-    def __iter_1_sim(
-        self, configs: list["Configuration.__SimConfig"]
-    ) -> Generator[tuple["Configuration.__SimConfig", Parameters], None, None]:
+    def iterate_single_fiber(self, index: int) -> Iterator[tuple[VariationDescriptor, Parameters]]:
         """iterates through the parameters of only one fiber. It takes care of recovering partially
         completed simulations, skipping complete ones and waiting for the previous fiber to finish
 
         Parameters
         ----------
-        configs : list[__SimConfig]
-            list of configuration obj
+        index : int
+            which fiber to iterate over
 
         Yields
         -------
         __SimConfig
             configuration obj
-        Parameters
-            computed Parameters obj
         """
-        sim_dict: dict[Path, Configuration.__SimConfig] = {s.output_path: s for s in configs}
+        if index < 0:
+            index = self.num_fibers + index
+        sim_dict: dict[Path, Configuration.__SimConfig] = {}
+        for descriptor in self.variationer.iterate(index):
+            cfg = descriptor.update_config(self.fiber_configs[index])
+            if index > 0:
+                cfg["prev_data_dir"] = str(
+                    self.fiber_paths[index - 1] / descriptor[:index].formatted_descriptor(True)
+                )
+            p = utils.ensure_folder(
+                self.fiber_paths[index] / descriptor.formatted_descriptor(True),
+                not self.overwrite,
+                False,
+            )
+            cfg["output_path"] = str(p)
+            sim_config = self.__SimConfig(descriptor, cfg, p)
+            sim_dict[p] = self.all_configs[sim_config.descriptor.index] = sim_config
         while len(sim_dict) > 0:
             for data_dir, sim_config in sim_dict.items():
                 task, config_dict = self.__decide(sim_config)
                 if task == self.Action.RUN:
                     sim_dict.pop(data_dir)
-                    p = Parameters(**config_dict)
-                    p.compute()
-                    yield sim_config, p
+                    yield sim_config.descriptor, Parameters(**sim_config.config)
                     if "recovery_last_stored" in config_dict and self.skip_callback is not None:
                         self.skip_callback(config_dict["recovery_last_stored"])
                     break
@@ -957,12 +968,14 @@ class Configuration:
 
         Returns
         -------
-        str : {'run', 'wait', 'skip'}
+        str : Configuration.Action
             what to do
         config_dict : dict[str, Any]
             config dictionary. The only key possibly modified is 'prev_data_dir', which
             gets set if the simulation is partially completed
         """
+        if not self.wait:
+            return self.Action.RUN, sim_config.config
         out_status, num = self.sim_status(sim_config.output_path, sim_config.config)
         if out_status == self.State.COMPLETE:
             return self.Action.SKIP, sim_config.config
@@ -999,7 +1012,7 @@ class Configuration:
         num = utils.find_last_spectrum_num(data_dir)
         if config_dict is None:
             try:
-                config_dict = utils.open_config(data_dir / PARAM_FN)
+                config_dict = utils._open_config(data_dir / PARAM_FN)
             except FileNotFoundError:
                 self.logger.warning(f"did not find {PARAM_FN!r} in {data_dir}")
                 return self.State.ABSENT, 0
@@ -1013,344 +1026,17 @@ class Configuration:
             raise ValueError(f"Too many spectra in {data_dir}")
 
     def save_parameters(self):
-        for config, sim_dir in zip(self.master_configs, self.sim_dirs):
-            os.makedirs(sim_dir, exist_ok=True)
-            utils.save_toml(sim_dir / f"initial_config.toml", config)
+        os.makedirs(self.final_path, exist_ok=True)
+        cfgs = [
+            cfg | dict(variable=self.variationer.all_dicts[i])
+            for i, cfg in enumerate(self.fiber_configs)
+        ]
+        utils.save_toml(self.final_path / f"initial_config.toml", dict(name=self.name, Fiber=cfgs))
 
     @property
     def first(self) -> Parameters:
         for _, param in self:
             return param
-
-
-class DataPather:
-    def __init__(self, dl: list[dict[str, Any]]):
-        self.dict_list = dl
-
-    def vary_list_iterator(
-        self, index: int
-    ) -> Generator[tuple[tuple[tuple[int, ...]], list[list[tuple[str, Any]]]], None, None]:
-        """iterates through every possible combination of a list of dict of lists
-
-        Parameters
-        ----------
-        index : int
-            up to where in the stored dict_list to go
-
-        Yields
-        -------
-        list[list[tuple[str, Any]]]
-            list of list of (key, value) pairs
-
-        Example
-        -------
-
-        self.dict_list = [{a:[56, 57], b:["?", "!"]}, {c:[0, -1]}] ->
-        [
-            [[(a, 56), (b, "?")], [(c, 0)]],
-            [[(a, 56), (b, "?")], [(c, 1)]],
-            [[(a, 56), (b, "!")], [(c, 0)]],
-            [[(a, 56), (b, "!")], [(c, 1)]],
-            [[(a, 57), (b, "?")], [(c, 0)]],
-            [[(a, 57), (b, "?")], [(c, 1)]],
-            [[(a, 57), (b, "!")], [(c, 0)]],
-            [[(a, 57), (b, "!")], [(c, 1)]],
-        ]
-        """
-        if index < 0:
-            index = len(self.dict_list) - index
-        d_tem_list = [el for d in self.dict_list[: index + 1] for el in d.items()]
-        dict_pos = np.cumsum([0] + [len(d) for d in self.dict_list[: index + 1]])
-        ranges = [range(len(l)) for _, l in d_tem_list]
-
-        for r in itertools.product(*ranges):
-            flat = [(d_tem_list[i][0], d_tem_list[i][1][j]) for i, j in enumerate(r)]
-            pos = tuple(r)
-            out = [flat[left:right] for left, right in zip(dict_pos[:-1], dict_pos[1:])]
-            pos = tuple(pos[left:right] for left, right in zip(dict_pos[:-1], dict_pos[1:]))
-            yield pos, out
-
-    def all_vary_list(self, index):
-        for sim_index, l in self.vary_list_iterator(index):
-            unique_vary: list[tuple[str, Any]] = []
-            for ll in l[: index + 1]:
-                for pname, pval in ll:
-                    for i, (pn, _) in enumerate(unique_vary):
-                        if pn == pname:
-                            del unique_vary[i]
-                            break
-                    unique_vary.append((pname, pval))
-            yield sim_index, format_variable_list(
-                reduce_all_variable(l[:index]), add_iden=True
-            ), format_variable_list(reduce_all_variable(l), add_iden=True), unique_vary
-
-    def __repr__(self):
-        return f"DataPather([{', '.join(repr(d) for d in self.dict_list)}])"
-
-
-@dataclass(frozen=True)
-class PlotRange:
-    left: float = Parameter(type_checker(int, float))
-    right: float = Parameter(type_checker(int, float))
-    unit: Callable[[float], float] = Parameter(units.is_unit, converter=units.get_unit)
-    conserved_quantity: bool = Parameter(boolean, default=True)
-
-    def __post_init__(self):
-        if self.left >= self.right:
-            raise ValueError(
-                f"left value {self.left!r} must be strictly smaller than right value {self.right!r}"
-            )
-
-    def __str__(self):
-        return f"{self.left:.1f}-{self.right:.1f} {self.unit.__name__}"
-
-    def sort_axis(self, axis: np.ndarray) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
-        return sort_axis(axis, self)
-
-    def __iter__(self):
-        yield self.left
-        yield self.right
-        yield self.unit.__name__
-
-
-def sort_axis(
-    axis: np.ndarray, plt_range: PlotRange
-) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
-    """convert an array according to the given range
-
-    Parameters
-    ----------
-    axis : np.ndarray, shape (n,)
-        array
-    plt_range : PlotRange
-        range to crop in
-
-    Returns
-    -------
-    np.ndarray
-        new array converted to the desired unit and cropped in the given range
-    np.ndarray
-        indices of the concerved values
-    tuple[float, float]
-        actual minimum and maximum of the new axis
-
-    Example
-    -------
-    >> sort_axis([18.0, 19.0, 20.0, 13.0, 15.2], PlotRange(1400, 1900, "cm"))
-    ([1520.0, 1800.0, 1900.0], [4, 0, 1], (1520.0, 1900.0))
-    """
-    if isinstance(plt_range, tuple):
-        plt_range = PlotRange(*plt_range)
-
-    masked = np.ma.array(axis, mask=~np.isfinite(axis))
-    converted = plt_range.unit.inv(masked)
-    converted[(converted < plt_range.left) | (converted > plt_range.right)] = np.ma.masked
-    indices = np.arange(len(axis))[~converted.mask]
-    cropped = converted.compressed()
-    order = cropped.argsort()
-
-    return cropped[order], indices[order], (cropped.min(), cropped.max())
-
-
-def get_arg_names(func: Callable) -> list[str]:
-    spec = inspect.getfullargspec(func)
-    args = spec.args
-    if spec.defaults is not None and len(spec.defaults) > 0:
-        args = args[: -len(spec.defaults)]
-    return args
-
-
-def validate_arg_names(names: list[str]):
-    for n in names:
-        if re.match(r"^[^\s\-'\(\)\"\d][^\(\)\-\s'\"]*$", n) is None:
-            raise ValueError(f"{n} is an invalid parameter name")
-
-
-def func_rewrite(func: Callable, kwarg_names: list[str], arg_names: list[str] = None) -> Callable:
-    if arg_names is None:
-        arg_names = get_arg_names(func)
-    else:
-        validate_arg_names(arg_names)
-    validate_arg_names(kwarg_names)
-    sign_arg_str = ", ".join(arg_names + kwarg_names)
-    call_arg_str = ", ".join(arg_names + [f"{s}={s}" for s in kwarg_names])
-    tmp_name = f"{func.__name__}_0"
-    func_str = f"def {tmp_name}({sign_arg_str}):\n    return __func__({call_arg_str})"
-    scope = dict(__func__=func)
-    exec(func_str, scope)
-    out_func = scope[tmp_name]
-    out_func.__module__ = "evaluator"
-    return out_func
-
-
-@cache
-def _mock_function(num_args: int, num_returns: int) -> Callable:
-    if not isinstance(num_args, int) and isinstance(num_returns, int):
-        raise TypeError(f"num_args and num_returns must be int")
-    arg_str = ", ".join("a" * (n + 1) for n in range(num_args))
-    return_str = ", ".join("True" for _ in range(num_returns))
-    func_name = f"__mock_{num_args}_{num_returns}"
-    func_str = f"def {func_name}({arg_str}):\n    return {return_str}"
-    scope = {}
-    exec(func_str, scope)
-    out_func = scope[func_name]
-    out_func.__module__ = "evaluator"
-    return out_func
-
-
-def format_variable_list(l: list[tuple[str, Any]], add_iden=False) -> str:
-    """formats a variable list into a str such that each simulation has a unique
-    directory name. A u_XXX unique identifier and b_XXX (ignoring repeat simulations)
-    branch identifier are added at the beginning.
-
-    Parameters
-    ----------
-    l : list[tuple[str, Any]]
-        list of variable parameters
-    add_iden : bool
-        add unique simulation and parameter-set identifiers
-
-    Returns
-    -------
-    str
-        directory name
-    """
-    str_list = []
-    for p_name, p_value in l:
-        ps = p_name.replace("/", "").replace(PARAM_SEPARATOR, "")
-        vs = format_value(p_name, p_value).replace("/", "").replace(PARAM_SEPARATOR, "")
-        str_list.append(ps + PARAM_SEPARATOR + vs)
-    tmp_name = PARAM_SEPARATOR.join(str_list)
-    if not add_iden:
-        return tmp_name
-    unique_id = unique_identifier(l)
-    branch_id = branch_identifier(l)
-    return unique_id + PARAM_SEPARATOR + branch_id + PARAM_SEPARATOR + tmp_name
-
-
-def branch_identifier(l):
-    branch_id = "b_" + utils.to_62(hash(str([el for el in l if el[0] != "num"])))
-    return branch_id
-
-
-def unique_identifier(l):
-    unique_id = "u_" + utils.to_62(hash(str(l)))
-    return unique_id
-
-
-def format_value(name: str, value) -> str:
-    if value is True or value is False:
-        return str(value)
-    elif isinstance(value, (float, int)):
-        try:
-            return getattr(Parameters, name).display(value)
-        except AttributeError:
-            return format(value, ".9g")
-    elif isinstance(value, (list, tuple, np.ndarray)):
-        return "-".join([str(v) for v in value])
-    elif isinstance(value, str):
-        p = Path(value)
-        if p.exists():
-            return p.stem
-    return str(value)
-
-
-def pretty_format_value(name: str, value) -> str:
-    try:
-        return getattr(Parameters, name).display(value)
-    except AttributeError:
-        return name + PARAM_SEPARATOR + str(value)
-
-
-def pretty_format_from_sim_name(name: str) -> str:
-    """formats a pretty version of a simulation directory
-
-    Parameters
-    ----------
-    name : str
-        name of the simulation (directory name)
-
-    Returns
-    -------
-    str
-        prettier name
-    """
-    s = name.split(PARAM_SEPARATOR)
-    out = []
-    for key, value in zip(s[::2], s[1::2]):
-        try:
-            out += [key.replace("_", " "), getattr(Parameters, key).display(float(value))]
-        except (AttributeError, ValueError):
-            out.append(key + PARAM_SEPARATOR + value)
-    return PARAM_SEPARATOR.join(out)
-
-
-def variable_iterator(
-    config: dict[str, Any], first: bool
-) -> Generator[tuple[list[tuple[str, Any]], dict[str, Any]], None, None]:
-    """given a config with "variable" parameters, iterates through every possible combination,
-    yielding a a list of (parameter_name, value) tuples and a full config dictionary.
-
-    Parameters
-    ----------
-    config : BareConfig
-        initial config obj
-    first : int
-        whether it is the first fiber or not (only the first fiber get a sim number)
-
-    Yields
-    -------
-    Iterator[tuple[list[tuple[str, Any]], dict[str, Any]]]
-        variable_list : a list of (name, value) tuple of parameter name and value that are variable.
-
-        params : a dict[str, Any] to be fed to Parameters
-    """
-    possible_keys = []
-    possible_ranges = []
-
-    for key, values in config.get("variable", {}).items():
-        possible_keys.append(key)
-        possible_ranges.append(range(len(values)))
-
-    combinations = itertools.product(*possible_ranges)
-
-    master_index = 0
-    repeat = config.get("repeat", 1) if first else 1
-    for combination in combinations:
-        indiv_config = {}
-        variable_list = []
-        for i, key in enumerate(possible_keys):
-            parameter_value = config["variable"][key][combination[i]]
-            indiv_config[key] = parameter_value
-            variable_list.append((key, parameter_value))
-        param_dict = deepcopy(config)
-        param_dict.pop("variable")
-        param_dict.update(indiv_config)
-        for repeat_index in range(repeat):
-            # variable_ind = [("id", master_index)] + variable_list
-            variable_ind = variable_list
-            if first:
-                variable_ind += [("num", repeat_index)]
-            yield variable_ind, param_dict
-            master_index += 1
-
-
-def reduce_all_variable(all_variable: list[list[tuple[str, Any]]]) -> list[tuple[str, Any]]:
-    out = []
-    for n, variable_list in enumerate(all_variable):
-        out += [("fiber", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[n % 26] * (n // 26 + 1)), *variable_list]
-    return out
-
-
-def strip_vary_list(all_variable: T) -> T:
-    if len(all_variable) == 0:
-        return all_variable
-    elif isinstance(all_variable[0], Sequence) and (
-        len(all_variable[0]) == 0 or not isinstance(all_variable[0][0], str)
-    ):
-        return [strip_vary_list(el) for el in all_variable]
-    else:
-        return [el for el in all_variable if el[0] != "num"]
 
 
 default_rules: list[Rule] = [
@@ -1417,6 +1103,7 @@ default_rules: list[Rule] = [
         priorities=[2, 2, 2],
     ),
     Rule("hr_w", fiber.delayed_raman_w),
+    Rule("n_gas_2", materials.n_gas_2),
     Rule("n_eff", fiber.n_eff_hasan, conditions=dict(model="hasan")),
     Rule("n_eff", fiber.n_eff_marcatili, conditions=dict(model="marcatili")),
     Rule("n_eff", fiber.n_eff_marcatili_adjusted, conditions=dict(model="marcatili_adjusted")),
@@ -1426,12 +1113,13 @@ default_rules: list[Rule] = [
         ["wl_for_disp", "pitch", "pitch_ratio"],
         conditions=dict(model="pcf"),
     ),
-    Rule("capillary_spacing", fiber.HCARF_gap),
+    Rule("capillary_spacing", fiber.capillary_spacing_hasan),
     # Fiber nonlinearity
     Rule("A_eff", fiber.A_eff_from_V),
     Rule("A_eff", fiber.A_eff_from_diam),
     Rule("A_eff", fiber.A_eff_hasan, conditions=dict(model="hasan")),
     Rule("A_eff", fiber.A_eff_from_gamma, priorities=-1),
+    Rule("A_eff", fiber.A_eff_marcatili, priorities=-2),
     Rule("A_eff_arr", fiber.A_eff_from_V, ["core_radius", "V_eff_arr"]),
     Rule("A_eff_arr", fiber.load_custom_A_eff),
     Rule("A_eff_arr", fiber.constant_A_eff_arr, priorities=-1),

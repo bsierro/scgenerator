@@ -9,11 +9,15 @@ from typing import Any, Generator, Type, Union
 import numpy as np
 from send2trash import send2trash
 
-from .. import env, utils
+from .. import env
+from .. import _utils as utils
+from .._utils.utils import combine_simulations, save_parameters
 from ..logger import get_logger
-from ..utils.parameter import Configuration, Parameters, format_variable_list
+from .._utils.parameter import Configuration, Parameters
+from .._utils.pbar import PBars, ProgressBarActor, progress_worker
 from . import pulse
 from .fiber import create_non_linear_op, fast_dispersion_op
+from scgenerator._utils import pbar
 
 try:
     import ray
@@ -215,6 +219,17 @@ class RK4IP:
         return self.stored_spectra
 
     def irun(self) -> Generator[tuple[int, int, np.ndarray], None, None]:
+        """run the simulation as a generator obj
+
+        Yields
+        -------
+        int
+            current simulation step
+        int
+            current number of spectra returned
+        np.ndarray
+            spectrum
+        """
 
         # Print introduction
         self.logger.debug(
@@ -332,7 +347,7 @@ class SequentialRK4IP(RK4IP):
     def __init__(
         self,
         params: Parameters,
-        pbars: utils.PBars,
+        pbars: PBars,
         save_data=False,
         job_identifier="",
         task_id=0,
@@ -466,14 +481,14 @@ class Simulations:
 
         self.configuration = configuration
 
-        self.name = self.configuration.final_path
-        self.sim_dir = self.configuration.final_sim_dir
+        self.name = self.configuration.name
+        self.sim_dir = self.configuration.final_path
         self.configuration.save_parameters()
 
         self.sim_jobs_per_node = 1
 
     def finished_and_complete(self):
-        for sim in self.configuration.all_configs_dict.values():
+        for sim in self.configuration.all_configs.values():
             if (
                 self.configuration.sim_status(sim.output_path)[0]
                 != self.configuration.State.COMPLETE
@@ -487,8 +502,9 @@ class Simulations:
 
     def _run_available(self):
         for variable, params in self.configuration:
-            v_list_str = format_variable_list(variable, add_iden=True)
-            utils.save_parameters(params.prepare_for_dump(), Path(params.output_path))
+            params.compute()
+            v_list_str = variable.formatted_descriptor(True)
+            save_parameters(params.prepare_for_dump(), Path(params.output_path))
 
             self.new_sim(v_list_str, params)
         self.finish()
@@ -525,8 +541,10 @@ class SequencialSimulations(Simulations, priority=0):
 
     def __init__(self, configuration: Configuration, task_id):
         super().__init__(configuration, task_id=task_id)
-        self.pbars = utils.PBars(
-            self.configuration.total_num_steps, "Simulating " + self.configuration.final_path, 1
+        self.pbars = PBars(
+            self.configuration.total_num_steps,
+            "Simulating " + self.configuration.final_path.name,
+            1,
         )
         self.configuration.skip_callback = lambda num: self.pbars.update(0, num)
 
@@ -567,7 +585,7 @@ class MultiProcSimulations(Simulations, priority=1):
             for i in range(self.sim_jobs_per_node)
         ]
         self.p_worker = multiprocessing.Process(
-            target=utils.progress_worker,
+            target=progress_worker,
             args=(
                 Path(self.configuration.final_path).name,
                 self.sim_jobs_per_node,
@@ -656,7 +674,7 @@ class RaySimulations(Simulations, priority=2):
         self.pool = ray.util.ActorPool(self.propagator.remote() for _ in range(self.sim_jobs_total))
         self.num_submitted = 0
         self.rolling_id = 0
-        self.p_actor = ray.remote(utils.ProgressBarActor).remote(
+        self.p_actor = ray.remote(ProgressBarActor).remote(
             self.configuration.final_path, self.sim_jobs_total, self.configuration.total_num_steps
         )
         self.configuration.skip_callback = lambda num: ray.get(self.p_actor.update.remote(0, num))
@@ -712,21 +730,13 @@ def run_simulation(
     config_file: os.PathLike,
     method: Union[str, Type[Simulations]] = None,
 ):
-    config = Configuration(config_file)
+    config = Configuration(config_file, wait=True)
 
     sim = new_simulation(config, method)
     sim.run()
-    path_trees = utils.build_path_trees(config.sim_dirs[-1])
 
-    final_name = env.get(env.OUTPUT_PATH)
-    if final_name is None:
-        final_name = config.final_path
-
-    utils.merge(final_name, path_trees)
-    try:
-        send2trash(config.sim_dirs)
-    except (PermissionError, OSError):
-        get_logger(__name__).error("Could not send temporary directories to trash")
+    for path in config.fiber_paths:
+        combine_simulations(path)
 
 
 def new_simulation(
@@ -762,6 +772,8 @@ def parallel_RK4IP(
 ]:
     logger = get_logger(__name__)
     params = list(Configuration(config))
+    for _, param in params:
+        param.compute()
     n = len(params)
     z_num = params[0][1].z_num
 

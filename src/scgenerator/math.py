@@ -3,7 +3,7 @@ from typing import Union
 import numpy as np
 from scipy.interpolate import griddata, interp1d
 from scipy.special import jn_zeros
-from .utils.cache import np_cache
+from ._utils.cache import np_cache
 
 pi = np.pi
 c = 299792458.0

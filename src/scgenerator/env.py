@@ -48,7 +48,7 @@ def data_folder(task_id: int) -> Optional[str]:
     return tmp
 
 
-def get(key: str) -> Any:
+def get(key: str, default=None) -> Any:
     str_value = os.environ.get(key)
     if isinstance(str_value, str):
         try:
@@ -58,7 +58,7 @@ def get(key: str) -> Any:
             return t(str_value)
         except (ValueError, KeyError):
             pass
-    return None
+    return default
 
 
 def all_environ() -> Dict[str, str]:

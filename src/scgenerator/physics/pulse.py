@@ -23,8 +23,6 @@ from scipy.interpolate import UnivariateSpline
 from scipy.optimize import minimize_scalar
 from scipy.optimize.optimize import OptimizeResult
 
-from scgenerator import utils
-
 from ..defaults import default_plotting
 from ..logger import get_logger
 from ..math import *
@@ -820,7 +818,8 @@ def find_lobe_limits(x_axis, values, debug="", already_sorted=True):
             )
             ax.legend()
             fig.savefig(out_path, bbox_inches="tight")
-        plt.close()
+        if fig is not None:
+            plt.close(fig)
 
     else:
         good_roots, left_lim, right_lim = _select_roots(d_spline, d_roots, dd_roots, fwhm_pos)
