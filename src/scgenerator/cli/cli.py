@@ -4,13 +4,15 @@ import re
 from collections import ChainMap
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 
-from .. import const, env, scripts
 from .. import _utils as utils
+from .. import const, env, scripts
 from ..logger import get_logger
 from ..physics.fiber import dispersion_coefficients
 from ..physics.simulate import SequencialSimulations, run_simulation
+from ..plotting import partial_plot
 
 try:
     import ray
@@ -124,6 +126,13 @@ def create_parser():
     convert_parser.add_argument("config", help="path to config/parameter file")
     convert_parser.set_defaults(func=translate_parameters)
 
+    preview_parser = subparsers.add_parser("preview", help="preview a currently running simulation")
+    plc_hld = "XX"
+    preview_parser.add_argument(
+        "path", help=f"path to the directory containing {const.SPEC1_FN.format(plc_hld)!r}"
+    )
+    preview_parser.set_defaults(func=preview)
+
     return parser
 
 
@@ -163,6 +172,12 @@ def merge(args):
         output = path_trees[0][-1][0].parent.name + " merged"
 
     utils.merge(output, path_trees)
+
+
+def preview(args):
+    path = args.path
+    partial_plot(path)
+    plt.show()
 
 
 def prep_ray():

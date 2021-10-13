@@ -91,8 +91,8 @@ def load_previous_spectrum(prev_data_dir: str) -> np.ndarray:
 
 
 @cache
-def load_spectrum(folder: os.PathLike) -> np.ndarray:
-    return np.load(folder)
+def load_spectrum(file: os.PathLike) -> np.ndarray:
+    return np.load(file)
 
 
 def conform_toml_path(path: os.PathLike) -> str:

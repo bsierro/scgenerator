@@ -747,7 +747,7 @@ class Evaluator:
             else:
                 default = self.get_default(target)
                 if default is None:
-                    error = NoDefaultError(prefix + f"No default provided for {target}")
+                    error = NoDefaultError(prefix + f"No default provided for {target}. Current lookup cycle : {self.__curent_lookup!r}")
                 else:
                     value = default
                     self.set_value(target, value, 0)

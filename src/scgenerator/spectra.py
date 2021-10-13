@@ -191,24 +191,26 @@ class SimulationSeries:
             out = [self.spectra(i, sim_ind) for i in range(self.total_num_steps)]
         else:
             if isinstance(z_descr, (float, np.floating)):
-                if self.z[0] <= z_descr <= self.z[-1]:
-                    z_ind = self.z_inds[np.argmin(np.abs(self.z - z_descr))]
-                elif 0 <= z_descr < self.z[0]:
-                    return self.previous.spectra(z_descr, sim_ind)
-                else:
-                    raise ValueError(
-                        f"cannot match z={z_descr} with max length of {self.total_length}"
-                    )
+                return self.spectra(self.z_ind(z_descr), sim_ind)
             else:
                 z_ind = z_descr
-
-            if z_ind < self.z_inds[0]:
+            if 0 <= z_ind < self.z_inds[0]:
                 return self.previous.spectra(z_ind, sim_ind)
+            elif z_ind < 0:
+                z_ind = self.total_num_steps + z_ind
             if sim_ind is None:
                 out = [self._load_1(z_ind, i) for i in range(self.params.repeat)]
             else:
                 out = self._load_1(z_ind)
         return Spectrum(out, self.params)
+
+    def z_ind(self, pos: float) -> int:
+        if self.z[0] <= pos <= self.z[-1]:
+            return self.z_inds[np.argmin(np.abs(self.z - pos))]
+        elif 0 <= pos < self.z[0]:
+            return self.previous.z_ind(pos)
+        else:
+            raise ValueError(f"cannot match z={pos} with max length of {self.total_length}")
 
     def fields(
         self, z_descr: Union[float, int, None] = None, sim_ind: Optional[int] = 0

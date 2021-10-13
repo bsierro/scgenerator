@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from typing import Any, Callable, Literal, Optional, Union
 
@@ -10,12 +11,13 @@ from scipy.interpolate import UnivariateSpline
 from scipy.interpolate.interpolate import interp1d
 
 from . import math
-from .const import PARAM_SEPARATOR
+from ._utils import load_spectrum
+from ._utils.parameter import Parameters
+from ._utils.utils import PlotRange, sort_axis
+from .const import PARAM_SEPARATOR, SPEC1_FN
 from .defaults import default_plotting as defaults
 from .math import abs2, span
 from .physics import pulse, units
-from ._utils.parameter import Parameters
-from ._utils.utils import PlotRange, sort_axis
 
 RangeType = tuple[float, float, Union[str, Callable]]
 NO_LIM = object()
@@ -1061,3 +1063,18 @@ def measure_and_annotate_fwhm(
         va="center",
     )
     return right - left
+
+
+def partial_plot(root: os.PathLike):
+    fig, (left, right) = plt.subplots(1, 2, figsize=(12, 8))
+    path = Path(root)
+    spec_list = sorted(
+        path.glob(SPEC1_FN.format("*")), key=lambda el: int(re.search("[0-9]+", el.name)[0])
+    )
+    print(spec_list)
+    raw_values = np.array([load_spectrum(s) for s in spec_list])
+    specs = units.to_log2D(math.abs2(np.fft.fftshift(raw_values)))
+    fields = math.abs2(np.fft.ifft(raw_values))
+    left.imshow(specs, origin="lower", aspect="auto", vmin=-60, interpolation="nearest")
+    right.imshow(fields, origin="lower", aspect="auto", interpolation="nearest")
+    return left, right

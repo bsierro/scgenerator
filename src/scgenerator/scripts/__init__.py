@@ -131,13 +131,21 @@ def plot_init(
     finish_plot(fig, tr, all_labels, params)
 
 
-def plot_1_init_spec_field(lim_t, lim_l, left, right, style, lbl, params):
+def plot_1_init_spec_field(
+    lim_t: Optional[tuple[float, float]],
+    lim_l: Optional[tuple[float, float]],
+    left: plt.Axes,
+    right: plt.Axes,
+    style: dict[str, Any],
+    lbl: str,
+    params: Parameters,
+):
     field = math.abs2(params.field_0)
     spec = math.abs2(params.spec_0)
     t = units.To.fs(params.t)
     wl = units.To.nm(params.w)
 
-    lbl.append(f"max at {wl[spec.argmax()]:.1f} nm")
+    lbl += f" max at {wl[spec.argmax()]:.1f} nm"
 
     mt = np.ones_like(t, dtype=bool)
     if lim_t is not None:
@@ -173,9 +181,9 @@ def plot_1_dispersion(
     zdw = math.all_zeros(wl, beta_arr)
     if len(zdw) > 0:
         zdw = zdw[np.argmin(abs(zdw - params.wavelength))]
-        lbl.append(f"ZDW at {zdw:.1f}nm")
+        lbl += f" ZDW at {zdw*1e9:.1f}nm"
     else:
-        lbl.append("")
+        lbl += ""
 
     m = np.ones_like(wl, dtype=bool)
     if lim is None:
@@ -226,18 +234,13 @@ def plot_1_dispersion(
     return lbl
 
 
-def finish_plot(fig, legend_axes, all_labels, params):
+def finish_plot(fig: plt.Figure, legend_axes: plt.Axes, all_labels: list[str], params: Parameters):
     fig.suptitle(params.name)
     plt.tight_layout()
 
     handles, _ = legend_axes.get_legend_handles_labels()
-    lbl_lengths = [[len(l) for l in lbl] for lbl in all_labels]
-    lengths = np.max(lbl_lengths, axis=0)
-    labels = [
-        " ".join(format(l, f">{int(s)}s") for s, l in zip(lengths, lab)) for lab in all_labels
-    ]
 
-    legend = legend_axes.legend(handles, labels, prop=dict(size=8, family="monospace"))
+    legend = legend_axes.legend(handles, all_labels, prop=dict(size=8, family="monospace"))
 
     out_path = env.output_path()
 
@@ -258,10 +261,9 @@ def finish_plot(fig, legend_axes, all_labels, params):
 
 def plot_helper(config_path: Path) -> Iterable[tuple[dict, list[str], Parameters]]:
     cc = cycler(color=[f"C{i}" for i in range(10)]) * cycler(ls=["-", "--"])
-    pseq = Configuration(_open_config(config_path))
-    for style, (variables, params) in zip(cc, pseq):
-        lbl = [pretty_format_value(name, value) for name, value in variables[1:-1]]
-        yield style, lbl, params
+    for style, (descriptor, params) in zip(cc, Configuration(config_path)):
+        params.compute()
+        yield style, descriptor.branch.formatted_descriptor(), params
 
 
 def convert_params(params_file: os.PathLike):

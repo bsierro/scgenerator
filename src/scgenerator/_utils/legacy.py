@@ -2,7 +2,6 @@ from genericpath import exists
 import os
 import sys
 from pathlib import Path
-from pprint import pprint
 from typing import Any, Set
 
 import numpy as np
@@ -10,7 +9,7 @@ import toml
 
 from ..const import PARAM_FN, SPEC1_FN, SPEC1_FN_N, SPECN_FN1, Z_FN
 from .parameter import Configuration, Parameters
-from .utils import fiber_folder, save_parameters
+from .utils import save_parameters
 from .pbar import PBars
 from .variationer import VariationDescriptor, Variationer
 
@@ -24,14 +23,22 @@ def load_config(path: os.PathLike) -> dict[str, Any]:
 
 def load_config_sequence(path: os.PathLike) -> tuple[list[Path], list[dict[str, Any]]]:
     paths = sorted(list(Path(path).glob("initial_config*.toml")))
-    return paths, [load_config(cfg) for cfg in paths]
+    confs = [load_config(cfg) for cfg in paths]
+    repeat = None
+    for c in confs:
+        nums = c["variable"].pop("num", None)
+        if nums is not None:
+            repeat = len(nums)
+    if repeat is not None:
+        confs[0]["repeat"] = repeat
+    return paths, confs
 
 
 def convert_sim_folder(path: os.PathLike):
     path = Path(path).resolve()
     new_root = path.parent / "sc_legagy_converter" / path.name
     os.makedirs(new_root, exist_ok=True)
-    config_paths, configs = load_config_sequence(path)
+    _, configs = load_config_sequence(path)
     master_config = dict(name=path.name, Fiber=configs)
     with open(new_root / "initial_config.toml", "w") as f:
         toml.dump(master_config, f, encoder=toml.TomlNumpyEncoder())
@@ -43,6 +50,8 @@ def convert_sim_folder(path: os.PathLike):
     old2new: list[tuple[Path, VariationDescriptor, Parameters, tuple[int, int]]] = []
     for descriptor, params in configuration.iterate_single_fiber(-1):
         old_path = path / descriptor.branch.formatted_descriptor()
+        if old_path in old_paths:
+            continue
         if not Path(old_path).is_dir():
             raise FileNotFoundError(f"missing {old_path} from {path}. Aborting.")
         old_paths.add(old_path)
@@ -51,7 +60,6 @@ def convert_sim_folder(path: os.PathLike):
             z_limits = (z_num_start, z_num_start + params.z_num)
             old2new.append((old_path, d, new_paths[d], z_limits))
 
-    processed_paths: Set[Path] = set()
     processed_specs: Set[VariationDescriptor] = set()
 
     for old_path, descr, new_params, (start_z, end_z) in old2new:
@@ -64,17 +72,7 @@ def convert_sim_folder(path: os.PathLike):
             old_spec = old_path / SPECN_FN1.format(spec_num)
             if move_specs:
                 _mv_specs(pbar, new_params, start_z, spec_num, old_spec)
-            old_spec.unlink()
-        if old_path not in processed_paths:
-            (old_path / PARAM_FN).unlink()
-            (old_path / Z_FN).unlink()
-            processed_paths.add(old_path)
-
-    for old_path in processed_paths:
-        old_path.rmdir()
-
-    for cp in config_paths:
-        cp.unlink()
+    pbar.close()
 
 
 def _mv_specs(pbar: PBars, new_params: Parameters, start_z: int, spec_num: int, old_spec: Path):
@@ -82,12 +80,10 @@ def _mv_specs(pbar: PBars, new_params: Parameters, start_z: int, spec_num: int, 
     spec_data = np.load(old_spec)
     for j, spec1 in enumerate(spec_data):
         if j == 0:
-            np.save(new_params.final_path / SPEC1_FN.format(spec_num - start_z), spec1)
+            new_path = new_params.final_path / SPEC1_FN.format(spec_num - start_z)
         else:
-            np.save(
-                new_params.final_path / SPEC1_FN_N.format(spec_num - start_z, j),
-                spec1,
-            )
+            new_path = new_params.final_path / SPEC1_FN_N.format(spec_num - start_z, j)
+        np.save(new_path, spec1)
         pbar.update()
 
 
