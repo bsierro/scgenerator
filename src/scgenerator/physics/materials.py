@@ -195,8 +195,27 @@ def non_linear_refractive_index(material_dico, pressure=None, temperature=None):
         ratio = N / N0
     else:
         ratio = 1
-
     return ratio * n2_ref
+
+
+def gas_n2(gas_name: str, pressure: float, temperature: float) -> float:
+    """returns the nonlinear refractive index
+
+    Parameters
+    ----------
+    gas_name : str
+        gas name
+    pressure : float
+        pressure in Pa
+    temperature : float
+        temperature in K
+
+    Returns
+    -------
+    float
+        n2 in m2/W
+    """
+    return non_linear_refractive_index(_utils.load_material_dico(gas_name), pressure, temperature)
 
 
 def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:

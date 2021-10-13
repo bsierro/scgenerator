@@ -1071,9 +1071,8 @@ def partial_plot(root: os.PathLike):
     spec_list = sorted(
         path.glob(SPEC1_FN.format("*")), key=lambda el: int(re.search("[0-9]+", el.name)[0])
     )
-    print(spec_list)
     raw_values = np.array([load_spectrum(s) for s in spec_list])
-    specs = units.to_log2D(math.abs2(np.fft.fftshift(raw_values)))
+    specs = units.to_log2D(math.abs2(np.fft.fftshift(raw_values, axes=-1)))
     fields = math.abs2(np.fft.ifft(raw_values))
     left.imshow(specs, origin="lower", aspect="auto", vmin=-60, interpolation="nearest")
     right.imshow(fields, origin="lower", aspect="auto", interpolation="nearest")

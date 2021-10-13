@@ -355,7 +355,7 @@ class Parameters(_AbstractParameters):
     # # fiber
     input_transmission: float = Parameter(in_range_incl(0, 1), default=1.0)
     gamma: float = Parameter(non_negative(float, int))
-    n2: float = Parameter(non_negative(float, int), default=2.2e-20)
+    n2: float = Parameter(non_negative(float, int))
     loss: str = Parameter(literal("capillary"))
     loss_file: str = Parameter(string)
     effective_mode_diameter: float = Parameter(positive(float, int))
@@ -702,9 +702,7 @@ class Evaluator:
                 error = None
 
             # try every rule until one succeeds
-            for ii, rule in enumerate(
-                filter(lambda r: self.validate_condition(r), self.rules[target])
-            ):
+            for ii, rule in enumerate(filter(self.validate_condition, self.rules[target])):
                 self.logger.debug(
                     prefix + f"attempt {ii+1} to compute {target}, this time using {rule!r}"
                 )
@@ -747,9 +745,13 @@ class Evaluator:
             else:
                 default = self.get_default(target)
                 if default is None:
-                    error = NoDefaultError(prefix + f"No default provided for {target}. Current lookup cycle : {self.__curent_lookup!r}")
+                    error = NoDefaultError(
+                        prefix
+                        + f"No default provided for {target}. Current lookup cycle : {self.__curent_lookup!r}"
+                    )
                 else:
                     value = default
+                    self.logger.info(f"using default value of {value} for {target}")
                     self.set_value(target, value, 0)
 
             if value is None and error is not None:
@@ -1138,6 +1140,8 @@ default_rules: list[Rule] = [
     ),
     Rule("gamma", lambda gamma_arr: gamma_arr[0]),
     Rule("gamma_arr", fiber.gamma_parameter, ["n2", "w0", "A_eff_arr"]),
+    Rule("n2", materials.gas_n2),
+    Rule("n2", lambda: 2.2e-20, priorities=-1),
     # Fiber loss
     Rule("alpha_arr", fiber.compute_capillary_loss),
     Rule("alpha_arr", fiber.load_custom_loss),

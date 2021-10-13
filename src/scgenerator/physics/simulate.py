@@ -138,6 +138,7 @@ class RK4IP:
                     self.C_to_A_factor * spectrum, self.dw
                 )
         else:
+            self.logger.debug(f"Using constant step size of {1e6*self.error_ok:.3f}")
             self.conserved_quantity_func = lambda spectrum, h: 0.0
 
     def _setup_sim_parameters(self):
