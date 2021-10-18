@@ -7,11 +7,14 @@ from ..logger import get_logger
 from . import units
 from .. import _utils
 from .units import NA, c, kB, me, e, hbar
+from .._utils.cache import np_cache
 
 
+@np_cache
 def n_gas_2(
     wl_for_disp: np.ndarray, gas_name: str, pressure: float, temperature: float, ideal_gas: bool
 ):
+    """Returns the sqare of the index of refraction of the specified gas"""
     material_dico = _utils.load_material_dico(gas_name)
 
     if ideal_gas:

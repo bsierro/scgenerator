@@ -7,28 +7,23 @@ scgenerator module but some function may be used in any python program
 from __future__ import annotations
 
 import itertools
-import multiprocessing
 import os
-import random
-import re
-import shutil
-import threading
 from collections import abc
-from io import StringIO
 from pathlib import Path
 from string import printable as str_printable
 from functools import cache
-from typing import Any, Callable, Generator, Iterable, MutableMapping, Sequence, TypeVar, Union
+from typing import Any, MutableMapping, Sequence, TypeVar
 
 
 import numpy as np
+from numpy.lib.arraysetops import isin
 import pkg_resources as pkg
 import toml
 from tqdm import tqdm
+import itertools
 
-from .pbar import PBars
-from ..const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, SPECN_FN1, Z_FN, __version__
-from ..env import pbar_policy
+
+from ..const import SPEC1_FN, __version__
 from ..logger import get_logger
 
 T_ = TypeVar("T_")
@@ -95,11 +90,11 @@ def load_spectrum(file: os.PathLike) -> np.ndarray:
     return np.load(file)
 
 
-def conform_toml_path(path: os.PathLike) -> str:
+def conform_toml_path(path: os.PathLike) -> Path:
     path: str = str(path)
     if not path.lower().endswith(".toml"):
         path = path + ".toml"
-    return path
+    return Path(path)
 
 
 def open_single_config(path: os.PathLike) -> dict[str, Any]:
@@ -116,13 +111,20 @@ def _open_config(path: os.PathLike):
     path = conform_toml_path(path)
     dico = resolve_loadfile_arg(load_toml(path))
 
-    dico.setdefault("variable", {})
-    for key in {"simulation", "fiber", "gas", "pulse"} & dico.keys():
-        section = dico.pop(key)
-        dico["variable"].update(section.pop("variable", {}))
-        dico.update(section)
-    if len(dico["variable"]) == 0:
-        dico.pop("variable")
+    dico = standardize_variable_dicts(dico)
+    if "Fiber" not in dico:
+        dico = dict(name=path.name, Fiber=[dico])
+    return dico
+
+
+def standardize_variable_dicts(dico: dict[str, Any]):
+    if "Fiber" in dico:
+        dico["Fiber"] = [standardize_variable_dicts(fiber) for fiber in dico["Fiber"]]
+    if (var := dico.get("variable")) is not None:
+        if isinstance(var, MutableMapping):
+            dico["variable"] = [var]
+    else:
+        dico["variable"] = [{}]
     return dico
 
 
@@ -194,14 +196,18 @@ def load_config_sequence(path: os.PathLike) -> tuple[Path, list[dict[str, Any]]]
     final_path = loaded_config.get("name")
     configs = []
     for i, params in enumerate(fiber_list):
-        params.setdefault("variable", {})
         configs.append(loaded_config | params)
-    configs[0]["variable"] = loaded_config.get("variable", {}) | configs[0]["variable"]
-    configs[0]["variable"]["num"] = list(range(configs[0].get("repeat", 1)))
-
+    for root_vary, first_vary in itertools.product(
+        loaded_config["variable"], configs[0]["variable"]
+    ):
+        if len(common := root_vary.keys() & first_vary.keys()) != 0:
+            raise ValueError(f"These variable keys are specified twice : {common!r}")
+    configs[0] |= {k: v for k, v in loaded_config.items() if k != "variable"}
+    configs[0]["variable"].append(dict(num=list(range(configs[0].get("repeat", 1)))))
     return Path(final_path), configs
 
 
+@cache
 def load_material_dico(name: str) -> dict[str, Any]:
     """loads a material dictionary
     Parameters

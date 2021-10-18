@@ -153,6 +153,9 @@ capillary_spacing : float, optional if d is specified
 capillary_resonance_strengths : list, optional
     list of resonance strengths. Default is []
 
+capillary_resonance_max_order : int, optional
+    max order of resonance strengths to be deduced
+
 capillary_nested : int, optional
     how many nested capillaries. Default is 0
 

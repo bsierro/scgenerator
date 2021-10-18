@@ -489,12 +489,12 @@ class Simulations:
         self.sim_jobs_per_node = 1
 
     def finished_and_complete(self):
-        for sim in self.configuration.all_configs.values():
-            if (
-                self.configuration.sim_status(sim.output_path)[0]
-                != self.configuration.State.COMPLETE
-            ):
-                return False
+        # for sim in self.configuration.all_configs.values():
+        #     if (
+        #         self.configuration.sim_status(sim.output_path)[0]
+        #         != self.configuration.State.COMPLETE
+        #     ):
+        #         return False
         return True
 
     def run(self):

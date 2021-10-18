@@ -59,6 +59,7 @@ VALID_VARIABLE = {
     "capillary_thickness",
     "capillary_spacing",
     "capillary_resonance_strengths",
+    "capillary_resonance_max_order",
     "capillary_nested",
     "he_mode",
     "fit_parameters",
@@ -377,7 +378,10 @@ class Parameters(_AbstractParameters):
     capillary_radius: float = Parameter(in_range_excl(0, 1e-3))
     capillary_thickness: float = Parameter(in_range_excl(0, 1e-3))
     capillary_spacing: float = Parameter(in_range_excl(0, 1e-3))
-    capillary_resonance_strengths: Iterable[float] = Parameter(num_list, default=[])
+    capillary_resonance_strengths: Iterable[float] = Parameter(
+        validator_list(type_checker(int, float, np.ndarray))
+    )
+    capillary_resonance_max_order: int = Parameter(non_negative(int), default=0)
     capillary_nested: int = Parameter(non_negative(int), default=0)
 
     # gas
@@ -468,12 +472,12 @@ class Parameters(_AbstractParameters):
         param_dict = {k: v for k, v in asdict(self).items() if v is not None}
         evaluator = Evaluator.default()
         evaluator.set(**param_dict)
-        for p_name in to_compute:
-            evaluator.compute(p_name)
+        results = [evaluator.compute(p_name) for p_name in to_compute]
         valid_fields = self.all_parameters()
         for k, v in evaluator.params.items():
             if k in valid_fields:
                 setattr(self, k, v)
+        return results
 
     @classmethod
     def all_parameters(cls) -> list[str]:
@@ -481,7 +485,7 @@ class Parameters(_AbstractParameters):
 
     @classmethod
     def load(cls, path: os.PathLike) -> "Parameters":
-        return cls(**utils._open_config(path))
+        return cls(**utils.load_toml(path))
 
     @classmethod
     def load_and_compute(cls, path: os.PathLike) -> "Parameters":
@@ -870,8 +874,8 @@ class Configuration:
             config.setdefault("name", Parameters.name.default)
             self.z_num += config["z_num"]
             fiber_names.add(config["name"])
-            vary_dict = config.pop("variable")
-            self.variationer.append(vary_dict)
+            vary_dict_list: list[dict[str, list]] = config.pop("variable")
+            self.variationer.append(vary_dict_list)
             self.fiber_paths.append(
                 utils.ensure_folder(
                     self.final_path / fiber_folder(i, self.name, config["name"]),
@@ -879,10 +883,13 @@ class Configuration:
                     prevent_overwrite=not self.overwrite,
                 )
             )
-            self.__validate_variable(vary_dict)
+            self.__validate_variable(vary_dict_list)
             self.num_fibers += 1
             Evaluator.evaluate_default(
-                self.__build_base_config() | config | {k: v[0] for k, v in vary_dict.items()}, True
+                self.__build_base_config()
+                | config
+                | {k: v[0] for vary_dict in vary_dict_list for k, v in vary_dict.items()},
+                True,
             )
         self.num_sim = self.variationer.var_num()
         self.total_num_steps = sum(
@@ -893,17 +900,18 @@ class Configuration:
 
     def __build_base_config(self):
         cfg = self.master_config.copy()
-        vary = cfg.pop("variable", {})
-        return cfg | {k: v[0] for k, v in vary.items()}
+        vary: list[dict[str, list]] = cfg.pop("variable")
+        return cfg | {k: v[0] for vary_dict in vary for k, v in vary_dict.items()}
 
-    def __validate_variable(self, vary_dict: dict[str, list]):
-        for k, v in vary_dict.items():
-            p = getattr(Parameters, k)
-            validator_list(p.validator)("variable " + k, v)
-            if k not in VALID_VARIABLE:
-                raise TypeError(f"{k!r} is not a valid variable parameter")
-            if len(v) == 0:
-                raise ValueError(f"variable parameter {k!r} must not be empty")
+    def __validate_variable(self, vary_dict_list: list[dict[str, list]]):
+        for vary_dict in vary_dict_list:
+            for k, v in vary_dict.items():
+                p = getattr(Parameters, k)
+                validator_list(p.validator)("variable " + k, v)
+                if k not in VALID_VARIABLE:
+                    raise TypeError(f"{k!r} is not a valid variable parameter")
+                if len(v) == 0:
+                    raise ValueError(f"variable parameter {k!r} must not be empty")
 
     def __iter__(self) -> Iterator[tuple[VariationDescriptor, Parameters]]:
         for i in range(self.num_fibers):
@@ -1116,6 +1124,8 @@ default_rules: list[Rule] = [
         conditions=dict(model="pcf"),
     ),
     Rule("capillary_spacing", fiber.capillary_spacing_hasan),
+    Rule("capillary_resonance_strengths", fiber.capillary_resonance_strengths),
+    Rule("capillary_resonance_strengths", lambda: [], priorities=-1),
     # Fiber nonlinearity
     Rule("A_eff", fiber.A_eff_from_V),
     Rule("A_eff", fiber.A_eff_from_diam),

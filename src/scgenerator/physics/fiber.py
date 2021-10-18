@@ -196,6 +196,60 @@ def capillary_spacing_hasan(
     )
 
 
+def resonance_thickness(
+    wl_for_disp: np.ndarray, order: int, n_gas_2: np.ndarray, core_radius: float
+) -> float:
+    """computes at which wall thickness the specified wl is resonant
+
+    Parameters
+    ----------
+    wl_for_disp : np.ndarray
+        in m
+    order : int
+        0, 1, ...
+    n_gas_2 : np.ndarray
+        as returned by materials.n_gas_2
+    core_radius : float
+        in m
+
+    Returns
+    -------
+    float
+        thickness in m
+    """
+    n_si_2 = mat.n_gas_2(wl_for_disp, "silica", None, None, True)
+    return (
+        wl_for_disp
+        / (4 * np.sqrt(n_si_2))
+        * (2 * order + 1)
+        * (1 - n_gas_2 / n_si_2 + wl_for_disp ** 2 / (4 * n_si_2 * core_radius ** 2)) ** -0.5
+    )
+
+
+def resonance_strength(
+    wl_for_disp: np.ndarray, core_radius: float, capillary_thickness: float, order: int
+) -> float:
+    a = 1.83 + (2.3 * capillary_thickness / core_radius)
+    n_si = np.sqrt(mat.n_gas_2(wl_for_disp, "silica", None, None, True))
+    return (
+        capillary_thickness
+        / (n_si * core_radius) ** (2.303 * a / n_si)
+        * ((order + 2) / (3 * order)) ** (3.57 * a)
+    )
+
+
+def capillary_resonance_strengths(
+    wl_for_disp: np.ndarray,
+    core_radius: float,
+    capillary_thickness: float,
+    capillary_resonance_max_order: int,
+) -> list[float]:
+    return [
+        resonance_strength(wl_for_disp, core_radius, capillary_thickness, o)
+        for o in range(1, capillary_resonance_max_order + 1)
+    ]
+
+
 @np_cache
 def n_eff_hasan(
     wl_for_disp: np.ndarray,
@@ -238,6 +292,7 @@ def n_eff_hasan(
     Hasan, Md Imran, Nail Akhmediev, and Wonkeun Chang. "Empirical formulae for dispersion and effective mode area in hollow-core antiresonant fibers." Journal of Lightwave Technology 36.18 (2018): 4060-4065.
     """
     u = u_nm(1, 1)
+    alpha = 5e-12
 
     Rg = core_radius / capillary_spacing
 
@@ -257,7 +312,7 @@ def n_eff_hasan(
             n_eff_2 += (
                 strength
                 * wl_for_disp ** 2
-                / (wl_for_disp ** 2 - chi_sil * (2 * capillary_thickness / (m + 1)) ** 2)
+                / (alpha + wl_for_disp ** 2 - chi_sil * (2 * capillary_thickness / (m + 1)) ** 2)
             )
 
     return np.sqrt(n_eff_2)

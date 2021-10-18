@@ -76,12 +76,13 @@ class Variationer:
         num_vars = []
         for d in var_list:
             values = list(d.values())
-            len_to_test = len(values[0])
-            if not all(len(v) == len_to_test for v in values[1:]):
-                raise VariationSpecsError(
-                    f"variable items should all have the same number of parameters"
-                )
-            num_vars.append(len_to_test)
+            if len(values) > 0:
+                len_to_test = len(values[0])
+                if not all(len(v) == len_to_test for v in values[1:]):
+                    raise VariationSpecsError(
+                        f"variable items should all have the same number of parameters"
+                    )
+                num_vars.append(len_to_test)
         if len(num_vars) == 0:
             num_vars = [1]
         self.all_indices.append(num_vars)

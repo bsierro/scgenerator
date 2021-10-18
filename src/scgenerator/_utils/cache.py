@@ -6,6 +6,14 @@ import numpy as np
 CacheInfo = namedtuple("CacheInfo", "hits misses size")
 
 
+def make_arg_hashable(arg):
+    if isinstance(arg, np.ndarray):
+        return arg.tobytes()
+    elif isinstance(arg, list):
+        return tuple(make_arg_hashable(a) for a in arg)
+    return arg
+
+
 def np_cache(func):
     def new_cached_func():
         cache = {}
@@ -14,15 +22,8 @@ def np_cache(func):
         @wraps(func)
         def wrapped(*args, **kwargs):
             nonlocal cache, hits, misses
-            hashable_args = tuple(
-                tuple(arg) if isinstance(arg, (np.ndarray, list)) else arg for arg in args
-            )
-            hashable_kwargs = tuple(
-                {
-                    k: tuple(kwarg) if isinstance(kwarg, (np.ndarray, list)) else kwarg
-                    for k, kwarg in kwargs.items()
-                }.items()
-            )
+            hashable_args = tuple(make_arg_hashable(a) for a in args)
+            hashable_kwargs = tuple({k: make_arg_hashable(a) for k, a in kwargs.items()}.items())
             key = hash((hashable_args, hashable_kwargs))
             if key not in cache:
                 misses += 1
