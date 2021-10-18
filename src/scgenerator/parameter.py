@@ -8,34 +8,22 @@ import os
 import re
 import time
 from collections import defaultdict
-from copy import copy, deepcopy
+from copy import copy
 from dataclasses import asdict, dataclass, fields
-from functools import cache, lru_cache
+from functools import lru_cache
 from pathlib import Path
-from typing import (
-    Any,
-    Callable,
-    Generator,
-    Iterable,
-    Iterator,
-    Literal,
-    Optional,
-    Sequence,
-    TypeVar,
-    Union,
-)
+from typing import Any, Callable, Iterable, Iterator, Optional, TypeVar, Union
 
 import numpy as np
 from numpy.lib import isin
 
-from .. import _utils as utils
-from .. import env, math
-from .._utils.variationer import VariationDescriptor, Variationer
-from ..const import PARAM_FN, PARAM_SEPARATOR, __version__
-from ..errors import EvaluatorError, NoDefaultError
-from ..logger import get_logger
-from ..physics import fiber, materials, pulse, units
+from . import env, math, utils
+from .const import PARAM_FN, __version__
+from .errors import EvaluatorError, NoDefaultError
+from .logger import get_logger
+from .physics import fiber, materials, pulse, units
 from .utils import _mock_function, fiber_folder, func_rewrite, get_arg_names, update_path
+from .variationer import VariationDescriptor, Variationer
 
 T = TypeVar("T")
 

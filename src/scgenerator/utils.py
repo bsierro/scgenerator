@@ -3,32 +3,26 @@ This files includes utility functions designed more or less to be used specifica
 scgenerator module but some function may be used in any python program
 
 """
-
 from __future__ import annotations
-
+from dataclasses import dataclass
+import inspect
 import itertools
 import os
-from collections import abc
+import re
+from collections import defaultdict
+from functools import cache
 from pathlib import Path
 from string import printable as str_printable
-from functools import cache
-from typing import Any, MutableMapping, Sequence, TypeVar
-
+from typing import Any, Callable, MutableMapping, Sequence, TypeVar
 
 import numpy as np
-from numpy.lib.arraysetops import isin
 import pkg_resources as pkg
 import toml
-from tqdm import tqdm
-import itertools
 
-
-from ..const import SPEC1_FN, __version__
-from ..logger import get_logger
+from .const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, Z_FN
+from .logger import get_logger
 
 T_ = TypeVar("T_")
-
-PathTree = list[tuple[Path, ...]]
 
 
 class Paths:
@@ -77,6 +71,42 @@ class Paths:
         fig.savefig(Paths.plot("figure5.pdf"))
         """
         return os.path.join(cls.get("plots"), name)
+
+
+class ConfigFileParser:
+    path: Path
+    repeat: int
+    master: ConfigFileParser.SubConfig
+    configs: list[ConfigFileParser.SubConfig]
+
+    @dataclass
+    class SubConfig:
+        fixed: dict[str, Any]
+        variable: dict[str, list]
+
+    def __init__(self, path: os.PathLike):
+        self.path = Path(path)
+        fiber_list: list[dict[str, Any]]
+        if self.path.name.lower().endswith(".toml"):
+            loaded_config = _open_config(self.path)
+            fiber_list = loaded_config.pop("Fiber")
+        else:
+            loaded_config = dict(name=self.path.name)
+            fiber_list = [_open_config(p) for p in sorted(self.path.glob("initial_config*.toml"))]
+
+        if len(fiber_list) == 0:
+            raise ValueError(f"No fiber in config {self.path}")
+        final_path = loaded_config.get("name")
+        configs = []
+        for i, params in enumerate(fiber_list):
+            configs.append(loaded_config | params)
+        for root_vary, first_vary in itertools.product(
+            loaded_config["variable"], configs[0]["variable"]
+        ):
+            if len(common := root_vary.keys() & first_vary.keys()) != 0:
+                raise ValueError(f"These variable keys are specified twice : {common!r}")
+        configs[0] |= {k: v for k, v in loaded_config.items() if k != "variable"}
+        configs[0]["variable"].append(dict(num=list(range(configs[0].get("repeat", 1)))))
 
 
 def load_previous_spectrum(prev_data_dir: str) -> np.ndarray:
@@ -329,3 +359,166 @@ def translate_parameters(d: dict[str, Any]) -> dict[str, Any]:
         else:
             new[old_names.get(k, k)] = v
     return defaults_to_add | new
+
+
+def to_62(i: int) -> str:
+    arr = []
+    if i == 0:
+        return "0"
+    i = abs(i)
+    while i:
+        i, value = divmod(i, 62)
+        arr.append(str_printable[value])
+    return "".join(reversed(arr))
+
+
+def get_arg_names(func: Callable) -> list[str]:
+    # spec = inspect.getfullargspec(func)
+    # args = spec.args
+    # if spec.defaults is not None and len(spec.defaults) > 0:
+    #     args = args[: -len(spec.defaults)]
+    # return args
+    return [k for k, v in inspect.signature(func).parameters.items() if v.default is inspect._empty]
+
+
+def validate_arg_names(names: list[str]):
+    for n in names:
+        if re.match(r"^[^\s\-'\(\)\"\d][^\(\)\-\s'\"]*$", n) is None:
+            raise ValueError(f"{n} is an invalid parameter name")
+
+
+def func_rewrite(func: Callable, kwarg_names: list[str], arg_names: list[str] = None) -> Callable:
+    if arg_names is None:
+        arg_names = get_arg_names(func)
+    else:
+        validate_arg_names(arg_names)
+    validate_arg_names(kwarg_names)
+    sign_arg_str = ", ".join(arg_names + kwarg_names)
+    call_arg_str = ", ".join(arg_names + [f"{s}={s}" for s in kwarg_names])
+    tmp_name = f"{func.__name__}_0"
+    func_str = f"def {tmp_name}({sign_arg_str}):\n    return __func__({call_arg_str})"
+    scope = dict(__func__=func)
+    exec(func_str, scope)
+    out_func = scope[tmp_name]
+    out_func.__module__ = "evaluator"
+    return out_func
+
+
+@cache
+def _mock_function(num_args: int, num_returns: int) -> Callable:
+    arg_str = ", ".join("a" * (n + 1) for n in range(num_args))
+    return_str = ", ".join("True" for _ in range(num_returns))
+    func_name = f"__mock_{num_args}_{num_returns}"
+    func_str = f"def {func_name}({arg_str}):\n    return {return_str}"
+    scope = {}
+    exec(func_str, scope)
+    out_func = scope[func_name]
+    out_func.__module__ = "evaluator"
+    return out_func
+
+
+def combine_simulations(path: Path, dest: Path = None):
+    """combines raw simulations into one folder per branch
+
+    Parameters
+    ----------
+    path : Path
+        source of the simulations (must contain u_xx directories)
+    dest : Path, optional
+        if given, moves the simulations to dest, by default None
+    """
+    paths: dict[str, list[Path]] = defaultdict(list)
+    if dest is None:
+        dest = path
+
+    for p in path.glob("u_*b_*"):
+        if p.is_dir():
+            paths[p.name.split()[1]].append(p)
+    for l in paths.values():
+        l.sort(key=lambda el: re.search(r"(?<=num )[0-9]+", el.name)[0])
+    for pulses in paths.values():
+        new_path = dest / update_path(pulses[0].name)
+        os.makedirs(new_path, exist_ok=True)
+        for num, pulse in enumerate(pulses):
+            params_ok = False
+            for file in pulse.glob("*"):
+                if file.name == PARAM_FN:
+                    if not params_ok:
+                        update_params(new_path, file)
+                        params_ok = True
+                    else:
+                        file.unlink()
+                elif file.name == Z_FN:
+                    file.rename(new_path / file.name)
+                elif file.name.startswith("spectr") and num == 0:
+                    file.rename(new_path / file.name)
+                else:
+                    file.rename(new_path / (file.stem + f"_{num}" + file.suffix))
+            pulse.rmdir()
+
+
+def update_params(new_path: Path, file: Path):
+    params = load_toml(file)
+    if (p := params.get("prev_data_dir")) is not None:
+        p = Path(p)
+        params["prev_data_dir"] = str(p.parent / update_path(p.name))
+    params["output_path"] = str(new_path)
+    save_toml(new_path / PARAM_FN, params)
+    file.unlink()
+
+
+def save_parameters(
+    params: dict[str, Any], destination_dir: Path, file_name: str = PARAM_FN
+) -> Path:
+    """saves a parameter dictionary. Note that is does remove some entries, particularly
+    those that take a lot of space ("t", "w", ...)
+
+    Parameters
+    ----------
+    params : dict[str, Any]
+        dictionary to save
+    destination_dir : Path
+        destination directory
+
+    Returns
+    -------
+    Path
+        path to newly created the paramter file
+    """
+    file_path = destination_dir / file_name
+    os.makedirs(file_path.parent, exist_ok=True)
+
+    # save toml of the simulation
+    with open(file_path, "w") as file:
+        toml.dump(params, file, encoder=toml.TomlNumpyEncoder())
+
+    return file_path
+
+
+def update_path(p: str) -> str:
+    return re.sub(r"( ?num [0-9]+)|(u_[0-9]+ )", "", p)
+
+
+def fiber_folder(i: int, sim_name: str, fiber_name: str) -> str:
+    return PARAM_SEPARATOR.join([format(i), sim_name, fiber_name])
+
+
+def simulations_list(path: os.PathLike) -> list[Path]:
+    """finds simulations folders contained in a parent directory
+
+    Parameters
+    ----------
+    path : os.PathLike
+        parent path
+
+    Returns
+    -------
+    list[Path]
+        Absolute Path to the simulation folder
+    """
+    paths: list[Path] = []
+    for pwd, _, files in os.walk(path):
+        if PARAM_FN in files:
+            paths.append(Path(pwd))
+    paths.sort(key=lambda el: el.parent.name)
+    return [p for p in paths if p.parent.name == paths[-1].parent.name]

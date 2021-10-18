@@ -7,7 +7,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .. import _utils as utils
+from .. import utils
 from .. import const, env, scripts
 from ..logger import get_logger
 from ..physics.fiber import dispersion_coefficients

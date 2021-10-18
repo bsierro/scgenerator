@@ -10,7 +10,7 @@ from typing import Iterable, Union
 
 from tqdm import tqdm
 
-from ..env import pbar_policy
+from .env import pbar_policy
 
 T_ = typing.TypeVar("T_")
 

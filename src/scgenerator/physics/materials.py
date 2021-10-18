@@ -1,13 +1,14 @@
 from typing import Any, Callable
+
 import numpy as np
 import scipy.special
 from scipy.integrate import cumulative_trapezoid
 
+from .. import utils
+from ..cache import np_cache
 from ..logger import get_logger
 from . import units
-from .. import _utils
-from .units import NA, c, kB, me, e, hbar
-from .._utils.cache import np_cache
+from .units import NA, c, e, hbar, kB, me
 
 
 @np_cache
@@ -15,7 +16,7 @@ def n_gas_2(
     wl_for_disp: np.ndarray, gas_name: str, pressure: float, temperature: float, ideal_gas: bool
 ):
     """Returns the sqare of the index of refraction of the specified gas"""
-    material_dico = _utils.load_material_dico(gas_name)
+    material_dico = utils.load_material_dico(gas_name)
 
     if ideal_gas:
         n_gas_2 = sellmeier(wl_for_disp, material_dico, pressure, temperature) + 1
@@ -218,7 +219,7 @@ def gas_n2(gas_name: str, pressure: float, temperature: float) -> float:
     float
         n2 in m2/W
     """
-    return non_linear_refractive_index(_utils.load_material_dico(gas_name), pressure, temperature)
+    return non_linear_refractive_index(utils.load_material_dico(gas_name), pressure, temperature)
 
 
 def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:

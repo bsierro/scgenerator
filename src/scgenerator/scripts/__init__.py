@@ -9,15 +9,11 @@ from tqdm import tqdm
 
 from .. import env, math
 from ..const import PARAM_FN, PARAM_SEPARATOR
+from ..parameter import Configuration, Parameters
 from ..physics import fiber, units
 from ..plotting import plot_setup
 from ..spectra import SimulationSeries
-from .._utils import auto_crop, _open_config, save_toml, translate_parameters
-from .._utils.parameter import (
-    Configuration,
-    Parameters,
-)
-from .._utils.utils import simulations_list
+from ..utils import _open_config, auto_crop, save_toml, simulations_list, translate_parameters
 
 
 def fingerprint(params: Parameters):

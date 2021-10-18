@@ -7,17 +7,13 @@ from pathlib import Path
 from typing import Any, Generator, Type, Union
 
 import numpy as np
-from send2trash import send2trash
 
-from .. import env
-from .. import _utils as utils
-from .._utils.utils import combine_simulations, save_parameters
+from .. import utils
 from ..logger import get_logger
-from .._utils.parameter import Configuration, Parameters
-from .._utils.pbar import PBars, ProgressBarActor, progress_worker
+from ..parameter import Configuration, Parameters
+from ..pbar import PBars, ProgressBarActor, progress_worker
 from . import pulse
 from .fiber import create_non_linear_op, fast_dispersion_op
-from scgenerator._utils import pbar
 
 try:
     import ray
@@ -505,7 +501,7 @@ class Simulations:
         for variable, params in self.configuration:
             params.compute()
             v_list_str = variable.formatted_descriptor(True)
-            save_parameters(params.prepare_for_dump(), Path(params.output_path))
+            utils.save_parameters(params.prepare_for_dump(), Path(params.output_path))
 
             self.new_sim(v_list_str, params)
         self.finish()
@@ -737,7 +733,7 @@ def run_simulation(
     sim.run()
 
     for path in config.fiber_paths:
-        combine_simulations(path)
+        utils.combine_simulations(path)
 
 
 def new_simulation(

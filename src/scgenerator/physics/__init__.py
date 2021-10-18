@@ -10,7 +10,8 @@ from scipy.optimize import minimize_scalar
 
 from .. import math
 from . import fiber, materials, units, pulse
-from .._utils import cache, load_material_dico
+from ..cache import np_cache
+from ..utils import load_material_dico
 
 T = TypeVar("T")
 
@@ -21,7 +22,7 @@ def group_delay_to_gdd(wavelength: np.ndarray, group_delay: np.ndarray) -> np.nd
     return gdd
 
 
-@cache.np_cache
+@np_cache
 def material_dispersion(
     wavelengths: np.ndarray,
     material: str,

@@ -3,7 +3,7 @@
 # to be used especially when giving plotting ranges : (400, 1400, nm), (-4, 8, ps), ...
 
 from typing import Callable, TypeVar, Union
-
+from operator import itemgetter
 import numpy as np
 from numpy import pi
 
@@ -274,3 +274,75 @@ def to_log2D(arr, ref=None):
     m = arr / ref
     m = 10 * np.log10(m, out=np.zeros_like(m) - 100, where=m > 0)
     return m
+
+
+class PlotRange(tuple):
+    left: float = property(itemgetter(0))
+    right: float = property(itemgetter(1))
+    unit: Callable[[float], float] = property(itemgetter(2))
+    conserved_quantity: bool = property(itemgetter(3))
+    __slots__ = []
+
+    def __new__(cls, left, right, unit, conserved_quantity=True):
+        return tuple.__new__(cls, (left, right, get_unit(unit), conserved_quantity))
+
+    def __iter__(self):
+        yield self.left
+        yield self.right
+        yield self.unit.__name__
+
+    def __repr__(self):
+        return "PlotRange" + super().__repr__()
+
+    def sort_axis(self, axis: np.ndarray) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
+        return sort_axis(axis, self)
+
+
+def sort_axis(
+    axis: np.ndarray, plt_range: PlotRange
+) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
+    """
+    given an axis, returns this axis cropped according to the given range, converted and sorted
+
+    Parameters
+    ----------
+    axis : 1D array containing the original axis (usual the w or t array)
+    plt_range : tupple (min, max, conversion_function) used to crop the axis
+
+    Returns
+    -------
+    cropped : the axis cropped, converted and sorted
+    indices : indices to use to slice and sort other array in the same fashion
+    extent : tupple with min and max of cropped
+
+    Example
+    -------
+    w = np.append(np.linspace(0, -10, 20), np.linspace(0, 10, 20))
+    t = np.linspace(-10, 10, 400)
+    W, T = np.meshgrid(w, t)
+    y = np.exp(-W**2 - T**2)
+
+    # Define ranges
+    rw = (-4, 4, s)
+    rt = (-2, 6, s)
+
+    w, cw = sort_axis(w, rw)
+    t, ct = sort_axis(t, rt)
+
+    # slice y according to the given ranges
+    y = y[ct][:, cw]
+    """
+    if not isinstance(plt_range, PlotRange):
+        plt_range = PlotRange(*plt_range)
+    r = np.array((plt_range.left, plt_range.right), dtype="float")
+
+    indices = np.arange(len(axis))[
+        (axis <= np.max(plt_range.unit(r))) & (axis >= np.min(plt_range.unit(r)))
+    ]
+    cropped = axis[indices]
+    order = np.argsort(plt_range.unit.inv(cropped))
+    indices = indices[order]
+    cropped = cropped[order]
+    out_ax = plt_range.unit.inv(cropped)
+
+    return out_ax, indices, (out_ax[0], out_ax[-1])

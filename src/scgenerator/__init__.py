@@ -1,25 +1,20 @@
 from . import math
+from .legacy import convert_sim_folder
 from .math import abs2, argclosest, span
+from .parameter import Configuration, Parameters
 from .physics import fiber, materials, pulse, simulate, units
 from .physics.simulate import RK4IP, parallel_RK4IP, run_simulation
+from .physics.units import PlotRange
 from .plotting import (
+    get_extent,
     mean_values_plot,
     plot_spectrogram,
     propagation_plot,
     single_position_plot,
-    transform_2D_propagation,
     transform_1D_values,
+    transform_2D_propagation,
     transform_mean_values,
-    get_extent,
 )
-from .spectra import Spectrum, SimulationSeries
-from ._utils import Paths, _open_config, parameter, open_single_config
-from ._utils.parameter import Configuration, Parameters
-from ._utils.utils import PlotRange
-from ._utils.legacy import convert_sim_folder
-from ._utils.variationer import (
-    Variationer,
-    VariationDescriptor,
-    VariationSpecsError,
-    DescriptorDict,
-)
+from .spectra import SimulationSeries, Spectrum
+from .utils import Paths, _open_config, open_single_config
+from .variationer import DescriptorDict, VariationDescriptor, Variationer, VariationSpecsError

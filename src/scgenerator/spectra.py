@@ -8,18 +8,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from . import math
-from ._utils import load_spectrum
-from ._utils.parameter import Parameters
-from ._utils.utils import PlotRange, simulations_list
 from .const import PARAM_FN, SPEC1_FN, SPEC1_FN_N
 from .logger import get_logger
+from .parameter import Parameters
 from .physics import pulse, units
+from .physics.units import PlotRange
 from .plotting import (
     mean_values_plot,
     propagation_plot,
     single_position_plot,
     transform_2D_propagation,
 )
+from .utils import load_spectrum, simulations_list
 
 
 class Spectrum(np.ndarray):

@@ -11,13 +11,13 @@ from scipy.interpolate import UnivariateSpline
 from scipy.interpolate.interpolate import interp1d
 
 from . import math
-from ._utils import load_spectrum
-from ._utils.parameter import Parameters
-from ._utils.utils import PlotRange, sort_axis
 from .const import PARAM_SEPARATOR, SPEC1_FN
 from .defaults import default_plotting as defaults
 from .math import abs2, span
+from .parameter import Parameters
 from .physics import pulse, units
+from .physics.units import PlotRange, sort_axis
+from .utils import load_spectrum
 
 RangeType = tuple[float, float, Union[str, Callable]]
 NO_LIM = object()

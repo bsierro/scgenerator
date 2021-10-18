@@ -1,20 +1,18 @@
 from typing import Any, Iterable, Literal, TypeVar
 
 import numpy as np
-from numpy.fft import fft, ifft
 from numpy import e
+from numpy.fft import fft, ifft
 from numpy.polynomial.chebyshev import Chebyshev, cheb2poly
 from scipy.interpolate import interp1d
 
+from .. import utils
+from ..cache import np_cache
 from ..logger import get_logger
-
-from .. import _utils as utils
 from ..math import abs2, argclosest, power_fact, u_nm
-from .._utils.cache import np_cache
 from . import materials as mat
 from . import units
 from .units import c, pi
-
 
 pipi = 2 * pi
 T = TypeVar("T")

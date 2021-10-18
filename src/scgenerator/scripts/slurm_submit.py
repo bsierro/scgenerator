@@ -9,8 +9,8 @@ from typing import Tuple
 
 import numpy as np
 
-from .._utils import Paths
-from .._utils.parameter import Configuration
+from ..utils import Paths
+from ..parameter import Configuration
 
 
 def primes(n):

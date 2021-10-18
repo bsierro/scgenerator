@@ -8,8 +8,7 @@ import numpy as np
 from pydantic import validator
 from pydantic.main import BaseModel
 
-from ..const import PARAM_SEPARATOR
-from . import utils
+from .const import PARAM_SEPARATOR
 
 T = TypeVar("T")
 
