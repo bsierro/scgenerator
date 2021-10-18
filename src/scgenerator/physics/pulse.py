@@ -289,6 +289,10 @@ def mean_power_to_energy(mean_power: float, repetition_rate: float) -> float:
     return mean_power / repetition_rate
 
 
+def energy_to_mean_power(energy: float, repetition_rate: float) -> float:
+    return energy * repetition_rate
+
+
 def soliton_num_to_peak_power(soliton_num, beta2, gamma, t0):
     return soliton_num ** 2 * abs(beta2) / (gamma * t0 ** 2)
 

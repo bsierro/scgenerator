@@ -54,6 +54,7 @@ VALID_VARIABLE = {
     "pitch_ratio",
     "effective_mode_diameter",
     "core_radius",
+    "model",
     "capillary_num",
     "capillary_radius",
     "capillary_thickness",
@@ -99,6 +100,7 @@ MANDATORY_PARAMETERS = [
     "alpha",
     "spec_0",
     "field_0",
+    "mean_power",
     "input_transmission",
     "z_targets",
     "length",
@@ -395,7 +397,7 @@ class Parameters(_AbstractParameters):
     # pulse
     field_file: str = Parameter(string)
     repetition_rate: float = Parameter(
-        non_negative(float, int), display_info=(1e-6, "MHz"), default=40e6
+        non_negative(float, int), display_info=(1e-3, "kHz"), default=40e6
     )
     peak_power: float = Parameter(positive(float, int), display_info=(1e-3, "kW"))
     mean_power: float = Parameter(positive(float, int), display_info=(1e3, "mW"))
@@ -478,6 +480,12 @@ class Parameters(_AbstractParameters):
             if k in valid_fields:
                 setattr(self, k, v)
         return results
+
+    def pformat(self) -> str:
+        return "\n".join(
+            f"{k} = {VariationDescriptor.format_value(k, v)}"
+            for k, v in self.prepare_for_dump().items()
+        )
 
     @classmethod
     def all_parameters(cls) -> list[str]:
@@ -749,13 +757,13 @@ class Evaluator:
             else:
                 default = self.get_default(target)
                 if default is None:
-                    error = NoDefaultError(
+                    error = error or NoDefaultError(
                         prefix
                         + f"No default provided for {target}. Current lookup cycle : {self.__curent_lookup!r}"
                     )
                 else:
                     value = default
-                    self.logger.info(f"using default value of {value} for {target}")
+                    self.logger.info(prefix + f"using default value of {value} for {target}")
                     self.set_value(target, value, 0)
 
             if value is None and error is not None:
@@ -1089,6 +1097,7 @@ default_rules: list[Rule] = [
     Rule("peak_power", pulse.soliton_num_to_peak_power),
     Rule("energy", pulse.P0_to_E0, ["peak_power", "t0", "shape"]),
     Rule("energy", pulse.mean_power_to_energy, priorities=2),
+    Rule("mean_power", pulse.energy_to_mean_power),
     Rule("t0", pulse.width_to_t0),
     Rule("t0", pulse.soliton_num_to_t0),
     Rule("width", pulse.t0_to_width),

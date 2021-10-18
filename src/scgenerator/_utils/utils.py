@@ -171,7 +171,10 @@ def combine_simulations(path: Path, dest: Path = None):
         if p.is_dir():
             paths[p.name.split()[1]].append(p)
     for l in paths.values():
-        l.sort(key=lambda el: re.search(r"(?<=num )[0-9]+", el.name)[0])
+        try:
+            l.sort(key=lambda el: re.search(r"(?<=num )[0-9]+", el.name)[0])
+        except TypeError:
+            pass
     for pulses in paths.values():
         new_path = dest / update_path(pulses[0].name)
         os.makedirs(new_path, exist_ok=True)

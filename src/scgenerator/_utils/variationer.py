@@ -9,7 +9,6 @@ from pydantic import validator
 from pydantic.main import BaseModel
 
 from ..const import PARAM_SEPARATOR
-from . import utils
 
 T = TypeVar("T")
 
@@ -135,6 +134,23 @@ class VariationDescriptor(BaseModel):
         """
         cls._format_registry[p_name] = func
 
+    @classmethod
+    def format_value(cls, name: str, value) -> str:
+        if value is True or value is False:
+            return str(value)
+        elif isinstance(value, (float, int)):
+            try:
+                return cls._format_registry[name](value)
+            except KeyError:
+                return format(value, ".9g")
+        elif isinstance(value, (list, tuple, np.ndarray)):
+            return "-".join([str(v) for v in value])
+        elif isinstance(value, str):
+            p = Path(value)
+            if p.exists():
+                return p.stem
+        return str(value)
+
     class Config:
         allow_mutation = False
 
@@ -165,22 +181,6 @@ class VariationDescriptor(BaseModel):
         return (
             self.identifier + PARAM_SEPARATOR + self.branch.identifier + PARAM_SEPARATOR + tmp_name
         )
-
-    def format_value(self, name: str, value) -> str:
-        if value is True or value is False:
-            return str(value)
-        elif isinstance(value, (float, int)):
-            try:
-                return self._format_registry[name](value)
-            except KeyError:
-                return format(value, ".9g")
-        elif isinstance(value, (list, tuple, np.ndarray)):
-            return "-".join([str(v) for v in value])
-        elif isinstance(value, str):
-            p = Path(value)
-            if p.exists():
-                return p.stem
-        return str(value)
 
     def __getitem__(self, key) -> "VariationDescriptor":
         return VariationDescriptor(
