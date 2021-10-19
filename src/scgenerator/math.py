@@ -292,9 +292,7 @@ def build_sim_grid(
     time_window: float = None,
     t_num: int = None,
     dt: float = None,
-) -> tuple[
-    np.ndarray, np.ndarray, float, int, float, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray
-]:
+) -> tuple[np.ndarray, np.ndarray, float, int, float, np.ndarray, float, np.ndarray, np.ndarray]:
     """computes a bunch of values that relate to the simulation grid
 
     Parameters
@@ -332,8 +330,6 @@ def build_sim_grid(
         pump angular frequency
     w : np.ndarray, shape (t_num, )
         actual angualr frequency grid in rad/s
-    w_power_fact : np.ndarray, shape (deg, t_num)
-        set of all the necessaray powers of w_c
     l : np.ndarray, shape (t_num)
         wavelengths in m
     """
@@ -343,9 +339,9 @@ def build_sim_grid(
     dt = t[1] - t[0]
     t_num = len(t)
     z_targets = np.linspace(0, length, z_num)
-    w_c, w0, w, w_power_fact = update_frequency_domain(t, wavelength, interpolation_degree)
+    w_c, w0, w = update_frequency_domain(t, wavelength, interpolation_degree)
     l = 2 * pi * c / w
-    return z_targets, t, time_window, t_num, dt, w_c, w0, w, w_power_fact, l
+    return z_targets, t, time_window, t_num, dt, w_c, w0, w, l
 
 
 def update_frequency_domain(
@@ -365,10 +361,9 @@ def update_frequency_domain(
     Returns
     -------
     Tuple[np.ndarray, float, np.ndarray, np.ndarray]
-        w_c, w0, w, w_power_fact
+        w_c, w0, w
     """
     w_c = wspace(t)
     w0 = 2 * pi * c / wavelength
     w = w_c + w0
-    w_power_fact = np.array([power_fact(w_c, k) for k in range(2, deg + 3)])
-    return w_c, w0, w, w_power_fact
+    return w_c, w0, w

@@ -986,10 +986,10 @@ def delayed_raman_t(t: np.ndarray, raman_type: str) -> np.ndarray:
     return hr_arr
 
 
-def delayed_raman_w(t: np.ndarray, dt: float, raman_type: str) -> np.ndarray:
+def delayed_raman_w(t: np.ndarray, raman_type: str) -> np.ndarray:
     """returns the delayed raman response function as function of w
     see delayed_raman_t for detailes"""
-    return fft(delayed_raman_t(t, raman_type)) * dt
+    return fft(delayed_raman_t(t, raman_type)) * (t[1] - t[0])
 
 
 def create_non_linear_op(behaviors, w_c, w0, gamma, raman_type="stolen", f_r=0, hr_w=None):
@@ -1058,7 +1058,7 @@ def create_non_linear_op(behaviors, w_c, w0, gamma, raman_type="stolen", f_r=0, 
     return N_func
 
 
-def fast_dispersion_op(w_c, beta_arr, power_fact_arr, where=slice(None), alpha=None):
+def fast_dispersion_op(w_c, beta_arr, power_fact_arr, where=slice(None)):
     """
     dispersive operator
 
@@ -1083,10 +1083,7 @@ def fast_dispersion_op(w_c, beta_arr, power_fact_arr, where=slice(None), alpha=N
 
     out = np.zeros_like(dispersion)
     out[where] = dispersion[where]
-    if alpha is None:
-        return -1j * out
-    else:
-        return -1j * out - alpha / 2
+    return -1j * out
 
 
 def _fast_disp_loop(dispersion: np.ndarray, beta_arr, power_fact_arr):

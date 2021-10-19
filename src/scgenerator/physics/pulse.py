@@ -447,7 +447,7 @@ def shot_noise(w_c, w0, T, dt, additional_noise_factor=1.0):
     return out * additional_noise_factor
 
 
-def add_shot_noise(
+def finalize_pulse(
     field_0: np.ndarray,
     quantum_noise: bool,
     w_c: bool,
@@ -455,10 +455,11 @@ def add_shot_noise(
     time_window: float,
     dt: float,
     additional_noise_factor: float,
+    input_transmission: float,
 ) -> np.ndarray:
     if quantum_noise:
         field_0 = field_0 + shot_noise(w_c, w0, time_window, dt, additional_noise_factor)
-    return field_0
+    return np.sqrt(input_transmission) * field_0
 
 
 def mean_phase(spectra):

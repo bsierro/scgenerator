@@ -15,23 +15,12 @@ from ..parameter import Configuration, Parameters
 from ..pbar import PBars, ProgressBarActor, progress_worker
 from . import pulse
 from .fiber import create_non_linear_op, fast_dispersion_op
+from .properties import CurrentState
 
 try:
     import ray
 except ModuleNotFoundError:
     ray = None
-
-
-@dataclass
-class CurrentState:
-    length: float
-    spectrum: np.ndarray
-    z: float
-    h: float
-
-    @property
-    def z_ratio(self) -> float:
-        return self.z / self.length
 
 
 class RK4IP:
@@ -58,7 +47,7 @@ class RK4IP:
         yield from self.irun()
 
     def __len__(self) -> int:
-        return self.len
+        return self.params.z_num
 
     def set(
         self,
@@ -79,62 +68,61 @@ class RK4IP:
         self.logger = get_logger(self.params.output_path)
         self.resuming = False
 
-        self.w_c = params.w_c
-        self.w = params.w
-        self.dw = self.w[1] - self.w[0]
-        self.w0 = params.w0
-        self.w_power_fact = params.w_power_fact
-        self.alpha = params.alpha_arr
-        self.spec_0 = np.sqrt(params.input_transmission) * params.spec_0
-        self.z_targets = params.z_targets
-        self.len = len(params.z_targets)
-        self.z_final = params.length
+        self.dw = self.params.w[1] - self.params.w[0]
+        self.z_targets = self.params.z_targets
         self.beta2_coefficients = (
             params.beta_func if params.beta_func is not None else params.beta2_coefficients
         )
         self.gamma = params.gamma_func if params.gamma_func is not None else params.gamma_arr
-        self.C_to_A_factor = (params.A_eff_arr / params.A_eff_arr[0]) ** (1 / 4)
-        self.behaviors = params.behaviors
-        self.raman_type = params.raman_type
-        self.hr_w = params.hr_w
-        self.adapt_step_size = params.adapt_step_size
-        self.error_ok = params.tolerated_error if self.adapt_step_size else params.step_size
-        self.dynamic_dispersion = params.dynamic_dispersion
-        self.starting_num = params.recovery_last_stored
+        self.C_to_A_factor = (self.params.A_eff_arr / self.params.A_eff_arr[0]) ** (1 / 4)
+        self.error_ok = (
+            params.tolerated_error if self.params.adapt_step_size else self.params.step_size
+        )
 
         self._setup_functions()
         self._setup_sim_parameters()
 
     def _setup_functions(self):
         self.N_func = create_non_linear_op(
-            self.behaviors, self.w_c, self.w0, self.gamma, self.raman_type, hr_w=self.hr_w
+            self.params.behaviors,
+            self.params.w_c,
+            self.params.w0,
+            self.gamma,
+            self.params.raman_type,
+            hr_w=self.params.hr_w,
         )
 
-        if self.dynamic_dispersion:
+        if self.params.dynamic_dispersion:
             self.disp = lambda r: fast_dispersion_op(
-                self.w_c, self.beta2_coefficients(r), self.w_power_fact, alpha=self.alpha
+                self.params.w_c,
+                self.beta2_coefficients(r),
+                self.params.w_power_fact,
+                alpha=self.params.alpha_arr,
             )
         else:
             self.disp = lambda r: fast_dispersion_op(
-                self.w_c, self.beta2_coefficients, self.w_power_fact, alpha=self.alpha
+                self.params.w_c,
+                self.beta2_coefficients,
+                self.params.w_power_fact,
+                alpha=self.params.alpha_arr,
             )
 
         # Set up which quantity is conserved for adaptive step size
-        if self.adapt_step_size:
-            if "raman" in self.behaviors and self.alpha is not None:
+        if self.params.adapt_step_size:
+            if "raman" in self.params.behaviors and self.params.alpha_arr is not None:
                 self.logger.debug("Conserved quantity : photon number with loss")
                 self.conserved_quantity_func = lambda spectrum, h: pulse.photon_number_with_loss(
-                    spectrum, self.w, self.dw, self.gamma, self.alpha, h
+                    spectrum, self.params.w, self.dw, self.gamma, self.params.alpha_arr, h
                 )
-            elif "raman" in self.behaviors:
+            elif "raman" in self.params.behaviors:
                 self.logger.debug("Conserved quantity : photon number without loss")
                 self.conserved_quantity_func = lambda spectrum, h: pulse.photon_number(
-                    spectrum, self.w, self.dw, self.gamma
+                    spectrum, self.params.w, self.dw, self.gamma
                 )
-            elif self.alpha is not None:
+            elif self.params.alpha_arr is not None:
                 self.logger.debug("Conserved quantity : energy with loss")
                 self.conserved_quantity_func = lambda spectrum, h: pulse.pulse_energy_with_loss(
-                    self.C_to_A_factor * spectrum, self.dw, self.alpha, h
+                    self.C_to_A_factor * spectrum, self.dw, self.params.alpha_arr, h
                 )
             else:
                 self.logger.debug("Conserved quantity : energy without loss")
@@ -147,26 +135,29 @@ class RK4IP:
 
     def _setup_sim_parameters(self):
         # making sure to keep only the z that we want
-        self.z_stored = list(self.z_targets.copy()[0 : self.starting_num + 1])
-        self.z_targets = list(self.z_targets.copy()[self.starting_num :])
+        self.z_stored = list(self.z_targets.copy()[0 : self.params.recovery_last_stored + 1])
+        self.z_targets = list(self.z_targets.copy()[self.params.recovery_last_stored :])
         self.z_targets.sort()
         self.store_num = len(self.z_targets)
 
         # Initial setup of simulation parameters
-        self.d_w = self.w_c[1] - self.w_c[0]  # resolution of the frequency grid
         self.z = self.z_targets.pop(0)
 
         # Setup initial values for every physical quantity that we want to track
-        self.current_spectrum = self.spec_0.copy() / self.C_to_A_factor
-        self.stored_spectra = self.starting_num * [None] + [self.current_spectrum.copy()]
+        self.state = CurrentState(
+            length=self.params.length, spectrum=self.params.spec_0.copy() / self.C_to_A_factor
+        )
+        self.stored_spectra = self.params.recovery_last_stored * [None] + [
+            self.state.spectrum.copy()
+        ]
         self.cons_qty = [
-            self.conserved_quantity_func(self.current_spectrum, 0),
+            self.conserved_quantity_func(self.state.spectrum, 0),
             0,
         ]
         self.size_fac = 2 ** (1 / 5)
 
         # Initial step size
-        if self.adapt_step_size:
+        if self.params.adapt_step_size:
             self.initial_h = (self.z_targets[0] - self.z) / 2
         else:
             self.initial_h = self.error_ok
@@ -179,7 +170,7 @@ class RK4IP:
         num : int
             index of the z postition
         """
-        self._save_data(self.C_to_A_factor * self.current_spectrum, f"spectrum_{num}")
+        self._save_data(self.C_to_A_factor * self.state.spectrum, f"spectrum_{num}")
         self._save_data(self.cons_qty, f"cons_qty")
         self.step_saved()
 
@@ -191,7 +182,7 @@ class RK4IP:
         np.ndarray
             spectrum
         """
-        return self.C_to_A_factor * self.current_spectrum
+        return self.C_to_A_factor * self.state.spectrum
 
     def _save_data(self, data: np.ndarray, name: str):
         """calls the appropriate method to save data
@@ -249,9 +240,9 @@ class RK4IP:
 
         yield step, len(self.stored_spectra) - 1, self.get_current_spectrum()
 
-        while self.z < self.z_final:
-            h_taken, h_next_step, self.current_spectrum = self.take_step(
-                step, h_next_step, self.current_spectrum.copy()
+        while self.z < self.params.length:
+            h_taken, h_next_step, self.state.spectrum = self.take_step(
+                step, h_next_step, self.state.spectrum.copy()
             )
 
             self.z += h_taken
@@ -262,7 +253,7 @@ class RK4IP:
             if store:
                 self.logger.debug("{} steps, z = {:.4f}, h = {:.5g}".format(step, self.z, h_taken))
 
-                self.stored_spectra.append(self.current_spectrum)
+                self.stored_spectra.append(self.state.spectrum)
 
                 yield step, len(self.stored_spectra) - 1, self.get_current_spectrum()
 
@@ -270,7 +261,7 @@ class RK4IP:
                 del self.z_targets[0]
 
                 # reset the constant step size after a spectrum is stored
-                if not self.adapt_step_size:
+                if not self.params.adapt_step_size:
                     h_next_step = self.error_ok
 
                 if len(self.z_targets) == 0:
@@ -310,7 +301,7 @@ class RK4IP:
         keep = False
         while not keep:
             h = h_next_step
-            z_ratio = self.z / self.z_final
+            z_ratio = self.z / self.params.length
 
             expD = np.exp(h / 2 * self.disp(z_ratio))
 
@@ -321,7 +312,7 @@ class RK4IP:
             k4 = h * self.N_func(expD * (A_I + k3), z_ratio)
             new_spectrum = expD * (A_I + k1 / 6 + k2 / 3 + k3 / 3) + k4 / 6
 
-            if self.adapt_step_size:
+            if self.params.adapt_step_size:
                 self.cons_qty[step] = self.conserved_quantity_func(new_spectrum, h)
                 curr_p_change = np.abs(self.cons_qty[step - 1] - self.cons_qty[step])
                 cons_qty_change_ok = self.error_ok * self.cons_qty[step - 1]
@@ -364,7 +355,7 @@ class SequentialRK4IP(RK4IP):
         )
 
     def step_saved(self):
-        self.pbars.update(1, self.z / self.z_final - self.pbars[1].n)
+        self.pbars.update(1, self.z / self.params.length - self.pbars[1].n)
 
 
 class MutliProcRK4IP(RK4IP):
@@ -385,7 +376,7 @@ class MutliProcRK4IP(RK4IP):
         )
 
     def step_saved(self):
-        self.p_queue.put((self.worker_id, self.z / self.z_final))
+        self.p_queue.put((self.worker_id, self.z / self.params.length))
 
 
 class RayRK4IP(RK4IP):
@@ -414,7 +405,7 @@ class RayRK4IP(RK4IP):
         self.run()
 
     def step_saved(self):
-        self.p_actor.update.remote(self.worker_id, self.z / self.z_final)
+        self.p_actor.update.remote(self.worker_id, self.z / self.params.length)
         self.p_actor.update.remote(0)
 
 
@@ -500,7 +491,7 @@ class Simulations:
         self.ensure_finised_and_complete()
 
     def _run_available(self):
-        for variable, params in self.configuration:
+        for _, params in self.configuration:
             params.compute()
             utils.save_parameters(params.prepare_for_dump(), params.output_path)
 

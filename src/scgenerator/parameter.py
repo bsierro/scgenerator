@@ -434,7 +434,6 @@ class Parameters(_AbstractParameters):
     l: np.ndarray = Parameter(type_checker(np.ndarray))
     w_c: np.ndarray = Parameter(type_checker(np.ndarray))
     w0: float = Parameter(positive(float))
-    w_power_fact: np.ndarray = Parameter(validator_list(type_checker(np.ndarray)))
     t: np.ndarray = Parameter(type_checker(np.ndarray))
     L_D: float = Parameter(non_negative(float, int))
     L_NL: float = Parameter(non_negative(float, int))
@@ -1045,7 +1044,7 @@ class Configuration:
 default_rules: list[Rule] = [
     # Grid
     *Rule.deduce(
-        ["z_targets", "t", "time_window", "t_num", "dt", "w_c", "w0", "w", "w_power_fact", "l"],
+        ["z_targets", "t", "time_window", "t_num", "dt", "w_c", "w0", "w", "l"],
         math.build_sim_grid,
         ["time_window", "t_num", "dt"],
         2,
@@ -1067,7 +1066,7 @@ default_rules: list[Rule] = [
     Rule("pre_field_0", pulse.initial_field, priorities=1),
     Rule(
         "field_0",
-        pulse.add_shot_noise,
+        pulse.finalize_pulse,
         [
             "pre_field_0",
             "quantum_noise",
@@ -1076,6 +1075,7 @@ default_rules: list[Rule] = [
             "time_window",
             "dt",
             "additional_noise_factor",
+            "input_transmission",
         ],
     ),
     Rule("peak_power", pulse.E0_to_P0, ["energy", "t0", "shape"]),
