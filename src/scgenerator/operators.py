@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.interpolate import interp1d
 
-from . import fiber
-from .. import math
+from .physics import fiber
+from . import math
 
 
 class SpectrumDescriptor:
@@ -45,6 +45,20 @@ class CurrentState:
         return self.z / self.length
 
 
+class Operator(ABC):
+    def __repr__(self) -> str:
+        return (
+            self.__class__.__name__
+            + "("
+            + ", ".join(k + "=" + repr(v) for k, v in self.__dict__.items())
+            + ")"
+        )
+
+    @abstractmethod
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        pass
+
+
 class NoOp:
     def __init__(self, w: np.ndarray):
         self.zero_arr = np.zeros_like(w)
@@ -55,7 +69,7 @@ class NoOp:
 ##################################################
 
 
-class AbstractDispersion(ABC):
+class AbstractDispersion(Operator):
     @abstractmethod
     def __call__(self, state: CurrentState) -> np.ndarray:
         """returns the dispersion in the frequency domain
@@ -74,7 +88,7 @@ class AbstractDispersion(ABC):
 
 class ConstantPolyDispersion(AbstractDispersion):
     """
-    dispersion approximated by fitting a polynom on the dispersion and
+    dispersion approximated by fitting a polynome on the dispersion and
     evaluating on the envelope
     """
 
@@ -87,8 +101,8 @@ class ConstantPolyDispersion(AbstractDispersion):
         beta2_arr: np.ndarray,
         w0: float,
         w_c: np.ndarray,
-        interpolation_range: tuple[float, float] = None,
-        interpolation_degree: int = 8,
+        interpolation_range: tuple[float, float],
+        interpolation_degree: int,
     ):
         self.coefs = fiber.dispersion_coefficients(
             wl_for_disp, beta2_arr, w0, interpolation_range, interpolation_degree
@@ -108,9 +122,9 @@ class ConstantPolyDispersion(AbstractDispersion):
 
 
 class LinearOperator:
-    def __init__(self, disp: AbstractDispersion, loss: AbstractLoss):
-        self.disp = disp
-        self.loss = loss
+    def __init__(self, disp_op: AbstractDispersion, loss_op: AbstractLoss):
+        self.disp = disp_op
+        self.loss = loss_op
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         """returns the linear operator to be multiplied by the spectrum in the frequency domain
@@ -135,7 +149,7 @@ class LinearOperator:
 # Raman
 
 
-class AbstractRaman(ABC):
+class AbstractRaman(Operator):
     f_r: float = 0.0
 
     @abstractmethod
@@ -171,7 +185,7 @@ class Raman(AbstractRaman):
 # SPM
 
 
-class AbstractSPM(ABC):
+class AbstractSPM(Operator):
     fraction: float = 1.0
 
     @abstractmethod
@@ -206,7 +220,7 @@ class SPM(AbstractSPM):
 # Selt Steepening
 
 
-class AbstractSelfSteepening(ABC):
+class AbstractSelfSteepening(Operator):
     @abstractmethod
     def __call__(self, state: CurrentState) -> np.ndarray:
         """returns the self-steepening component
@@ -239,7 +253,7 @@ class SelfSteepening(AbstractSelfSteepening):
 # Gamma operator
 
 
-class AbstractGamma(ABC):
+class AbstractGamma(Operator):
     @abstractmethod
     def __call__(self, state: CurrentState) -> np.ndarray:
         """returns the gamma component
@@ -275,7 +289,7 @@ class ConstantGamma(AbstractSelfSteepening):
 # Nonlinear combination
 
 
-class AbstractNonLinearOperator(ABC):
+class NonLinearOperator(Operator):
     @abstractmethod
     def __call__(self, state: CurrentState) -> np.ndarray:
         """returns the nonlinear operator applied on the spectrum in the frequency domain
@@ -292,7 +306,7 @@ class AbstractNonLinearOperator(ABC):
         """
 
 
-class EnvelopeNonLinearOperator(AbstractNonLinearOperator):
+class EnvelopeNonLinearOperator(NonLinearOperator):
     def __init__(
         self,
         gamma_op: AbstractGamma,
@@ -319,7 +333,7 @@ class EnvelopeNonLinearOperator(AbstractNonLinearOperator):
 ##################################################
 
 
-class AbstractLoss(ABC):
+class AbstractLoss(Operator):
     @abstractmethod
     def __call__(self, state: CurrentState) -> np.ndarray:
         """returns the loss in the frequency domain
@@ -342,8 +356,13 @@ class ConstantLoss(AbstractLoss):
     def __init__(self, alpha: float, w: np.ndarray):
         self.alpha_arr = alpha * np.ones_like(w)
 
-    def __call__(self, state: CurrentState) -> np.ndarray:
+    def __call__(self, state: CurrentState = None) -> np.ndarray:
         return self.alpha_arr
+
+
+class NoLoss(ConstantLoss):
+    def __init__(self, w: np.ndarray):
+        super().__init__(0, w)
 
 
 class CapillaryLoss(ConstantLoss):

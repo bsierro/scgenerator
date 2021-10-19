@@ -2,8 +2,8 @@ import multiprocessing
 import multiprocessing.connection
 import os
 import random
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Generator, Type, Union
 
@@ -13,9 +13,9 @@ from .. import utils
 from ..logger import get_logger
 from ..parameter import Configuration, Parameters
 from ..pbar import PBars, ProgressBarActor, progress_worker
+from ..operators import CurrentState
 from . import pulse
 from .fiber import create_non_linear_op, fast_dispersion_op
-from .properties import CurrentState
 
 try:
     import ray

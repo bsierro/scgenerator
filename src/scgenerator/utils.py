@@ -4,12 +4,13 @@ scgenerator module but some function may be used in any python program
 
 """
 from __future__ import annotations
-from dataclasses import dataclass
+
 import inspect
 import itertools
 import os
 import re
 from collections import defaultdict
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from string import printable as str_printable
@@ -373,11 +374,19 @@ def to_62(i: int) -> str:
 
 
 def get_arg_names(func: Callable) -> list[str]:
-    # spec = inspect.getfullargspec(func)
-    # args = spec.args
-    # if spec.defaults is not None and len(spec.defaults) > 0:
-    #     args = args[: -len(spec.defaults)]
-    # return args
+    """returns the positional argument names of func.
+
+    Parameters
+    ----------
+    func : Callable
+        if a function, returns the names of the positional arguments
+
+
+    Returns
+    -------
+    list[str]
+        [description]
+    """
     return [k for k, v in inspect.signature(func).parameters.items() if v.default is inspect._empty]
 
 

@@ -843,19 +843,6 @@ def load_custom_loss(l: np.ndarray, loss_file: str) -> np.ndarray:
     return interp1d(wl, loss, fill_value=0, bounds_error=False)(l)
 
 
-def compute_capillary_loss(
-    l: np.ndarray,
-    core_radius: float,
-    interpolation_range: tuple[float, float],
-    he_mode: tuple[int, int],
-) -> np.ndarray:
-    mask = (l < interpolation_range[1]) & (l > 0)
-    alpha = capillary_loss(l[mask], he_mode, core_radius)
-    out = np.zeros_like(l)
-    out[mask] = alpha
-    return out
-
-
 @np_cache
 def dispersion_coefficients(
     wl_for_disp: np.ndarray,
