@@ -371,7 +371,11 @@ def P0_to_E0(P0, t0, shape):
 
 
 def sech_pulse(t, t0, P0, offset=0):
-    return np.sqrt(P0) / np.cosh((t - offset) / t0)
+    arg = (t - offset) / t0
+    ind = (arg < 700) & (arg > -700)
+    out = np.zeros_like(t)
+    out[ind] = np.sqrt(P0) / np.cosh(arg[ind])
+    return out
 
 
 def gaussian_pulse(t, t0, P0, offset=0):

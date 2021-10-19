@@ -576,6 +576,9 @@ class Rule:
     def __repr__(self) -> str:
         return f"Rule(targets={self.targets!r}, func={self.func!r}, args={self.args!r})"
 
+    def __str__(self) -> str:
+        return f"[{', '.join(self.args)}] -- {self.func.__module__}.{self.func.__name__} --> [{', '.join(self.targets)}]"
+
     @classmethod
     def deduce(
         cls,
@@ -649,7 +652,8 @@ class Evaluator:
     def __init__(self):
         self.rules: dict[str, list[Rule]] = defaultdict(list)
         self.params = {}
-        self.__curent_lookup = set()
+        self.__curent_lookup: list[str] = []
+        self.__failed_rules: dict[str, list[Rule]] = defaultdict(list)
         self.eval_stats: dict[str, EvalStat] = defaultdict(EvalStat)
         self.logger = get_logger(__name__)
 
@@ -703,10 +707,11 @@ class Evaluator:
                 raise EvaluatorError(
                     "cyclic dependency detected : "
                     f"{target!r} seems to depend on itself, "
-                    f"please provide a value for at least one variable in {self.__curent_lookup}"
+                    f"please provide a value for at least one variable in {self.__curent_lookup!r}. "
+                    + self.attempted_rules_str(target)
                 )
             else:
-                self.__curent_lookup.add(target)
+                self.__curent_lookup.append(target)
 
             if len(self.rules[target]) == 0:
                 error = EvaluatorError(f"no rule for {target}")
@@ -753,23 +758,27 @@ class Evaluator:
                     self.logger.debug(
                         prefix + f"error using {rule.func.__name__} : {str(error).strip()}"
                     )
+                    self.__failed_rules[target].append(rule)
                     continue
             else:
                 default = self.get_default(target)
                 if default is None:
                     error = error or NoDefaultError(
                         prefix
-                        + f"No default provided for {target}. Current lookup cycle : {self.__curent_lookup!r}"
+                        + f"No default provided for {target}. Current lookup cycle : {self.__curent_lookup!r}. "
+                        + self.attempted_rules_str(target)
                     )
                 else:
                     value = default
                     self.logger.info(prefix + f"using default value of {value} for {target}")
                     self.set_value(target, value, 0)
 
+            assert target == self.__curent_lookup.pop()
+            self.__failed_rules[target] = []
+
             if value is None and error is not None:
                 raise error
 
-            self.__curent_lookup.remove(target)
         return value
 
     def __getitem__(self, key: str) -> Any:
@@ -782,23 +791,11 @@ class Evaluator:
     def validate_condition(self, rule: Rule) -> bool:
         return all(self.compute(k) == v for k, v in rule.conditions.items())
 
-    def __call__(self, target: str, args: list[str] = None):
-        """creates a wrapper that adds decorated functions to the set of rules
-
-        Parameters
-        ----------
-        target : str
-            name of the target
-        args : list[str], optional
-            list of name of arguments. Automatically deduced from function signature if
-            not provided, by default None
-        """
-
-        def wrapper(func):
-            self.append(Rule(target, func, args))
-            return func
-
-        return wrapper
+    def attempted_rules_str(self, target: str) -> str:
+        rules = ", ".join(str(r) for r in self.__failed_rules[target])
+        if len(rules) == 0:
+            return ""
+        return "attempted rules : " + rules
 
 
 class Configuration:
@@ -1095,9 +1092,9 @@ default_rules: list[Rule] = [
     ),
     Rule("peak_power", pulse.E0_to_P0, ["energy", "t0", "shape"]),
     Rule("peak_power", pulse.soliton_num_to_peak_power),
+    Rule("mean_power", pulse.energy_to_mean_power),
     Rule("energy", pulse.P0_to_E0, ["peak_power", "t0", "shape"]),
     Rule("energy", pulse.mean_power_to_energy, priorities=2),
-    Rule("mean_power", pulse.energy_to_mean_power),
     Rule("t0", pulse.width_to_t0),
     Rule("t0", pulse.soliton_num_to_t0),
     Rule("width", pulse.t0_to_width),
