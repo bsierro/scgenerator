@@ -22,7 +22,7 @@ from .const import PARAM_FN, __version__
 from .errors import EvaluatorError, NoDefaultError
 from .logger import get_logger
 from .physics import fiber, materials, pulse, units
-from .utils import _mock_function, fiber_folder, func_rewrite, get_arg_names, update_path
+from .utils import _mock_function, fiber_folder, func_rewrite, get_arg_names, update_path_name
 from .variationer import VariationDescriptor, Variationer
 
 T = TypeVar("T")
@@ -341,7 +341,7 @@ class Parameters(_AbstractParameters):
     prev_data_dir: str = Parameter(string)
     recovery_data_dir: str = Parameter(string)
     previous_config_file: str = Parameter(string)
-    output_path: str = Parameter(string, default="sc_data")
+    output_path: Path = Parameter(type_checker(Path), default=Path("sc_data"), converter=Path)
 
     # # fiber
     input_transmission: float = Parameter(in_range_incl(0, 1), default=1.0)
@@ -535,7 +535,7 @@ class Parameters(_AbstractParameters):
     @property
     def final_path(self) -> Path:
         if self.output_path is not None:
-            return Path(update_path(self.output_path))
+            return self.output_path.parent / update_path_name(self.output_path.name)
         return None
 
 
@@ -938,7 +938,7 @@ class Configuration:
                 not self.overwrite,
                 False,
             )
-            cfg["output_path"] = str(p)
+            cfg["output_path"] = p
             sim_config = self.__SimConfig(descriptor, cfg, p)
             sim_dict[p] = self.all_configs[sim_config.descriptor.index] = sim_config
         while len(sim_dict) > 0:

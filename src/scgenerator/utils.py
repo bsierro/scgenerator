@@ -437,7 +437,7 @@ def combine_simulations(path: Path, dest: Path = None):
     for l in paths.values():
         l.sort(key=lambda el: re.search(r"(?<=num )[0-9]+", el.name)[0])
     for pulses in paths.values():
-        new_path = dest / update_path(pulses[0].name)
+        new_path = dest / update_path_name(pulses[0].name)
         os.makedirs(new_path, exist_ok=True)
         for num, pulse in enumerate(pulses):
             params_ok = False
@@ -461,8 +461,8 @@ def update_params(new_path: Path, file: Path):
     params = load_toml(file)
     if (p := params.get("prev_data_dir")) is not None:
         p = Path(p)
-        params["prev_data_dir"] = str(p.parent / update_path(p.name))
-    params["output_path"] = str(new_path)
+        params["prev_data_dir"] = str(p.parent / update_path_name(p.name))
+    params["output_path"] = new_path
     save_toml(new_path / PARAM_FN, params)
     file.unlink()
 
@@ -495,7 +495,7 @@ def save_parameters(
     return file_path
 
 
-def update_path(p: str) -> str:
+def update_path_name(p: str) -> str:
     return re.sub(r"( ?num [0-9]+)|(u_[0-9]+ )", "", p)
 
 
