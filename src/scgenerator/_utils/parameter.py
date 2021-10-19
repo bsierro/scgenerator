@@ -9,7 +9,7 @@ import re
 import time
 from collections import defaultdict
 from copy import copy, deepcopy
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, Field
 from functools import cache, lru_cache
 from pathlib import Path
 from typing import (
@@ -270,13 +270,17 @@ def func_validator(name, n):
 
 
 class Parameter:
-    def __init__(self, validator, converter=None, default=None, display_info=None, rules=None):
+    def __init__(
+        self,
+        validator: Callable[[str, Any], None],
+        converter: Callable = None,
+        default=None,
+        display_info: tuple[float, str] = None,
+    ):
         """Single parameter
 
         Parameters
         ----------
-        tpe : type
-            type of the paramter
         validator : Callable[[str, Any], None]
             signature : validator(name, value)
             must raise a ValueError when value doesn't fit the criteria checked by
@@ -291,21 +295,17 @@ class Parameter:
         self.converter = converter
         self.default = default
         self.display_info = display_info
-        if rules is None:
-            self.rules = []
-        else:
-            self.rules = rules
 
     def __set_name__(self, owner, name):
         self.name = name
 
     def __get__(self, instance, owner):
-        if not instance:
+        if instance is None:
             return self
         return instance.__dict__[self.name]
 
     def __delete__(self, instance):
-        del instance.__dict__[self.name]
+        raise AttributeError("Cannot delete parameter")
 
     def __set__(self, instance, value):
         if isinstance(value, Parameter):
