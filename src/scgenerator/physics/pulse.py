@@ -289,6 +289,10 @@ def mean_power_to_energy(mean_power: float, repetition_rate: float) -> float:
     return mean_power / repetition_rate
 
 
+def energy_to_mean_power(energy: float, repetition_rate: float) -> float:
+    return energy * repetition_rate
+
+
 def soliton_num_to_peak_power(soliton_num, beta2, gamma, t0):
     return soliton_num ** 2 * abs(beta2) / (gamma * t0 ** 2)
 
@@ -367,7 +371,11 @@ def P0_to_E0(P0, t0, shape):
 
 
 def sech_pulse(t, t0, P0, offset=0):
-    return np.sqrt(P0) / np.cosh((t - offset) / t0)
+    arg = (t - offset) / t0
+    ind = (arg < 700) & (arg > -700)
+    out = np.zeros_like(t)
+    out[ind] = np.sqrt(P0) / np.cosh(arg[ind])
+    return out
 
 
 def gaussian_pulse(t, t0, P0, offset=0):

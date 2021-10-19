@@ -26,8 +26,10 @@ def plot_all(sim_dir: Path, limits: list[str], show=False, **opts):
     for k, v in opts.items():
         if k in ["skip"]:
             opts[k] = int(v)
-        if k in {"log", "renormalize"}:
-            opts[k] = True if v == "True" else False
+        if v == "True":
+            opts[k] = True
+        elif v == "False":
+            opts[k] = False
     dir_list = simulations_list(sim_dir)
     if len(dir_list) == 0:
         dir_list = [sim_dir]
@@ -124,6 +126,7 @@ def plot_init(
         lbl = plot_1_dispersion(lim_disp, tl, tr, style, lbl, params, loss_ax)
         lbl = plot_1_init_spec_field(lim_field, lim_spec, bl, br, style, lbl, params)
         all_labels.append(lbl)
+        print(params.pformat())
     finish_plot(fig, tr, all_labels, params)
 
 
