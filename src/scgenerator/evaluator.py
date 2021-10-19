@@ -1,13 +1,15 @@
-from typing import Optional, Callable, Union, Any
-from dataclasses import dataclass
-from .physics import fiber, pulse, materials, units
-from .utils import _mock_function, get_arg_names, get_logger, func_rewrite
-from .errors import *
-from collections import defaultdict
-from .const import MANDATORY_PARAMETERS
-import numpy as np
 import itertools
-from . import math, utils, operators
+from collections import defaultdict
+from dataclasses import dataclass
+from typing import Any, Callable, Optional, Union
+
+import numpy as np
+
+from . import math, operators, utils
+from .const import MANDATORY_PARAMETERS
+from .errors import *
+from .physics import fiber, materials, pulse, units
+from .utils import _mock_function, func_rewrite, get_arg_names, get_logger
 
 
 class Rule:
@@ -378,6 +380,7 @@ default_rules: list[Rule] = [
     Rule("loss_op", operators.NoLoss, priorities=-1),
     Rule("disp_op", operators.ConstantPolyDispersion),
     Rule("linear_operator", operators.LinearOperator),
+    Rule("conserved_quantity", operators.ConservedQuantity),
     # gas
     Rule("n_gas_2", materials.n_gas_2),
 ]

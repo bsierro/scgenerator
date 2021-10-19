@@ -2,7 +2,6 @@ import multiprocessing
 import multiprocessing.connection
 import os
 import random
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Generator, Type, Union
@@ -13,9 +12,7 @@ from .. import utils
 from ..logger import get_logger
 from ..parameter import Configuration, Parameters
 from ..pbar import PBars, ProgressBarActor, progress_worker
-from ..operators import CurrentState
-from . import pulse
-from .fiber import create_non_linear_op, fast_dispersion_op
+from ..operators import CurrentState, ConservedQuantity, NoConservedQuantity
 
 try:
     import ray
@@ -70,10 +67,6 @@ class RK4IP:
 
         self.dw = self.params.w[1] - self.params.w[0]
         self.z_targets = self.params.z_targets
-        self.beta2_coefficients = (
-            params.beta_func if params.beta_func is not None else params.beta2_coefficients
-        )
-        self.gamma = params.gamma_func if params.gamma_func is not None else params.gamma_arr
         self.C_to_A_factor = (self.params.A_eff_arr / self.params.A_eff_arr[0]) ** (1 / 4)
         self.error_ok = (
             params.tolerated_error if self.params.adapt_step_size else self.params.step_size
@@ -83,55 +76,18 @@ class RK4IP:
         self._setup_sim_parameters()
 
     def _setup_functions(self):
-        self.N_func = create_non_linear_op(
-            self.params.behaviors,
-            self.params.w_c,
-            self.params.w0,
-            self.gamma,
-            self.params.raman_type,
-            hr_w=self.params.hr_w,
-        )
-
-        if self.params.dynamic_dispersion:
-            self.disp = lambda r: fast_dispersion_op(
-                self.params.w_c,
-                self.beta2_coefficients(r),
-                self.params.w_power_fact,
-                alpha=self.params.alpha_arr,
-            )
-        else:
-            self.disp = lambda r: fast_dispersion_op(
-                self.params.w_c,
-                self.beta2_coefficients,
-                self.params.w_power_fact,
-                alpha=self.params.alpha_arr,
-            )
 
         # Set up which quantity is conserved for adaptive step size
         if self.params.adapt_step_size:
-            if "raman" in self.params.behaviors and self.params.alpha_arr is not None:
-                self.logger.debug("Conserved quantity : photon number with loss")
-                self.conserved_quantity_func = lambda spectrum, h: pulse.photon_number_with_loss(
-                    spectrum, self.params.w, self.dw, self.gamma, self.params.alpha_arr, h
-                )
-            elif "raman" in self.params.behaviors:
-                self.logger.debug("Conserved quantity : photon number without loss")
-                self.conserved_quantity_func = lambda spectrum, h: pulse.photon_number(
-                    spectrum, self.params.w, self.dw, self.gamma
-                )
-            elif self.params.alpha_arr is not None:
-                self.logger.debug("Conserved quantity : energy with loss")
-                self.conserved_quantity_func = lambda spectrum, h: pulse.pulse_energy_with_loss(
-                    self.C_to_A_factor * spectrum, self.dw, self.params.alpha_arr, h
-                )
-            else:
-                self.logger.debug("Conserved quantity : energy without loss")
-                self.conserved_quantity_func = lambda spectrum, h: pulse.pulse_energy(
-                    self.C_to_A_factor * spectrum, self.dw
-                )
+            self.conserved_quantity_func = ConservedQuantity(
+                self.params.nonlinear_operator.raman_op,
+                self.params.nonlinear_operator.gamma_op,
+                self.params.linear_operator.loss_op,
+                self.params.w,
+            )
         else:
             self.logger.debug(f"Using constant step size of {1e6*self.error_ok:.3f}")
-            self.conserved_quantity_func = lambda spectrum, h: 0.0
+            self.conserved_quantity_func = NoConservedQuantity()
 
     def _setup_sim_parameters(self):
         # making sure to keep only the z that we want
@@ -140,27 +96,27 @@ class RK4IP:
         self.z_targets.sort()
         self.store_num = len(self.z_targets)
 
-        # Initial setup of simulation parameters
-        self.z = self.z_targets.pop(0)
-
+        # Initial step size
+        if self.params.adapt_step_size:
+            initial_h = (self.z_targets[0] - self.z) / 2
+        else:
+            initial_h = self.error_ok
         # Setup initial values for every physical quantity that we want to track
         self.state = CurrentState(
-            length=self.params.length, spectrum=self.params.spec_0.copy() / self.C_to_A_factor
+            length=self.params.length,
+            z=self.z_targets.pop(0),
+            h=initial_h,
+            spectrum=self.params.spec_0.copy() / self.C_to_A_factor,
         )
         self.stored_spectra = self.params.recovery_last_stored * [None] + [
             self.state.spectrum.copy()
         ]
         self.cons_qty = [
-            self.conserved_quantity_func(self.state.spectrum, 0),
+            self.conserved_quantity_func(self.state),
             0,
         ]
         self.size_fac = 2 ** (1 / 5)
 
-        # Initial step size
-        if self.params.adapt_step_size:
-            self.initial_h = (self.z_targets[0] - self.z) / 2
-        else:
-            self.initial_h = self.error_ok
 
     def _save_current_spectrum(self, num: int):
         """saves the spectrum and the corresponding cons_qty array

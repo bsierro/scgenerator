@@ -2,20 +2,17 @@ from __future__ import annotations
 
 import datetime as datetime_module
 import enum
-import itertools
 import os
 import time
-from collections import defaultdict
 from copy import copy
 from dataclasses import asdict, dataclass, fields
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Optional, TypeVar, Union
+from typing import Any, Callable, Iterable, Iterator, TypeVar, Union
 
 import numpy as np
-from numpy.lib import isin
 
-from . import env, math, utils
+from . import env, utils
 from .const import PARAM_FN, __version__, VALID_VARIABLE, MANDATORY_PARAMETERS
 from .logger import get_logger
 from .utils import fiber_folder, update_path_name
@@ -210,6 +207,7 @@ class Parameter:
         self.name = name
         if self.default is not None:
             Evaluator.register_default_param(self.name, self.default)
+        VariationDescriptor.register_formatter(self.name, self.display)
 
     def __get__(self, instance, owner):
         if instance is None:
@@ -242,20 +240,7 @@ class Parameter:
 
 
 @dataclass
-class _AbstractParameters:
-    @classmethod
-    def __init_subclass__(cls):
-        cls.register_param_formatters()
-
-    @classmethod
-    def register_param_formatters(cls):
-        for k, v in cls.__dict__.items():
-            if isinstance(v, Parameter):
-                VariationDescriptor.register_formatter(k, v.display)
-
-
-@dataclass
-class Parameters(_AbstractParameters):
+class Parameters:
     """
     This class defines each valid parameter's name, type and valid value.
     """

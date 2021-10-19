@@ -6,12 +6,16 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from functools import wraps
+from os import stat
+from typing import Callable
 
 import numpy as np
 from scipy.interpolate import interp1d
 
-from .physics import fiber
 from . import math
+from .logger import get_logger
+from .physics import fiber, pulse
 
 
 class SpectrumDescriptor:
@@ -385,3 +389,78 @@ class CustomConstantLoss(ConstantLoss):
         wl = loss_data["wavelength"]
         loss = loss_data["loss"]
         self.alpha_arr = interp1d(wl, loss, fill_value=0, bounds_error=False)(l)
+
+
+##################################################
+############### CONSERVED QUANTITY ###############
+##################################################
+
+
+class ConservedQuantity(Operator):
+    def __new__(
+        raman_op: AbstractGamma, gamma_op: AbstractGamma, loss_op: AbstractLoss, w: np.ndarray
+    ):
+        logger = get_logger(__name__)
+        raman = not isinstance(raman_op, NoRaman)
+        loss = not isinstance(raman_op, NoLoss)
+        if raman and loss:
+            logger.debug("Conserved quantity : photon number with loss")
+            return PhotonNumberLoss(w, gamma_op, loss_op)
+        elif raman:
+            logger.debug("Conserved quantity : photon number without loss")
+            return PhotonNumberNoLoss(w, gamma_op)
+        elif loss:
+            logger.debug("Conserved quantity : energy with loss")
+            return EnergyLoss(w, loss_op)
+        else:
+            logger.debug("Conserved quantity : energy without loss")
+            return EnergyNoLoss(w)
+
+    @abstractmethod
+    def __call__(self, state: CurrentState) -> float:
+        pass
+
+
+class NoConservedQuantity(ConservedQuantity):
+    def __call__(self, state: CurrentState) -> float:
+        return 0.0
+
+
+class PhotonNumberLoss(ConservedQuantity):
+    def __init__(self, w: np.ndarray, gamma_op: AbstractGamma, loss_op=AbstractLoss):
+        self.w = w
+        self.dw = w[1] - w[0]
+        self.gamma_op = gamma_op
+        self.loss_op = loss_op
+
+    def __call__(self, state: CurrentState) -> float:
+        return pulse.photon_number_with_loss(
+            state.spectrum, self.w, self.dw, self.gamma_op(state), self.loss_op(state), state.h
+        )
+
+
+class PhotonNumberNoLoss(ConservedQuantity):
+    def __init__(self, w: np.ndarray, gamma_op: AbstractGamma):
+        self.w = w
+        self.dw = w[1] - w[0]
+        self.gamma_op = gamma_op
+
+    def __call__(self, state: CurrentState) -> float:
+        return pulse.photon_number(state.spectrum, self.w, self.dw, self.gamma_op(state))
+
+
+class EnergyLoss(ConservedQuantity):
+    def __init__(self, w: np.ndarray, loss_op: AbstractLoss):
+        self.dw = w[1] - w[0]
+        self.loss_op = loss_op
+
+    def __call__(self, state: CurrentState) -> float:
+        return pulse.pulse_energy_with_loss(state.spectrum, self.dw, self.loss_op(state), state.h)
+
+
+class EnergyNoLoss(ConservedQuantity):
+    def __init__(self, w: np.ndarray):
+        self.dw = w[1] - w[0]
+
+    def __call__(self, state: CurrentState) -> float:
+        return pulse.pulse_energy(state.spectrum, self.dw)
