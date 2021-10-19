@@ -30,8 +30,10 @@ def plot_all(sim_dir: Path, limits: list[str], show=False, **opts):
     for k, v in opts.items():
         if k in ["skip"]:
             opts[k] = int(v)
-        if k in {"log", "renormalize"}:
-            opts[k] = True if v == "True" else False
+        if v == "True":
+            opts[k] = True
+        elif v == "False":
+            opts[k] = False
     dir_list = simulations_list(sim_dir)
     if len(dir_list) == 0:
         dir_list = [sim_dir]

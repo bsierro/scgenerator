@@ -365,9 +365,9 @@ class Parameters(_AbstractParameters):
     A_eff: float = Parameter(non_negative(float, int))
     A_eff_file: str = Parameter(string)
     numerical_aperture: float = Parameter(in_range_excl(0, 1))
-    pitch: float = Parameter(in_range_excl(0, 1e-3))
+    pitch: float = Parameter(in_range_excl(0, 1e-3), display_info=(1e6, "μm"))
     pitch_ratio: float = Parameter(in_range_excl(0, 1))
-    core_radius: float = Parameter(in_range_excl(0, 1e-3))
+    core_radius: float = Parameter(in_range_excl(0, 1e-3), display_info=(1e6, "μm"))
     he_mode: tuple[int, int] = Parameter(int_pair, default=(1, 1))
     fit_parameters: tuple[int, int] = Parameter(float_pair, default=(0.08, 200e-9))
     beta2_coefficients: Iterable[float] = Parameter(num_list)
@@ -375,11 +375,11 @@ class Parameters(_AbstractParameters):
     model: str = Parameter(
         literal("pcf", "marcatili", "marcatili_adjusted", "hasan", "custom"), default="custom"
     )
-    length: float = Parameter(non_negative(float, int))
+    length: float = Parameter(non_negative(float, int), display_info=(1e2, "cm"))
     capillary_num: int = Parameter(positive(int))
-    capillary_radius: float = Parameter(in_range_excl(0, 1e-3))
-    capillary_thickness: float = Parameter(in_range_excl(0, 1e-3))
-    capillary_spacing: float = Parameter(in_range_excl(0, 1e-3))
+    capillary_radius: float = Parameter(in_range_excl(0, 1e-3), display_info=(1e6, "μm"))
+    capillary_thickness: float = Parameter(in_range_excl(0, 1e-3), display_info=(1e6, "μm"))
+    capillary_spacing: float = Parameter(in_range_excl(0, 1e-3), display_info=(1e6, "μm"))
     capillary_resonance_strengths: Iterable[float] = Parameter(
         validator_list(type_checker(int, float, np.ndarray))
     )
