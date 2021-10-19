@@ -301,6 +301,17 @@ class EnvelopeNonLinearOperator(AbstractNonLinearOperator):
         raman_op: AbstractRaman,
     ):
         self.gamma_op = gamma_op
+        self.ss_op = ss_op
+        self.spm_op = spm_op
+        self.raman_op = raman_op
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return (
+            -1j
+            * self.gamma_op(state)
+            * (1 + self.ss_op(state))
+            * np.fft.fft(state.field * (self.spm_op(state) + self.raman_op(state)))
+        )
 
 
 ##################################################
