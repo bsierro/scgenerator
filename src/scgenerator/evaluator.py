@@ -349,7 +349,7 @@ default_rules: list[Rule] = [
     Rule("A_eff", fiber.A_eff_marcatili, priorities=-2),
     Rule("A_eff_arr", fiber.A_eff_from_V, ["core_radius", "V_eff_arr"]),
     Rule("A_eff_arr", fiber.load_custom_A_eff),
-    Rule("A_eff_arr", fiber.constant_A_eff_arr, priorities=-1),
+    # Rule("A_eff_arr", fiber.constant_A_eff_arr, priorities=-1),
     Rule(
         "V_eff",
         fiber.V_parameter_koshiba,
@@ -364,6 +364,7 @@ default_rules: list[Rule] = [
         ["l", "core_radius", "numerical_aperture", "interpolation_range"],
     ),
     Rule("gamma", lambda gamma_arr: gamma_arr[0], priorities=-1),
+    Rule("gamma", fiber.gamma_parameter),
     Rule("gamma_arr", fiber.gamma_parameter, ["n2", "w0", "A_eff_arr"]),
     Rule("n2", materials.gas_n2),
     Rule("n2", lambda: 2.2e-20, priorities=-1),

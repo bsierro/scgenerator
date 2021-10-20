@@ -1,3 +1,4 @@
+# flake8: noqa
 from . import math
 from .legacy import convert_sim_folder
 from .math import abs2, argclosest, span

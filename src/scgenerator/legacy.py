@@ -1,6 +1,6 @@
-from genericpath import exists
 import os
 import sys
+from collections import MutableMapping
 from pathlib import Path
 from typing import Any, Set
 
@@ -9,8 +9,8 @@ import toml
 
 from .const import SPEC1_FN, SPEC1_FN_N, SPECN_FN1
 from .parameter import Configuration, Parameters
-from .utils import save_parameters
 from .pbar import PBars
+from .utils import save_parameters
 from .variationer import VariationDescriptor
 
 
@@ -85,6 +85,45 @@ def _mv_specs(pbar: PBars, new_params: Parameters, start_z: int, spec_num: int, 
             new_path = new_params.final_path / SPEC1_FN_N.format(spec_num - start_z, j)
         np.save(new_path, spec1)
         pbar.update()
+
+
+def translate_parameters(d: dict[str, Any]) -> dict[str, Any]:
+    """translate parameters name and value from older versions of the program
+
+    Parameters
+    ----------
+    d : dict[str, Any]
+        [description]
+
+    Returns
+    -------
+    dict[str, Any]
+        [description]
+    """
+    old_names = dict(
+        interp_degree="interpolation_degree",
+        beta="beta2_coefficients",
+        interp_range="interpolation_range",
+    )
+    wl_limits_old = ["lower_wavelength_interp_limit", "upper_wavelength_interp_limit"]
+    defaults_to_add = dict(repeat=1)
+    new = {}
+    if len(set(wl_limits_old) & d.keys()) == 2:
+        new["interpolation_range"] = (d[wl_limits_old[0]], d[wl_limits_old[1]])
+    for k, v in d.items():
+        if k == "error_ok":
+            new["tolerated_error" if d.get("adapt_step_size", True) else "step_size"] = v
+        elif k == "behaviors":
+            beh = d["behaviors"]
+            if "raman" in beh:
+                new["raman_type"] = d["raman_type"]
+            new["spm"] = "spm" in beh
+            new["self_steepening"] = "ss" in beh
+        elif isinstance(v, MutableMapping):
+            new[k] = translate_parameters(v)
+        else:
+            new[old_names.get(k, k)] = v
+    return defaults_to_add | new
 
 
 def main():

@@ -12,13 +12,13 @@ from typing import Any, Callable, Iterable, Iterator, TypeVar, Union
 
 import numpy as np
 
-from . import env, utils
-from .const import PARAM_FN, __version__, VALID_VARIABLE, MANDATORY_PARAMETERS
+from . import env, legacy, utils
+from .const import MANDATORY_PARAMETERS, PARAM_FN, VALID_VARIABLE, __version__
+from .evaluator import Evaluator
 from .logger import get_logger
+from .operators import LinearOperator, NonLinearOperator
 from .utils import fiber_folder, update_path_name
 from .variationer import VariationDescriptor, Variationer
-from .evaluator import Evaluator
-from .operators import NonLinearOperator, LinearOperator
 
 T = TypeVar("T")
 
@@ -312,11 +312,9 @@ class Parameters:
     t0: float = Parameter(in_range_excl(0, 1e-9), display_info=(1e15, "fs"))
 
     # simulation
-    behaviors: tuple[str] = Parameter(
-        validator_list(literal("spm", "raman", "ss")), converter=tuple, default=("spm", "ss")
-    )
-    parallel: bool = Parameter(boolean, default=True)
     raman_type: str = Parameter(literal("measured", "agrawal", "stolen"), converter=str.lower)
+    self_steepening: bool = Parameter(boolean, default=True)
+    spm: bool = Parameter(boolean, default=True)
     ideal_gas: bool = Parameter(boolean, default=False)
     repeat: int = Parameter(positive(int), default=1)
     t_num: int = Parameter(positive(int))
@@ -329,6 +327,7 @@ class Parameters:
     interpolation_degree: int = Parameter(positive(int), default=8)
     prev_sim_dir: str = Parameter(string)
     recovery_last_stored: int = Parameter(non_negative(int), default=0)
+    parallel: bool = Parameter(boolean, default=True)
     worker_num: int = Parameter(positive(int))
 
     # computed
@@ -459,9 +458,9 @@ class Configuration:
     obj with the output path of the simulation saved in its output_path attribute.
     """
 
-    fiber_configs: list[dict[str, Any]]
+    fiber_configs: list[utils.SubConfig]
     vary_dicts: list[dict[str, list]]
-    master_config: dict[str, Any]
+    master_config_dict: dict[str, Any]
     fiber_paths: list[Path]
     num_sim: int
     num_fibers: int
@@ -515,51 +514,47 @@ class Configuration:
             mkdir=False,
             prevent_overwrite=not self.overwrite,
         )
-        self.master_config = self.fiber_configs[0].copy()
+        self.master_config_dict = self.fiber_configs[0].fixed | {
+            k: v[0] for vary_dict in self.fiber_configs[0].variable for k, v in vary_dict.items()
+        }
         self.name = self.final_path.name
         self.z_num = 0
         self.total_num_steps = 0
         self.fiber_paths = []
         self.all_configs = {}
         self.skip_callback = skip_callback
-        self.worker_num = self.master_config.get("worker_num", max(1, os.cpu_count() // 2))
-        self.repeat = self.master_config.get("repeat", 1)
+        self.worker_num = self.master_config_dict.get("worker_num", max(1, os.cpu_count() // 2))
+        self.repeat = self.master_config_dict.get("repeat", 1)
         self.variationer = Variationer()
 
         fiber_names = set()
         self.num_fibers = 0
         for i, config in enumerate(self.fiber_configs):
-            config.setdefault("name", Parameters.name.default)
-            self.z_num += config["z_num"]
-            fiber_names.add(config["name"])
-            vary_dict_list: list[dict[str, list]] = config.pop("variable")
-            self.variationer.append(vary_dict_list)
+            config.fixed.setdefault("name", Parameters.name.default)
+            self.z_num += config.fixed["z_num"]
+            fiber_names.add(config.fixed["name"])
+            self.variationer.append(config.variable)
             self.fiber_paths.append(
                 utils.ensure_folder(
-                    self.final_path / fiber_folder(i, self.name, config["name"]),
+                    self.final_path / fiber_folder(i, self.name, config.fixed["name"]),
                     mkdir=False,
                     prevent_overwrite=not self.overwrite,
                 )
             )
-            self.__validate_variable(vary_dict_list)
+            self.__validate_variable(config.variable)
             self.num_fibers += 1
             Evaluator.evaluate_default(
-                self.__build_base_config()
-                | config
-                | {k: v[0] for vary_dict in vary_dict_list for k, v in vary_dict.items()},
+                self.master_config_dict
+                | config.fixed
+                | {k: v[0] for vary_dict in config.variable for k, v in vary_dict.items()},
                 True,
             )
         self.num_sim = self.variationer.var_num()
         self.total_num_steps = sum(
-            config["z_num"] * self.variationer.var_num(i)
+            config.fixed["z_num"] * self.variationer.var_num(i)
             for i, config in enumerate(self.fiber_configs)
         )
-        self.parallel = self.master_config.get("parallel", Parameters.parallel.default)
-
-    def __build_base_config(self):
-        cfg = self.master_config.copy()
-        vary: list[dict[str, list]] = cfg.pop("variable")
-        return cfg | {k: v[0] for vary_dict in vary for k, v in vary_dict.items()}
+        self.parallel = self.master_config_dict.get("parallel", Parameters.parallel.default)
 
     def __validate_variable(self, vary_dict_list: list[dict[str, list]]):
         for vary_dict in vary_dict_list:
@@ -593,7 +588,7 @@ class Configuration:
             index = self.num_fibers + index
         sim_dict: dict[Path, Configuration.__SimConfig] = {}
         for descriptor in self.variationer.iterate(index):
-            cfg = descriptor.update_config(self.fiber_configs[index])
+            cfg = descriptor.update_config(self.fiber_configs[index].fixed)
             if index > 0:
                 cfg["prev_data_dir"] = str(
                     self.fiber_paths[index - 1] / descriptor[:index].formatted_descriptor(True)
@@ -611,7 +606,8 @@ class Configuration:
                 task, config_dict = self.__decide(sim_config)
                 if task == self.Action.RUN:
                     sim_dict.pop(data_dir)
-                    yield sim_config.descriptor, Parameters(**sim_config.config)
+                    param_dict = legacy.translate_parameters(sim_config.config)
+                    yield sim_config.descriptor, Parameters(**param_dict)
                     if "recovery_last_stored" in config_dict and self.skip_callback is not None:
                         self.skip_callback(config_dict["recovery_last_stored"])
                     break
@@ -695,10 +691,7 @@ class Configuration:
 
     def save_parameters(self):
         os.makedirs(self.final_path, exist_ok=True)
-        cfgs = [
-            cfg | dict(variable=self.variationer.all_dicts[i])
-            for i, cfg in enumerate(self.fiber_configs)
-        ]
+        cfgs = [cfg.fixed | dict(variable=cfg.variable) for cfg in self.fiber_configs]
         utils.save_toml(self.final_path / "initial_config.toml", dict(name=self.name, Fiber=cfgs))
 
     @property

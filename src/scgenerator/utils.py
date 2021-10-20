@@ -14,14 +14,15 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from string import printable as str_printable
-from typing import Any, Callable, MutableMapping, Sequence, TypeVar
+from typing import Any, Callable, MutableMapping, Sequence, TypeVar, Set
 
 import numpy as np
 import pkg_resources as pkg
 import toml
 
-from .const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, Z_FN
+from .const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, Z_FN, ROOT_PARAMETERS
 from .logger import get_logger
+from .errors import DuplicateParameterError
 
 T_ = TypeVar("T_")
 
@@ -74,39 +75,51 @@ class Paths:
         return os.path.join(cls.get("plots"), name)
 
 
-class ConfigFileParser:
-    path: Path
-    repeat: int
-    master: ConfigFileParser.SubConfig
-    configs: list[ConfigFileParser.SubConfig]
+@dataclass(init=False)
+class SubConfig:
+    fixed: dict[str, Any]
+    variable: list[dict[str, list]]
+    fixed_keys: Set[str]
+    variable_keys: Set[str]
 
-    @dataclass
-    class SubConfig:
-        fixed: dict[str, Any]
-        variable: dict[str, list]
+    def __init__(self, dico: dict[str, Any]):
+        dico = dico.copy()
+        self.variable = conform_variable_entry(dico.pop("variable", []))
+        self.fixed = dico
+        self.__update
 
-    def __init__(self, path: os.PathLike):
-        self.path = Path(path)
-        fiber_list: list[dict[str, Any]]
-        if self.path.name.lower().endswith(".toml"):
-            loaded_config = _open_config(self.path)
-            fiber_list = loaded_config.pop("Fiber")
-        else:
-            loaded_config = dict(name=self.path.name)
-            fiber_list = [_open_config(p) for p in sorted(self.path.glob("initial_config*.toml"))]
+    def __update(self):
+        self.variable_keys = set()
+        self.fixed_keys = set()
+        for dico in self.variable:
+            for key in dico:
+                if key in self.variable_keys:
+                    raise DuplicateParameterError(f"{key} is specified twice")
+                self.variable_keys.add(key)
+        for key in self.fixed:
+            if key in self.variable_keys:
+                raise DuplicateParameterError(f"{key} is specified twice")
+            self.fixed_keys.add(key)
 
-        if len(fiber_list) == 0:
-            raise ValueError(f"No fiber in config {self.path}")
-        configs = []
-        for i, params in enumerate(fiber_list):
-            configs.append(loaded_config | params)
-        for root_vary, first_vary in itertools.product(
-            loaded_config["variable"], configs[0]["variable"]
-        ):
-            if len(common := root_vary.keys() & first_vary.keys()) != 0:
-                raise ValueError(f"These variable keys are specified twice : {common!r}")
-        configs[0] |= {k: v for k, v in loaded_config.items() if k != "variable"}
-        configs[0]["variable"].append(dict(num=list(range(configs[0].get("repeat", 1)))))
+    def weak_update(self, other: SubConfig = None, **kwargs):
+        """similar to a dict update method put prioritizes existing values
+
+        Parameters
+        ----------
+        other : SubConfig
+            other obj
+        """
+        if other is None:
+            other = SubConfig(kwargs)
+        self.fixed = other.fixed | self.fixed
+        self.variable = other.variable + self.variable
+        self.__update()
+
+
+def conform_variable_entry(d) -> list[dict[str, list]]:
+    if isinstance(d, MutableMapping):
+        d = [{k: v} for k, v in d.items()]
+    return d
 
 
 def load_previous_spectrum(prev_data_dir: str) -> np.ndarray:
@@ -141,20 +154,8 @@ def _open_config(path: os.PathLike):
     path = conform_toml_path(path)
     dico = resolve_loadfile_arg(load_toml(path))
 
-    dico = standardize_variable_dicts(dico)
     if "Fiber" not in dico:
         dico = dict(name=path.name, Fiber=[dico])
-    return dico
-
-
-def standardize_variable_dicts(dico: dict[str, Any]):
-    if "Fiber" in dico:
-        dico["Fiber"] = [standardize_variable_dicts(fiber) for fiber in dico["Fiber"]]
-    if (var := dico.get("variable")) is not None:
-        if isinstance(var, MutableMapping):
-            dico["variable"] = [var]
-    else:
-        dico["variable"] = [{}]
     return dico
 
 
@@ -196,7 +197,7 @@ def save_toml(path: os.PathLike, dico):
     return dico
 
 
-def load_config_sequence(path: os.PathLike) -> tuple[Path, list[dict[str, Any]]]:
+def load_config_sequence(path: os.PathLike) -> tuple[Path, list[SubConfig]]:
     """loads a configuration file
 
     Parameters
@@ -213,28 +214,26 @@ def load_config_sequence(path: os.PathLike) -> tuple[Path, list[dict[str, Any]]]
 
     """
     path = Path(path)
-    fiber_list: list[dict[str, Any]]
     if path.name.lower().endswith(".toml"):
-        loaded_config = _open_config(path)
-        fiber_list = loaded_config.pop("Fiber")
+        master_config_dict = _open_config(path)
+        fiber_list = [SubConfig(d) for d in master_config_dict.pop("Fiber")]
+        master_config = SubConfig(master_config_dict)
     else:
-        loaded_config = dict(name=path.name)
-        fiber_list = [_open_config(p) for p in sorted(path.glob("initial_config*.toml"))]
+        master_config = SubConfig(dict(name=path.name))
+        fiber_list = [SubConfig(_open_config(p)) for p in sorted(path.glob("initial_config*.toml"))]
 
     if len(fiber_list) == 0:
         raise ValueError(f"No fiber in config {path}")
-    final_path = loaded_config.get("name")
-    configs = []
-    for i, params in enumerate(fiber_list):
-        configs.append(loaded_config | params)
-    for root_vary, first_vary in itertools.product(
-        loaded_config["variable"], configs[0]["variable"]
-    ):
-        if len(common := root_vary.keys() & first_vary.keys()) != 0:
-            raise ValueError(f"These variable keys are specified twice : {common!r}")
-    configs[0] |= {k: v for k, v in loaded_config.items() if k != "variable"}
-    configs[0]["variable"].append(dict(num=list(range(configs[0].get("repeat", 1)))))
-    return Path(final_path), configs
+    for fiber in fiber_list:
+        fiber.weak_update(master_config)
+    if "num" not in fiber_list[0].variable_keys:
+        repeat_arg = list(range(fiber_list[0].fixed.get("repeat", 1)))
+        fiber_list[0].weak_update(variable=dict(num=repeat_arg))
+    for p_name in ROOT_PARAMETERS:
+        if any(p_name in conf.variable_keys for conf in fiber_list[1:]):
+            raise ValueError(f"{p_name} should only be specified in the root or first fiber")
+    configs = fiber_list
+    return Path(master_config.fixed["name"]), configs
 
 
 @cache
@@ -340,27 +339,6 @@ def auto_crop(x: np.ndarray, y: np.ndarray, rel_thr: float = 0.01) -> np.ndarray
     )
 
 
-def translate_parameters(d: dict[str, Any]) -> dict[str, Any]:
-    old_names = dict(
-        interp_degree="interpolation_degree",
-        beta="beta2_coefficients",
-        interp_range="interpolation_range",
-    )
-    deleted_names = {"lower_wavelength_interp_limit", "upper_wavelength_interp_limit"}
-    defaults_to_add = dict(repeat=1)
-    new = {}
-    for k, v in d.items():
-        if k == "error_ok":
-            new["tolerated_error" if d.get("adapt_step_size", True) else "step_size"] = v
-        elif k in deleted_names:
-            continue
-        elif isinstance(v, MutableMapping):
-            new[k] = translate_parameters(v)
-        else:
-            new[old_names.get(k, k)] = v
-    return defaults_to_add | new
-
-
 def to_62(i: int) -> str:
     arr = []
     if i == 0:
@@ -445,7 +423,7 @@ def combine_simulations(path: Path, dest: Path = None):
     for l in paths.values():
         try:
             l.sort(key=lambda el: re.search(r"(?<=num )[0-9]+", el.name)[0])
-        except ValueError:
+        except TypeError:
             pass
     for pulses in paths.values():
         new_path = dest / update_path_name(pulses[0].name)

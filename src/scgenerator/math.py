@@ -1,7 +1,6 @@
 from typing import Union
 
 import numpy as np
-from scipy.interpolate import griddata, interp1d
 from scipy.special import jn_zeros
 from .cache import np_cache
 
@@ -170,50 +169,6 @@ def indft(f: np.ndarray, a: np.ndarray, t: np.ndarray) -> np.ndarray:
         amplitude at each point of t
     """
     return indft_matrix(t, f) @ a
-
-
-def make_uniform_2D(values, x_axis, y_axis, n=1024, method="linear"):
-    """Interpolates a 2D array with the help of griddata
-    Parameters
-    ----------
-        values : 2D array of real values
-        x_axis : x-coordinates of values
-        y_axis : y-coordinates of values
-        method : method of interpolation to be passed to griddata
-    Returns
-    ----------
-        array of shape n
-    """
-    xx, yy = np.meshgrid(x_axis, y_axis)
-    xx = xx.flatten()
-    yy = yy.flatten()
-
-    if not isinstance(n, tuple):
-        n = (n, n)
-
-    # old_points = np.array([gridx.ravel(), gridy.ravel()])
-
-    newx, newy = np.meshgrid(np.linspace(*span(x_axis), n[0]), np.linspace(*span(y_axis), n[1]))
-
-    print("interpolating")
-    out = griddata((xx, yy), values.flatten(), (newx, newy), method=method, fill_value=0)
-    print("interpolating done!")
-    return out.reshape(n[1], n[0])
-
-
-def make_uniform_1D(values, x_axis, n=1024, method="linear"):
-    """Interpolates a 2D array with the help of interp1d
-    Parameters
-    ----------
-        values : 1D array of real values
-        x_axis : x-coordinates of values
-        method : method of interpolation to be passed to interp1d
-    Returns
-    ----------
-        array of length n
-    """
-    xx = np.linspace(*span(x_axis), len(x_axis))
-    return interp1d(x_axis, values, kind=method)(xx)
 
 
 def all_zeros(x: np.ndarray, y: np.ndarray) -> np.ndarray:

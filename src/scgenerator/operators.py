@@ -17,7 +17,7 @@ from .physics import fiber, pulse
 
 class SpectrumDescriptor:
     name: str
-    value: np.ndarray
+    value: np.ndarray = None
 
     def __set__(self, instance, value):
         instance.spec2 = math.abs2(value)

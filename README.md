@@ -260,14 +260,8 @@ time_window: float
     total length of the temporal grid in s
 
 ### optional
-behaviors: list of str {"spm", "raman", "ss"}
-    spm is self-phase modulation
-    raman is raman effect
-    ss is self-steepening
-    default : ["spm", "ss"]
-
-raman_type: str {"measured", "stolen", "agrawal"}
-    type of Raman effect. Default is "agrawal".
+raman_type: str {"measured", "stolen", "agrawal"}, optional
+    type of Raman effect. Specifying this parameter has the effect of turning on Raman effect
 
 ideal_gas: bool
     if True, use the ideal gas law. Otherwise, use van der Waals equation. default : False
@@ -285,7 +279,7 @@ step_size: float
     if given, sets a constant step size rather than adapting it.
 
 parallel: bool
-    whether to run simulations in parallel with the available ressources. default : false
+    whether to run simulations in parallel with the available resources. default : false
 
 repeat: int
     how many simulations to run per parameter set. default : 1

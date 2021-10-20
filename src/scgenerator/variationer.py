@@ -79,7 +79,7 @@ class Variationer:
                 len_to_test = len(values[0])
                 if not all(len(v) == len_to_test for v in values[1:]):
                     raise VariationSpecsError(
-                        f"variable items should all have the same number of parameters"
+                        "variable items should all have the same number of parameters"
                     )
                 num_vars.append(len_to_test)
         if len(num_vars) == 0:
