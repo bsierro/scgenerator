@@ -250,7 +250,10 @@ class Evaluator:
         self.eval_stats[key].priority = priority
 
     def validate_condition(self, rule: Rule) -> bool:
-        return all(self.compute(k) == v for k, v in rule.conditions.items())
+        try:
+            return all(self.compute(k) == v for k, v in rule.conditions.items())
+        except (EvaluatorError, KeyError, NoDefaultError):
+            return False
 
     def attempted_rules_str(self, target: str) -> str:
         rules = ", ".join(str(r) for r in self.__failed_rules[target])
@@ -376,7 +379,7 @@ default_rules: list[Rule] = [
     Rule("raman_op", operators.NoRaman, priorities=-1),
     Rule("nonlinear_operator", operators.EnvelopeNonLinearOperator),
     Rule("loss_op", operators.CustomConstantLoss, priorities=3),
-    Rule("loss_op", operators.CapillaryLoss, priorities=2),
+    Rule("loss_op", operators.CapillaryLoss, priorities=2, conditions=dict(loss="capillary")),
     Rule("loss_op", operators.ConstantLoss, priorities=1),
     Rule("loss_op", operators.NoLoss, priorities=-1),
     Rule("dispersion_op", operators.ConstantPolyDispersion),

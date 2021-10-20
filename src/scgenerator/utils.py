@@ -97,7 +97,6 @@ class ConfigFileParser:
 
         if len(fiber_list) == 0:
             raise ValueError(f"No fiber in config {self.path}")
-        final_path = loaded_config.get("name")
         configs = []
         for i, params in enumerate(fiber_list):
             configs.append(loaded_config | params)
@@ -444,7 +443,10 @@ def combine_simulations(path: Path, dest: Path = None):
         if p.is_dir():
             paths[p.name.split()[1]].append(p)
     for l in paths.values():
-        l.sort(key=lambda el: re.search(r"(?<=num )[0-9]+", el.name)[0])
+        try:
+            l.sort(key=lambda el: re.search(r"(?<=num )[0-9]+", el.name)[0])
+        except ValueError:
+            pass
     for pulses in paths.values():
         new_path = dest / update_path_name(pulses[0].name)
         os.makedirs(new_path, exist_ok=True)

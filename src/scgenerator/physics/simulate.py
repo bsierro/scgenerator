@@ -253,8 +253,9 @@ class RK4IP:
             step sized used
         """
         keep = False
+        h_next_step = self.state.h
         while not keep:
-            h = self.state.h
+            h = h_next_step
 
             expD = np.exp(h / 2 * self.params.linear_operator(self.state))
 
@@ -274,19 +275,20 @@ class RK4IP:
                     progress_str = f"step {step} rejected with h = {h:.4e}, doing over"
                     self.logger.debug(progress_str)
                     keep = False
-                    self.state.h = h / 2
+                    h_next_step = h / 2
                 elif cons_qty_change_ok < curr_p_change <= 2 * cons_qty_change_ok:
                     keep = True
-                    self.state.h = h / self.size_fac
+                    h_next_step = h / self.size_fac
                 elif curr_p_change < 0.1 * cons_qty_change_ok:
                     keep = True
-                    self.state.h = h * self.size_fac
+                    h_next_step = h * self.size_fac
                 else:
                     keep = True
-                    self.state.h = h
+                    h_next_step = h
             else:
                 keep = True
         self.state = new_state
+        self.state.h = h_next_step
         self.state.z += h
         return h
 
