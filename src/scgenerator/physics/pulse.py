@@ -394,7 +394,6 @@ def pulse_energy(spec2, dw) -> float:
 
 
 def pulse_energy_with_loss(spec2, dw, alpha, h) -> float:
-    spec2 = spec2
     return np.sum(spec2 * dw) - h * np.sum(alpha * spec2 * dw)
 
 

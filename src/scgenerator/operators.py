@@ -393,7 +393,7 @@ class CapillaryLoss(ConstantLoss):
         interpolation_range: tuple[float, float],
         he_mode: tuple[int, int],
     ):
-        mask = (l < interpolation_range[1]) & (l > 0)
+        mask = (l < interpolation_range[1]) & (l > interpolation_range[0])
         alpha = fiber.capillary_loss(l[mask], he_mode, core_radius)
         self.arr = np.zeros_like(l)
         self.arr[mask] = alpha
