@@ -1,10 +1,9 @@
 __version__ = "0.2.3rules"
 
-
 from typing import Any
 
 
-def pbar_format(worker_id: int):
+def pbar_format(worker_id: int) -> dict[str, Any]:
     if worker_id == 0:
         return dict(
             position=0,
@@ -80,8 +79,6 @@ MANDATORY_PARAMETERS = [
     "w_c",
     "w",
     "w0",
-    "w_power_fact",
-    "alpha",
     "spec_0",
     "field_0",
     "mean_power",
@@ -91,8 +88,6 @@ MANDATORY_PARAMETERS = [
     "beta2_coefficients",
     "gamma_arr",
     "behaviors",
-    "raman_type",
-    "hr_w",
     "adapt_step_size",
     "tolerated_error",
     "dynamic_dispersion",
@@ -100,5 +95,5 @@ MANDATORY_PARAMETERS = [
     "output_path",
     "repeat",
     "linear_operator",
-    "nonlinear_op",
+    "nonlinear_operator",
 ]

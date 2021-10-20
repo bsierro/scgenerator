@@ -5,16 +5,13 @@ Nothing except the solver should depend on this file
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from functools import wraps
-from os import stat
-from typing import Callable
-
+import dataclasses
 import numpy as np
 from scipy.interpolate import interp1d
 
 from . import math
 from .logger import get_logger
+
 from .physics import fiber, pulse
 
 
@@ -23,7 +20,9 @@ class SpectrumDescriptor:
     value: np.ndarray
 
     def __set__(self, instance, value):
+        instance.spec2 = math.abs2(value)
         instance.field = np.fft.ifft(value)
+        instance.field2 = math.abs2(instance.field)
         self.value = value
 
     def __get__(self, instance, owner):
@@ -36,27 +35,39 @@ class SpectrumDescriptor:
         self.name = name
 
 
-@dataclass
+@dataclasses.dataclass
 class CurrentState:
     length: float
     z: float
     h: float
+    C_to_A_factor: np.ndarray
     spectrum: np.ndarray = SpectrumDescriptor()
-    field: np.ndarray = field(init=False)
+    spec2: np.ndarray = dataclasses.field(init=False)
+    field: np.ndarray = dataclasses.field(init=False)
+    field2: np.ndarray = dataclasses.field(init=False)
 
     @property
     def z_ratio(self) -> float:
         return self.z / self.length
 
+    def replace(self, new_spectrum) -> CurrentState:
+        return CurrentState(self.length, self.z, self.h, self.C_to_A_factor, new_spectrum)
+
 
 class Operator(ABC):
     def __repr__(self) -> str:
-        return (
-            self.__class__.__name__
-            + "("
-            + ", ".join(k + "=" + repr(v) for k, v in self.__dict__.items())
-            + ")"
-        )
+        value_pair_list = list(self.__dict__.items())
+        if len(value_pair_list) > 1:
+            value_pair_str_list = [k + "=" + self.__value_repr(k, v) for k, v in value_pair_list]
+        else:
+            value_pair_str_list = [self.__value_repr(value_pair_list[0][0], value_pair_list[0][1])]
+
+        return self.__class__.__name__ + "(" + ", ".join(value_pair_str_list) + ")"
+
+    def __value_repr(self, k: str, v) -> str:
+        if k.endswith("_const"):
+            return repr(v[0])
+        return repr(v)
 
     @abstractmethod
     def __call__(self, state: CurrentState) -> np.ndarray:
@@ -65,7 +76,7 @@ class Operator(ABC):
 
 class NoOp:
     def __init__(self, w: np.ndarray):
-        self.zero_arr = np.zeros_like(w)
+        self.arr_const = np.zeros_like(w)
 
 
 ##################################################
@@ -125,10 +136,10 @@ class ConstantPolyDispersion(AbstractDispersion):
 ##################################################
 
 
-class LinearOperator:
-    def __init__(self, disp_op: AbstractDispersion, loss_op: AbstractLoss):
-        self.disp = disp_op
-        self.loss = loss_op
+class LinearOperator(Operator):
+    def __init__(self, dispersion_op: AbstractDispersion, loss_op: AbstractLoss):
+        self.dispersion_op = dispersion_op
+        self.loss_op = loss_op
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         """returns the linear operator to be multiplied by the spectrum in the frequency domain
@@ -143,7 +154,7 @@ class LinearOperator:
         np.ndarray
             linear component
         """
-        return self.disp(state) - self.loss(state) / 2
+        return self.dispersion_op(state) - self.loss_op(state) / 2
 
 
 ##################################################
@@ -174,7 +185,7 @@ class AbstractRaman(Operator):
 
 class NoRaman(NoOp, AbstractRaman):
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.zero_arr
+        return self.arr_const
 
 
 class Raman(AbstractRaman):
@@ -183,7 +194,7 @@ class Raman(AbstractRaman):
         self.f_r = 0.245 if raman_type == "agrawal" else 0.18
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.f_r * np.fft.ifft(self.hr_w * np.fft.fft(math.abs2(state.field)))
+        return self.f_r * np.fft.ifft(self.hr_w * np.fft.fft(state.field2))
 
 
 # SPM
@@ -210,7 +221,7 @@ class AbstractSPM(Operator):
 
 class NoSPM(NoOp, AbstractSPM):
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.zero_arr
+        return self.arr_const
 
 
 class SPM(AbstractSPM):
@@ -218,10 +229,10 @@ class SPM(AbstractSPM):
         self.fraction = 1 - raman_op.f_r
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.fraction * math.abs2(state.field)
+        return self.fraction * state.field2
 
 
-# Selt Steepening
+# Self-Steepening
 
 
 class AbstractSelfSteepening(Operator):
@@ -243,7 +254,7 @@ class AbstractSelfSteepening(Operator):
 
 class NoSelfSteepening(NoOp, AbstractSelfSteepening):
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.zero_arr
+        return self.arr_const
 
 
 class SelfSteepening(AbstractSelfSteepening):
@@ -274,15 +285,20 @@ class AbstractGamma(Operator):
         """
 
 
-class NoGamma(AbstractSPM):
-    def __init__(self, w: np.ndarray) -> None:
-        self.ones_arr = np.ones_like(w)
+class ConstantScalarGamma(AbstractGamma):
+    def __init__(self, gamma: np.ndarray, w: np.ndarray):
+        self.arr_const = gamma * np.ones_like(w)
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.ones_arr
+        return self.arr_const
 
 
-class ConstantGamma(AbstractSelfSteepening):
+class NoGamma(ConstantScalarGamma):
+    def __init__(self, w: np.ndarray) -> None:
+        super().__init__(0, w)
+
+
+class ConstantGamma(AbstractGamma):
     def __init__(self, gamma_arr: np.ndarray):
         self.arr = gamma_arr
 
@@ -355,13 +371,13 @@ class AbstractLoss(Operator):
 
 
 class ConstantLoss(AbstractLoss):
-    alpha_arr: np.ndarray
+    arr_const: np.ndarray
 
     def __init__(self, alpha: float, w: np.ndarray):
-        self.alpha_arr = alpha * np.ones_like(w)
+        self.arr_const = alpha * np.ones_like(w)
 
     def __call__(self, state: CurrentState = None) -> np.ndarray:
-        return self.alpha_arr
+        return self.arr_const
 
 
 class NoLoss(ConstantLoss):
@@ -379,8 +395,11 @@ class CapillaryLoss(ConstantLoss):
     ):
         mask = (l < interpolation_range[1]) & (l > 0)
         alpha = fiber.capillary_loss(l[mask], he_mode, core_radius)
-        self.alpha_arr = np.zeros_like(l)
-        self.alpha_arr[mask] = alpha
+        self.arr = np.zeros_like(l)
+        self.arr[mask] = alpha
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return self.arr
 
 
 class CustomConstantLoss(ConstantLoss):
@@ -388,7 +407,10 @@ class CustomConstantLoss(ConstantLoss):
         loss_data = np.load(loss_file)
         wl = loss_data["wavelength"]
         loss = loss_data["loss"]
-        self.alpha_arr = interp1d(wl, loss, fill_value=0, bounds_error=False)(l)
+        self.arr = interp1d(wl, loss, fill_value=0, bounds_error=False)(l)
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return self.arr
 
 
 ##################################################
@@ -397,9 +419,10 @@ class CustomConstantLoss(ConstantLoss):
 
 
 class ConservedQuantity(Operator):
-    def __new__(
-        raman_op: AbstractGamma, gamma_op: AbstractGamma, loss_op: AbstractLoss, w: np.ndarray
-    ):
+    @classmethod
+    def create(
+        cls, raman_op: AbstractGamma, gamma_op: AbstractGamma, loss_op: AbstractLoss, w: np.ndarray
+    ) -> ConservedQuantity:
         logger = get_logger(__name__)
         raman = not isinstance(raman_op, NoRaman)
         loss = not isinstance(raman_op, NoLoss)
@@ -435,7 +458,7 @@ class PhotonNumberLoss(ConservedQuantity):
 
     def __call__(self, state: CurrentState) -> float:
         return pulse.photon_number_with_loss(
-            state.spectrum, self.w, self.dw, self.gamma_op(state), self.loss_op(state), state.h
+            state.spec2, self.w, self.dw, self.gamma_op(state), self.loss_op(state), state.h
         )
 
 
@@ -446,7 +469,7 @@ class PhotonNumberNoLoss(ConservedQuantity):
         self.gamma_op = gamma_op
 
     def __call__(self, state: CurrentState) -> float:
-        return pulse.photon_number(state.spectrum, self.w, self.dw, self.gamma_op(state))
+        return pulse.photon_number(state.spec2, self.w, self.dw, self.gamma_op(state))
 
 
 class EnergyLoss(ConservedQuantity):
@@ -455,7 +478,9 @@ class EnergyLoss(ConservedQuantity):
         self.loss_op = loss_op
 
     def __call__(self, state: CurrentState) -> float:
-        return pulse.pulse_energy_with_loss(state.spectrum, self.dw, self.loss_op(state), state.h)
+        return pulse.pulse_energy_with_loss(
+            math.abs2(state.C_to_A_factor * state.spectrum), self.dw, self.loss_op(state), state.h
+        )
 
 
 class EnergyNoLoss(ConservedQuantity):
@@ -463,4 +488,4 @@ class EnergyNoLoss(ConservedQuantity):
         self.dw = w[1] - w[0]
 
     def __call__(self, state: CurrentState) -> float:
-        return pulse.pulse_energy(state.spectrum, self.dw)
+        return pulse.pulse_energy(math.abs2(state.C_to_A_factor * state.spectrum), self.dw)

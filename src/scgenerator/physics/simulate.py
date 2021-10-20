@@ -1,11 +1,10 @@
 import multiprocessing
 import multiprocessing.connection
 import os
-import random
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Generator, Type, Union
-
+from typing import Any, Generator, Type, Union, Optional
+from logging import Logger
 import numpy as np
 
 from .. import utils
@@ -21,24 +20,39 @@ except ModuleNotFoundError:
 
 
 class RK4IP:
+    params: Parameters
+    save_data: bool
+    data_dir: Optional[Path]
+    logger: Logger
+
+    dw: float
+    z_targets: list[float]
+    z_store: list[float]
+    z: float
+    store_num: int
+    error_ok: float
+    size_fac: float
+    cons_qty: list[float]
+
+    state: CurrentState
+    conserved_quantity_func: ConservedQuantity
+    stored_spectra: list[np.ndarray]
+
     def __init__(
         self,
         params: Parameters,
         save_data=False,
-        task_id=0,
     ):
         """A 1D solver using 4th order Runge-Kutta in the interaction picture
 
-                Parameters
-                ----------
         Parameters
-                    parameters of the simulation
-                save_data : bool, optional
-                    save calculated spectra to disk, by default False
-                task_id : int, optional
-                    unique identifier of the session, by default 0
+        ----------
+        params : Parameters
+            parameters of the simulation
+        save_data : bool, optional
+            save calculated spectra to disk, by default False
         """
-        self.set(params, save_data, task_id)
+        self.set(params, save_data)
 
     def __iter__(self) -> Generator[tuple[int, int, np.ndarray], None, None]:
         yield from self.irun()
@@ -50,10 +64,8 @@ class RK4IP:
         self,
         params: Parameters,
         save_data=False,
-        task_id=0,
     ):
         self.params = params
-        self.id = task_id
         self.save_data = save_data
 
         if self.save_data:
@@ -62,31 +74,28 @@ class RK4IP:
         else:
             self.data_dir = None
 
-        self.logger = get_logger(self.params.output_path)
-        self.resuming = False
+        self.logger = get_logger(self.params.output_path.name)
 
         self.dw = self.params.w[1] - self.params.w[0]
         self.z_targets = self.params.z_targets
-        self.C_to_A_factor = (self.params.A_eff_arr / self.params.A_eff_arr[0]) ** (1 / 4)
         self.error_ok = (
             params.tolerated_error if self.params.adapt_step_size else self.params.step_size
         )
 
-        self._setup_functions()
+        self.set_cons_qty()
         self._setup_sim_parameters()
 
-    def _setup_functions(self):
-
+    def set_cons_qty(self):
         # Set up which quantity is conserved for adaptive step size
         if self.params.adapt_step_size:
-            self.conserved_quantity_func = ConservedQuantity(
+            self.conserved_quantity_func = ConservedQuantity.create(
                 self.params.nonlinear_operator.raman_op,
                 self.params.nonlinear_operator.gamma_op,
                 self.params.linear_operator.loss_op,
                 self.params.w,
             )
         else:
-            self.logger.debug(f"Using constant step size of {1e6*self.error_ok:.3f}")
+            self.logger.debug(f"Using constant step size of {1e6*self.error_ok:.3f}μm")
             self.conserved_quantity_func = NoConservedQuantity()
 
     def _setup_sim_parameters(self):
@@ -96,17 +105,20 @@ class RK4IP:
         self.z_targets.sort()
         self.store_num = len(self.z_targets)
 
+        # Setup initial values for every physical quantity that we want to track
+        C_to_A_factor = (self.params.A_eff_arr / self.params.A_eff_arr[0]) ** (1 / 4)
+        z = self.z_targets.pop(0)
         # Initial step size
         if self.params.adapt_step_size:
-            initial_h = (self.z_targets[0] - self.z) / 2
+            initial_h = (self.z_targets[0] - z) / 2
         else:
             initial_h = self.error_ok
-        # Setup initial values for every physical quantity that we want to track
         self.state = CurrentState(
             length=self.params.length,
-            z=self.z_targets.pop(0),
+            z=z,
             h=initial_h,
-            spectrum=self.params.spec_0.copy() / self.C_to_A_factor,
+            C_to_A_factor=C_to_A_factor,
+            spectrum=self.params.spec_0.copy() / C_to_A_factor,
         )
         self.stored_spectra = self.params.recovery_last_stored * [None] + [
             self.state.spectrum.copy()
@@ -117,7 +129,6 @@ class RK4IP:
         ]
         self.size_fac = 2 ** (1 / 5)
 
-
     def _save_current_spectrum(self, num: int):
         """saves the spectrum and the corresponding cons_qty array
 
@@ -126,11 +137,11 @@ class RK4IP:
         num : int
             index of the z postition
         """
-        self._save_data(self.C_to_A_factor * self.state.spectrum, f"spectrum_{num}")
-        self._save_data(self.cons_qty, f"cons_qty")
+        self._save_data(self.get_current_spectrum(), f"spectrum_{num}")
+        self._save_data(self.cons_qty, "cons_qty")
         self.step_saved()
 
-    def get_current_spectrum(self) -> tuple[int, np.ndarray]:
+    def get_current_spectrum(self) -> np.ndarray:
         """returns the current spectrum
 
         Returns
@@ -138,7 +149,7 @@ class RK4IP:
         np.ndarray
             spectrum
         """
-        return self.C_to_A_factor * self.state.spectrum
+        return self.state.C_to_A_factor * self.state.spectrum
 
     def _save_data(self, data: np.ndarray, name: str):
         """calls the appropriate method to save data
@@ -190,35 +201,32 @@ class RK4IP:
 
         # Start of the integration
         step = 1
-        h_taken = self.initial_h
-        h_next_step = self.initial_h
         store = False  # store a spectrum
 
         yield step, len(self.stored_spectra) - 1, self.get_current_spectrum()
 
-        while self.z < self.params.length:
-            h_taken, h_next_step, self.state.spectrum = self.take_step(
-                step, h_next_step, self.state.spectrum.copy()
-            )
+        while self.state.z < self.params.length:
+            h_taken = self.take_step(step)
 
-            self.z += h_taken
             step += 1
             self.cons_qty.append(0)
 
             # Whether the current spectrum has to be stored depends on previous step
             if store:
-                self.logger.debug("{} steps, z = {:.4f}, h = {:.5g}".format(step, self.z, h_taken))
+                self.logger.debug(
+                    "{} steps, z = {:.4f}, h = {:.5g}".format(step, self.state.z, h_taken)
+                )
 
                 self.stored_spectra.append(self.state.spectrum)
 
                 yield step, len(self.stored_spectra) - 1, self.get_current_spectrum()
 
-                self.z_stored.append(self.z)
+                self.z_stored.append(self.state.z)
                 del self.z_targets[0]
 
                 # reset the constant step size after a spectrum is stored
                 if not self.params.adapt_step_size:
-                    h_next_step = self.error_ok
+                    self.state.h = self.error_ok
 
                 if len(self.z_targets) == 0:
                     break
@@ -226,50 +234,39 @@ class RK4IP:
 
             # if the next step goes over a position at which we want to store
             # a spectrum, we shorten the step to reach this position exactly
-            if self.z + h_next_step >= self.z_targets[0]:
+            if self.state.z + self.state.h >= self.z_targets[0]:
                 store = True
-                h_next_step = self.z_targets[0] - self.z
+                self.state.h = self.z_targets[0] - self.state.z
 
-    def take_step(
-        self, step: int, h_next_step: float, current_spectrum: np.ndarray
-    ) -> tuple[float, float, np.ndarray]:
+    def take_step(self, step: int) -> tuple[float, float, np.ndarray]:
         """computes a new spectrum, whilst adjusting step size if required, until the error estimation
-        validates the new spectrum
+        validates the new spectrum. Saves the result in the internal state attribute
 
         Parameters
         ----------
         step : int
             index of the current
-        h_next_step : float
-            candidate step size
-        current_spectrum : np.ndarray
-            spectrum of the last step taken
 
         Returns
         -------
         h : float
             step sized used
-        h_next_step : float
-            candidate next step size
-        new_spectrum : np.ndarray
-            new spectrum
         """
         keep = False
         while not keep:
-            h = h_next_step
-            z_ratio = self.z / self.params.length
+            h = self.state.h
 
-            expD = np.exp(h / 2 * self.disp(z_ratio))
+            expD = np.exp(h / 2 * self.params.linear_operator(self.state))
 
-            A_I = expD * current_spectrum
-            k1 = expD * (h * self.N_func(current_spectrum, z_ratio))
-            k2 = h * self.N_func(A_I + k1 / 2, z_ratio)
-            k3 = h * self.N_func(A_I + k2 / 2, z_ratio)
-            k4 = h * self.N_func(expD * (A_I + k3), z_ratio)
-            new_spectrum = expD * (A_I + k1 / 6 + k2 / 3 + k3 / 3) + k4 / 6
+            A_I = expD * self.state.spectrum
+            k1 = expD * (h * self.params.nonlinear_operator(self.state))
+            k2 = h * self.params.nonlinear_operator(self.state.replace(A_I + k1 / 2))
+            k3 = h * self.params.nonlinear_operator(self.state.replace(A_I + k2 / 2))
+            k4 = h * self.params.nonlinear_operator(self.state.replace(expD * (A_I + k3)))
+            new_state = self.state.replace(expD * (A_I + k1 / 6 + k2 / 3 + k3 / 3) + k4 / 6)
 
             if self.params.adapt_step_size:
-                self.cons_qty[step] = self.conserved_quantity_func(new_spectrum, h)
+                self.cons_qty[step] = self.conserved_quantity_func(new_state)
                 curr_p_change = np.abs(self.cons_qty[step - 1] - self.cons_qty[step])
                 cons_qty_change_ok = self.error_ok * self.cons_qty[step - 1]
 
@@ -289,7 +286,10 @@ class RK4IP:
                     h_next_step = h
             else:
                 keep = True
-        return h, h_next_step, new_spectrum
+        self.state = new_state
+        self.state.h = h_next_step
+        self.state.z += h
+        return h
 
     def step_saved(self):
         pass
@@ -301,17 +301,15 @@ class SequentialRK4IP(RK4IP):
         params: Parameters,
         pbars: PBars,
         save_data=False,
-        task_id=0,
     ):
         self.pbars = pbars
         super().__init__(
             params,
             save_data=save_data,
-            task_id=task_id,
         )
 
     def step_saved(self):
-        self.pbars.update(1, self.z / self.params.length - self.pbars[1].n)
+        self.pbars.update(1, self.state.z / self.params.length - self.pbars[1].n)
 
 
 class MutliProcRK4IP(RK4IP):
@@ -321,18 +319,16 @@ class MutliProcRK4IP(RK4IP):
         p_queue: multiprocessing.Queue,
         worker_id: int,
         save_data=False,
-        task_id=0,
     ):
         self.worker_id = worker_id
         self.p_queue = p_queue
         super().__init__(
             params,
             save_data=save_data,
-            task_id=task_id,
         )
 
     def step_saved(self):
-        self.p_queue.put((self.worker_id, self.z / self.params.length))
+        self.p_queue.put((self.worker_id, self.state.z / self.params.length))
 
 
 class RayRK4IP(RK4IP):
@@ -345,23 +341,21 @@ class RayRK4IP(RK4IP):
         p_actor,
         worker_id: int,
         save_data=False,
-        task_id=0,
     ):
         self.worker_id = worker_id
         self.p_actor = p_actor
         super().set(
             params,
             save_data=save_data,
-            task_id=task_id,
         )
 
     def set_and_run(self, v):
-        params, p_actor, worker_id, save_data, task_id = v
-        self.set(params, p_actor, worker_id, save_data, task_id)
+        params, p_actor, worker_id, save_data = v
+        self.set(params, p_actor, worker_id, save_data)
         self.run()
 
     def step_saved(self):
-        self.p_actor.update.remote(self.worker_id, self.z / self.params.length)
+        self.p_actor.update.remote(self.worker_id, self.state.z / self.params.length)
         self.p_actor.update.remote(0)
 
 
@@ -391,7 +385,7 @@ class Simulations:
 
     @classmethod
     def new(
-        cls, configuration: Configuration, task_id, method: Union[str, Type["Simulations"]] = None
+        cls, configuration: Configuration, method: Union[str, Type["Simulations"]] = None
     ) -> "Simulations":
         """Prefered method to create a new simulations object
 
@@ -403,27 +397,24 @@ class Simulations:
         if method is not None:
             if isinstance(method, str):
                 method = Simulations.simulation_methods_dict[method]
-            return method(configuration, task_id)
+            return method(configuration)
         elif configuration.num_sim > 1 and configuration.parallel:
-            return Simulations.get_best_method()(configuration, task_id)
+            return Simulations.get_best_method()(configuration)
         else:
-            return SequencialSimulations(configuration, task_id)
+            return SequencialSimulations(configuration)
 
-    def __init__(self, configuration: Configuration, task_id=0):
+    def __init__(self, configuration: Configuration):
         """
         Parameters
         ----------
         configuration : scgenerator.Configuration obj
             parameter sequence
-        task_id : int, optional
-            a unique id that identifies the simulation, by default 0
         data_folder : str, optional
             path to the folder where data is saved, by default "scgenerator/"
         """
         if not self.is_available():
             raise RuntimeError(f"{self.__class__} is currently not available")
         self.logger = get_logger(__name__)
-        self.id = int(task_id)
 
         self.configuration = configuration
 
@@ -470,7 +461,7 @@ class Simulations:
 
     def ensure_finised_and_complete(self):
         while not self.finished_and_complete():
-            self.logger.warning(f"Something wrong happened, running again to finish simulation")
+            self.logger.warning("Something wrong happened, running again to finish simulation")
             self._run_available()
 
     def stop(self):
@@ -482,8 +473,8 @@ class SequencialSimulations(Simulations, priority=0):
     def is_available(cls):
         return True
 
-    def __init__(self, configuration: Configuration, task_id):
-        super().__init__(configuration, task_id=task_id)
+    def __init__(self, configuration: Configuration):
+        super().__init__(configuration)
         self.pbars = PBars(
             self.configuration.total_num_steps,
             "Simulating " + self.configuration.final_path.name,
@@ -493,7 +484,7 @@ class SequencialSimulations(Simulations, priority=0):
 
     def new_sim(self, params: Parameters):
         self.logger.info(f"{self.configuration.final_path} : launching simulation")
-        SequentialRK4IP(params, self.pbars, save_data=True, task_id=self.id).run()
+        SequentialRK4IP(params, self.pbars, save_data=True).run()
 
     def stop(self):
         pass
@@ -507,8 +498,8 @@ class MultiProcSimulations(Simulations, priority=1):
     def is_available(cls):
         return True
 
-    def __init__(self, configuration: Configuration, task_id):
-        super().__init__(configuration, task_id=task_id)
+    def __init__(self, configuration: Configuration):
+        super().__init__(configuration)
         if configuration.worker_num is not None:
             self.sim_jobs_per_node = configuration.worker_num
         else:
@@ -519,7 +510,7 @@ class MultiProcSimulations(Simulations, priority=1):
         self.workers = [
             multiprocessing.Process(
                 target=MultiProcSimulations.worker,
-                args=(self.id, i + 1, self.queue, self.progress_queue),
+                args=(i + 1, self.queue, self.progress_queue),
             )
             for i in range(self.sim_jobs_per_node)
         ]
@@ -556,7 +547,6 @@ class MultiProcSimulations(Simulations, priority=1):
 
     @staticmethod
     def worker(
-        task_id,
         worker_id: int,
         queue: multiprocessing.JoinableQueue,
         p_queue: multiprocessing.Queue,
@@ -572,7 +562,6 @@ class MultiProcSimulations(Simulations, priority=1):
                 p_queue,
                 worker_id,
                 save_data=True,
-                task_id=task_id,
             ).run()
             queue.task_done()
 
@@ -590,9 +579,8 @@ class RaySimulations(Simulations, priority=2):
     def __init__(
         self,
         configuration: Configuration,
-        task_id=0,
     ):
-        super().__init__(configuration, task_id)
+        super().__init__(configuration)
 
         nodes = ray.nodes()
         self.logger.info(
@@ -629,7 +617,6 @@ class RaySimulations(Simulations, priority=2):
                 self.p_actor,
                 self.rolling_id + 1,
                 True,
-                self.id,
             ),
         )
         self.num_submitted += 1
@@ -679,9 +666,8 @@ def new_simulation(
     method: Union[str, Type[Simulations]] = None,
 ) -> Simulations:
     logger = get_logger(__name__)
-    task_id = random.randint(1e9, 1e12)
     logger.info(f"running {configuration.final_path}")
-    return Simulations.new(configuration, task_id, method)
+    return Simulations.new(configuration, method)
 
 
 def __parallel_RK4IP_worker(

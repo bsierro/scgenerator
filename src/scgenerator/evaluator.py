@@ -7,7 +7,7 @@ import numpy as np
 
 from . import math, operators, utils
 from .const import MANDATORY_PARAMETERS
-from .errors import *
+from .errors import EvaluatorError, NoDefaultError
 from .physics import fiber, materials, pulse, units
 from .utils import _mock_function, func_rewrite, get_arg_names, get_logger
 
@@ -360,12 +360,13 @@ default_rules: list[Rule] = [
         fiber.V_eff_step_index,
         ["l", "core_radius", "numerical_aperture", "interpolation_range"],
     ),
-    Rule("gamma", lambda gamma_arr: gamma_arr[0]),
+    Rule("gamma", lambda gamma_arr: gamma_arr[0], proprities=-1),
     Rule("gamma_arr", fiber.gamma_parameter, ["n2", "w0", "A_eff_arr"]),
     Rule("n2", materials.gas_n2),
     Rule("n2", lambda: 2.2e-20, priorities=-1),
     # Operators
-    Rule("gamma_op", operators.ConstantGamma),
+    Rule("gamma_op", operators.ConstantGamma, priorities=1),
+    Rule("gamma_op", operators.ConstantScalarGamma),
     Rule("gamma_op", operators.NoGamma, priorities=-1),
     Rule("ss_op", operators.SelfSteepening),
     Rule("ss_op", operators.NoSelfSteepening, priorities=-1),
@@ -378,9 +379,7 @@ default_rules: list[Rule] = [
     Rule("loss_op", operators.CapillaryLoss, priorities=2),
     Rule("loss_op", operators.ConstantLoss, priorities=1),
     Rule("loss_op", operators.NoLoss, priorities=-1),
-    Rule("disp_op", operators.ConstantPolyDispersion),
+    Rule("dispersion_op", operators.ConstantPolyDispersion),
     Rule("linear_operator", operators.LinearOperator),
     Rule("conserved_quantity", operators.ConservedQuantity),
-    # gas
-    Rule("n_gas_2", materials.n_gas_2),
 ]

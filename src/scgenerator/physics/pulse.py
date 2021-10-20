@@ -11,7 +11,7 @@ n is the number of spectra at the same z position and nt is the size of the time
 
 import itertools
 import os
-from dataclasses import astuple, dataclass, fields
+from dataclasses import astuple, dataclass
 from pathlib import Path
 from typing import Literal, Tuple, TypeVar
 
@@ -19,13 +19,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy import pi
 from numpy.fft import fft, fftshift, ifft
-from scipy.interpolate import UnivariateSpline
+from scipy.interpolate import UnivariateSpline, interp1d
 from scipy.optimize import minimize_scalar
 from scipy.optimize.optimize import OptimizeResult
 
 from ..defaults import default_plotting
-from ..logger import get_logger
-from ..math import *
+from .. import math
 from . import units
 
 c = 299792458.0
@@ -156,9 +155,9 @@ def modify_field_ratio(
     """
     ratio = 1
     if target_energy is not None:
-        ratio *= np.sqrt(target_energy / np.trapz(abs2(field), t))
+        ratio *= np.sqrt(target_energy / np.trapz(math.abs2(field), t))
     elif target_power is not None:
-        ratio *= np.sqrt(target_power / abs2(field).max())
+        ratio *= np.sqrt(target_power / math.abs2(field).max())
 
     if intensity_noise is not None:
         d_int, _ = technical_noise(intensity_noise, noise_correlation)
@@ -327,10 +326,10 @@ def load_and_adjust_field_file(
 ) -> np.ndarray:
     field_0 = load_field_file(field_file, t)
     if energy is not None:
-        curr_energy = np.trapz(abs2(field_0), t)
+        curr_energy = np.trapz(math.abs2(field_0), t)
         field_0 = field_0 * np.sqrt(energy / curr_energy)
     elif peak_power is not None:
-        ratio = np.sqrt(peak_power / abs2(field_0).max())
+        ratio = np.sqrt(peak_power / math.abs2(field_0).max())
         field_0 = field_0 * ratio
     else:
         raise ValueError(f"Not enough parameters specified to load {field_file} correctly")
@@ -356,7 +355,7 @@ def correct_wavelength(init_wavelength: float, w_c: np.ndarray, field_0: np.ndar
     finds a new wavelength parameter such that the maximum of the spectrum corresponding
     to field_0 is located at init_wavelength
     """
-    delta_w = w_c[np.argmax(abs2(np.fft.fft(field_0)))]
+    delta_w = w_c[np.argmax(math.abs2(np.fft.fft(field_0)))]
     return units.m.inv(units.m(init_wavelength) - delta_w)
 
 
@@ -382,21 +381,20 @@ def gaussian_pulse(t, t0, P0, offset=0):
     return np.sqrt(P0) * np.exp(-(((t - offset) / t0) ** 2))
 
 
-def photon_number(spectrum, w, dw, gamma) -> float:
-    return np.sum(1 / gamma * abs2(spectrum) / w * dw)
+def photon_number(spec2, w, dw, gamma) -> float:
+    return np.sum(1 / gamma * spec2 / w * dw)
 
 
-def photon_number_with_loss(spectrum, w, dw, gamma, alpha, h) -> float:
-    spec2 = abs2(spectrum)
+def photon_number_with_loss(spec2, w, dw, gamma, alpha, h) -> float:
     return np.sum(1 / gamma * spec2 / w * dw) - h * np.sum(alpha / gamma * spec2 / w * dw)
 
 
-def pulse_energy(spectrum, dw) -> float:
-    return np.sum(abs2(spectrum) * dw)
+def pulse_energy(spec2, dw) -> float:
+    return np.sum(spec2 * dw)
 
 
-def pulse_energy_with_loss(spectrum, dw, alpha, h) -> float:
-    spec2 = abs2(spectrum)
+def pulse_energy_with_loss(spec2, dw, alpha, h) -> float:
+    spec2 = spec2
     return np.sum(spec2 * dw) - h * np.sum(alpha * spec2 * dw)
 
 
@@ -539,7 +537,7 @@ def ideal_compressed_pulse(spectra):
         compressed : 1D array
             time envelope of the compressed field
     """
-    return abs2(fftshift(ifft(np.sqrt(np.mean(abs2(spectra), axis=0)))))
+    return math.abs2(fftshift(ifft(np.sqrt(np.mean(math.abs2(spectra), axis=0)))))
 
 
 def spectrogram(time, values, t_res=256, t_win=24e-12, gate_width=200e-15, shift=False):
@@ -571,7 +569,7 @@ def spectrogram(time, values, t_res=256, t_win=24e-12, gate_width=200e-15, shift
     spec = np.zeros((t_res, len(time)))
     for i, delay in enumerate(delays):
         masked = values * np.exp(-(((time - delay) / gate_width) ** 2))
-        spec[i] = abs2(fft(masked))
+        spec[i] = math.abs2(fft(masked))
         if shift:
             spec[i] = fftshift(spec[i])
     return spec, delays
@@ -592,7 +590,7 @@ def g12(values):
     # Create all the possible pairs of values
     n = len(values)
     field_pairs = itertools.combinations(values, 2)
-    mean_spec = np.mean(abs2(values), axis=0)
+    mean_spec = np.mean(math.abs2(values), axis=0)
     mask = mean_spec > 1e-15 * mean_spec.max()
     corr = np.zeros_like(values[0])
     for pair in field_pairs:
@@ -618,7 +616,7 @@ def avg_g12(values):
     if len(values.shape) > 2:
         pass
 
-    avg_values = np.mean(abs2(values), axis=0)
+    avg_values = np.mean(math.abs2(values), axis=0)
     coherence = g12(values)
     return np.sum(coherence * avg_values) / np.sum(avg_values)
 
@@ -765,7 +763,6 @@ def find_lobe_limits(x_axis, values, debug="", already_sorted=True):
         spline_4 : scipy.interpolate.UnivariateSpline
             order 4 spline that interpolate values around the peak
     """
-    logger = get_logger(__name__)
 
     if not already_sorted:
         x_axis, values = x_axis.copy(), values.copy()
@@ -914,7 +911,7 @@ def _detailed_find_lobe_limits(
         else:
             iterations += 1
 
-        mam = (spline_4(peak_pos), argclosest(x_axis, peak_pos))
+        mam = (spline_4(peak_pos), math.argclosest(x_axis, peak_pos))
 
         small_spline, spline_4, spline_5, d_spline, d_roots, dd_roots, l_ind, r_ind = setup_splines(
             x_axis, values, mam
@@ -941,7 +938,7 @@ def _detailed_find_lobe_limits(
 
     color = default_plotting["color_cycle"]
     if debug != "":
-        newx = np.linspace(*span(x_axis[l_ind : r_ind + 1]), 1000)
+        newx = np.linspace(*math.span(x_axis[l_ind : r_ind + 1]), 1000)
         ax.plot(x_axis[l_ind - 5 : r_ind + 6], values[l_ind - 5 : r_ind + 6], c=color[0])
         ax.plot(newx, spline_5(newx), c=color[1])
         ax.scatter(fwhm_pos, spline_4(fwhm_pos), marker="+", label="all fwhm", c=color[2])
@@ -1000,25 +997,27 @@ def measure_properties(spectra, t, compress=True, return_limits=False, debug="")
         list of tuples of the form ([left_lobe_lim, right_lobe_lim, lobe_pos], [left_hm, right_hm])
     """
     if compress:
-        fields = abs2(compress_pulse(spectra))
+        fields = math.abs2(compress_pulse(spectra))
     else:
-        fields = abs2(ifft(spectra))
+        fields = math.abs2(ifft(spectra))
 
     field = np.mean(fields, axis=0)
-    ideal_field = abs2(fftshift(ifft(np.sqrt(np.mean(abs2(spectra), axis=0)))))
+    ideal_field = math.abs2(fftshift(ifft(np.sqrt(np.mean(math.abs2(spectra), axis=0)))))
 
     # Isolate whole central lobe of bof mean and ideal field
     lobe_lim, fwhm_lim, _, big_spline = find_lobe_limits(t, field, debug)
     lobe_lim_i, _, _, big_spline_i = find_lobe_limits(t, ideal_field, debug)
 
     # Compute quality factor
-    energy_fraction = (big_spline.integral(*span(lobe_lim[:2]))) / np.trapz(field, x=t)
-    energy_fraction_i = (big_spline_i.integral(*span(lobe_lim_i[:2]))) / np.trapz(ideal_field, x=t)
+    energy_fraction = (big_spline.integral(*math.span(lobe_lim[:2]))) / np.trapz(field, x=t)
+    energy_fraction_i = (big_spline_i.integral(*math.span(lobe_lim_i[:2]))) / np.trapz(
+        ideal_field, x=t
+    )
     qf = energy_fraction / energy_fraction_i
 
     # Compute mean coherence
     mean_g12 = avg_g12(spectra)
-    fwhm_abs = length(fwhm_lim)
+    fwhm_abs = math.length(fwhm_lim)
 
     # To compute amplitude and fwhm fluctuations, we need to measure every single peak
     P0 = []
@@ -1030,7 +1029,7 @@ def measure_properties(spectra, t, compress=True, return_limits=False, debug="")
         lobe_lim, fwhm_lim, _, big_spline = find_lobe_limits(t, f, debug)
         all_lims.append((lobe_lim, fwhm_lim))
         P0.append(big_spline(lobe_lim[2]))
-        fwhm.append(length(fwhm_lim))
+        fwhm.append(math.length(fwhm_lim))
         t_offset.append(lobe_lim[2])
         energies.append(np.trapz(fields, t))
     fwhm_var = np.std(fwhm) / np.mean(fwhm)
@@ -1063,7 +1062,7 @@ def rin_curve(spectra: np.ndarray) -> np.ndarray:
         RIN curve
     """
     if np.iscomplexobj(spectra):
-        A2 = abs2(spectra)
+        A2 = math.abs2(spectra)
     else:
         A2 = spectra
     return np.std(A2, axis=-2) / np.mean(A2, axis=-2)
@@ -1072,11 +1071,11 @@ def rin_curve(spectra: np.ndarray) -> np.ndarray:
 def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float]:
     """returns fwhm, peak_power, energy"""
     if np.iscomplexobj(field):
-        intensity = abs2(field)
+        intensity = math.abs2(field)
     else:
         intensity = field
     _, fwhm_lim, _, _ = find_lobe_limits(t, intensity)
-    fwhm = length(fwhm_lim)
+    fwhm = math.length(fwhm_lim)
     peak_power = intensity.max()
     energy = np.trapz(intensity, t)
     return fwhm, peak_power, energy
@@ -1101,10 +1100,12 @@ def remove_2nd_order_dispersion(
     np.ndarray, shape (n, )
         spectrum with 2nd order dispersion removed
     """
-    propagate = lambda z: spectrum * np.exp(-0.5j * beta2 * w_c ** 2 * z)
+
+    def propagate(z):
+        return spectrum * np.exp(-0.5j * beta2 * w_c ** 2 * z)
 
     def score(z):
-        return -np.max(abs2(np.fft.ifft(propagate(z))))
+        return -np.max(math.abs2(np.fft.ifft(propagate(z))))
 
     opti = minimize_scalar(score, bracket=(max_z, 0))
     return propagate(opti.x), opti
@@ -1127,8 +1128,12 @@ def remove_2nd_order_dispersion2(
     np.ndarray, shape (n, )
         spectrum with 2nd order dispersion removed
     """
-    propagate = lambda gdd: spectrum * np.exp(-0.5j * w_c ** 2 * 1e-30 * gdd)
-    integrate = lambda gdd: abs2(np.fft.ifft(propagate(gdd)))
+
+    def propagate(gdd):
+        return spectrum * np.exp(-0.5j * w_c ** 2 * 1e-30 * gdd)
+
+    def integrate(gdd):
+        return math.abs2(np.fft.ifft(propagate(gdd)))
 
     def score(gdd):
         return -np.sum(integrate(gdd) ** 6)

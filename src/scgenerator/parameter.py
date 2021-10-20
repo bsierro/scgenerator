@@ -30,7 +30,9 @@ def type_checker(*types):
     def _type_checker_wrapper(validator, n=None):
         if isinstance(validator, str) and n is not None:
             _name = validator
-            validator = lambda *args: None
+
+            def validator(*args):
+                pass
 
         def _type_checker_wrapped(name, n):
             if not isinstance(n, types):
@@ -73,7 +75,7 @@ def in_range_incl(_min, _max):
 
 
 def boolean(name, n):
-    if not n is True and not n is False:
+    if n is not True and n is not False:
         raise ValueError(f"{name!r} must be True or False")
 
 
@@ -118,7 +120,7 @@ def literal(*l):
 
     @type_checker(str)
     def _string(name, s):
-        if not s in l:
+        if s not in l:
             raise ValueError(f"{name!r} must be a str in {l}")
 
     return _string
@@ -407,7 +409,7 @@ class Parameters:
         dico : dict
             dictionary
         """
-        forbiden_keys = [
+        forbiden_keys = {
             "w_c",
             "w_power_fact",
             "field_0",
@@ -420,7 +422,9 @@ class Parameters:
             "alpha",
             "gamma_arr",
             "A_eff_arr",
-        ]
+            "nonlinear_op",
+            "linear_op",
+        }
         types = (np.ndarray, float, int, str, list, tuple, dict)
         out = {}
         for key, value in dico.items():
@@ -695,7 +699,7 @@ class Configuration:
             cfg | dict(variable=self.variationer.all_dicts[i])
             for i, cfg in enumerate(self.fiber_configs)
         ]
-        utils.save_toml(self.final_path / f"initial_config.toml", dict(name=self.name, Fiber=cfgs))
+        utils.save_toml(self.final_path / "initial_config.toml", dict(name=self.name, Fiber=cfgs))
 
     @property
     def first(self) -> Parameters:
