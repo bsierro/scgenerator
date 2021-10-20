@@ -360,7 +360,7 @@ default_rules: list[Rule] = [
         fiber.V_eff_step_index,
         ["l", "core_radius", "numerical_aperture", "interpolation_range"],
     ),
-    Rule("gamma", lambda gamma_arr: gamma_arr[0], proprities=-1),
+    Rule("gamma", lambda gamma_arr: gamma_arr[0], priorities=-1),
     Rule("gamma_arr", fiber.gamma_parameter, ["n2", "w0", "A_eff_arr"]),
     Rule("n2", materials.gas_n2),
     Rule("n2", lambda: 2.2e-20, priorities=-1),
