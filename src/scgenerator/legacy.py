@@ -1,6 +1,6 @@
 import os
 import sys
-from collections import MutableMapping
+from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any, Set
 
@@ -93,13 +93,18 @@ def translate_parameters(d: dict[str, Any]) -> dict[str, Any]:
     Parameters
     ----------
     d : dict[str, Any]
-        [description]
+        any parameter dictionary WITHOUT "variable" part
 
     Returns
     -------
     dict[str, Any]
-        [description]
+        translated parameters
     """
+    if {"variable", "Fiber"} & d.keys():
+        raise ValueError(
+            "The dict to translate should be a single parameter set "
+            "(no 'variable' nor 'Fiber' entry)"
+        )
     old_names = dict(
         interp_degree="interpolation_degree",
         beta="beta2_coefficients",

@@ -65,6 +65,7 @@ def _power_fact_single(x, n):
 
 
 def _power_fact_array(x, n):
+    """returns x^2/n!"""
     result = np.ones(len(x), dtype=np.float64)
     for k in range(n):
         result = result * x / (n - k)
