@@ -154,223 +154,6 @@ class ConstantDirectDispersion(AbstractDispersion):
 
 
 ##################################################
-##################### LINEAR #####################
-##################################################
-
-
-class LinearOperator(Operator):
-    def __init__(self, dispersion_op: AbstractDispersion, loss_op: AbstractLoss):
-        self.dispersion_op = dispersion_op
-        self.loss_op = loss_op
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the linear operator to be multiplied by the spectrum in the frequency domain
-
-        Parameters
-        ----------
-        state : CurrentState
-            current state of the simulation
-
-        Returns
-        -------
-        np.ndarray
-            linear component
-        """
-        return self.dispersion_op(state) - self.loss_op(state) / 2
-
-
-##################################################
-################### NON LINEAR ###################
-##################################################
-
-# Raman
-
-
-class AbstractRaman(Operator):
-    f_r: float = 0.0
-
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the raman component
-
-        Parameters
-        ----------
-        state : CurrentState
-            current state of the simulation
-
-        Returns
-        -------
-        np.ndarray
-            raman component
-        """
-
-
-class NoRaman(NoOp, AbstractRaman):
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.arr_const
-
-
-class Raman(AbstractRaman):
-    def __init__(self, raman_type: str, t: np.ndarray):
-        self.hr_w = fiber.delayed_raman_w(t, raman_type)
-        self.f_r = 0.245 if raman_type == "agrawal" else 0.18
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.f_r * np.fft.ifft(self.hr_w * np.fft.fft(state.field2))
-
-
-# SPM
-
-
-class AbstractSPM(Operator):
-    fraction: float = 1.0
-
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the SPM component
-
-        Parameters
-        ----------
-        state : CurrentState
-            current state of the simulation
-
-        Returns
-        -------
-        np.ndarray
-            SPM component
-        """
-
-
-class NoSPM(NoOp, AbstractSPM):
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.arr_const
-
-
-class SPM(AbstractSPM):
-    def __init__(self, raman_op: AbstractRaman):
-        self.fraction = 1 - raman_op.f_r
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.fraction * state.field2
-
-
-# Self-Steepening
-
-
-class AbstractSelfSteepening(Operator):
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the self-steepening component
-
-        Parameters
-        ----------
-        state : CurrentState
-            current state of the simulation
-
-        Returns
-        -------
-        np.ndarray
-            self-steepening component
-        """
-
-
-class NoSelfSteepening(NoOp, AbstractSelfSteepening):
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.arr_const
-
-
-class SelfSteepening(AbstractSelfSteepening):
-    def __init__(self, w_c: np.ndarray, w0: float):
-        self.arr = w_c / w0
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.arr
-
-
-# Gamma operator
-
-
-class AbstractGamma(Operator):
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the gamma component
-
-        Parameters
-        ----------
-        state : CurrentState
-            current state of the simulation
-
-        Returns
-        -------
-        np.ndarray
-            gamma component
-        """
-
-
-class ConstantScalarGamma(AbstractGamma):
-    def __init__(self, gamma: np.ndarray, t_num: int):
-        self.arr_const = gamma * np.ones(t_num)
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.arr_const
-
-
-class NoGamma(ConstantScalarGamma):
-    def __init__(self, w: np.ndarray) -> None:
-        super().__init__(0, w)
-
-
-class ConstantGamma(AbstractGamma):
-    def __init__(self, gamma_arr: np.ndarray):
-        self.arr = gamma_arr
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.arr
-
-
-# Nonlinear combination
-
-
-class NonLinearOperator(Operator):
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the nonlinear operator applied on the spectrum in the frequency domain
-
-        Parameters
-        ----------
-        state : CurrentState
-            current state of the simulation
-
-        Returns
-        -------
-        np.ndarray
-            nonlinear component
-        """
-
-
-class EnvelopeNonLinearOperator(NonLinearOperator):
-    def __init__(
-        self,
-        gamma_op: AbstractGamma,
-        ss_op: AbstractSelfSteepening,
-        spm_op: AbstractSPM,
-        raman_op: AbstractRaman,
-    ):
-        self.gamma_op = gamma_op
-        self.ss_op = ss_op
-        self.spm_op = spm_op
-        self.raman_op = raman_op
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return (
-            -1j
-            * self.gamma_op(state)
-            * (1 + self.ss_op(state))
-            * np.fft.fft(state.field * (self.spm_op(state) + self.raman_op(state)))
-        )
-
-
-##################################################
 ###################### LOSS ######################
 ##################################################
 
@@ -433,6 +216,233 @@ class CustomConstantLoss(ConstantLoss):
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         return self.arr
+
+
+##################################################
+##################### LINEAR #####################
+##################################################
+
+
+class LinearOperator(Operator):
+    def __init__(self, dispersion_op: AbstractDispersion, loss_op: AbstractLoss):
+        self.dispersion_op = dispersion_op
+        self.loss_op = loss_op
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        """returns the linear operator to be multiplied by the spectrum in the frequency domain
+
+        Parameters
+        ----------
+        state : CurrentState
+            current state of the simulation
+
+        Returns
+        -------
+        np.ndarray
+            linear component
+        """
+        return self.dispersion_op(state) - self.loss_op(state) / 2
+
+
+##################################################
+###################### RAMAN #####################
+##################################################
+
+
+class AbstractRaman(Operator):
+    f_r: float = 0.0
+
+    @abstractmethod
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        """returns the raman component
+
+        Parameters
+        ----------
+        state : CurrentState
+            current state of the simulation
+
+        Returns
+        -------
+        np.ndarray
+            raman component
+        """
+
+
+class NoRaman(NoOp, AbstractRaman):
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return self.arr_const
+
+
+class Raman(AbstractRaman):
+    def __init__(self, raman_type: str, t: np.ndarray):
+        self.hr_w = fiber.delayed_raman_w(t, raman_type)
+        self.f_r = 0.245 if raman_type == "agrawal" else 0.18
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return self.f_r * np.fft.ifft(self.hr_w * np.fft.fft(state.field2))
+
+
+##################################################
+####################### SPM ######################
+##################################################
+
+
+class AbstractSPM(Operator):
+    fraction: float = 1.0
+
+    @abstractmethod
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        """returns the SPM component
+
+        Parameters
+        ----------
+        state : CurrentState
+            current state of the simulation
+
+        Returns
+        -------
+        np.ndarray
+            SPM component
+        """
+
+
+class NoSPM(NoOp, AbstractSPM):
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return self.arr_const
+
+
+class SPM(AbstractSPM):
+    def __init__(self, raman_op: AbstractRaman):
+        self.fraction = 1 - raman_op.f_r
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return self.fraction * state.field2
+
+
+##################################################
+################# SELF-STEEPENING ################
+##################################################
+
+
+class AbstractSelfSteepening(Operator):
+    @abstractmethod
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        """returns the self-steepening component
+
+        Parameters
+        ----------
+        state : CurrentState
+            current state of the simulation
+
+        Returns
+        -------
+        np.ndarray
+            self-steepening component
+        """
+
+
+class NoSelfSteepening(NoOp, AbstractSelfSteepening):
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return self.arr_const
+
+
+class SelfSteepening(AbstractSelfSteepening):
+    def __init__(self, w_c: np.ndarray, w0: float):
+        self.arr = w_c / w0
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return self.arr
+
+
+##################################################
+###################### GAMMA #####################
+##################################################
+
+
+class AbstractGamma(Operator):
+    @abstractmethod
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        """returns the gamma component
+
+        Parameters
+        ----------
+        state : CurrentState
+            current state of the simulation
+
+        Returns
+        -------
+        np.ndarray
+            gamma component
+        """
+
+
+class ConstantScalarGamma(AbstractGamma):
+    def __init__(self, gamma: np.ndarray, t_num: int):
+        self.arr_const = gamma * np.ones(t_num)
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return self.arr_const
+
+
+class NoGamma(ConstantScalarGamma):
+    def __init__(self, w: np.ndarray) -> None:
+        super().__init__(0, w)
+
+
+class ConstantGamma(AbstractGamma):
+    def __init__(self, gamma_arr: np.ndarray):
+        self.arr = gamma_arr
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return self.arr
+
+
+##################################################
+##################### PLASMA #####################
+##################################################
+
+##################################################
+#################### NONLINEAR ###################
+##################################################
+
+
+class NonLinearOperator(Operator):
+    @abstractmethod
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        """returns the nonlinear operator applied on the spectrum in the frequency domain
+
+        Parameters
+        ----------
+        state : CurrentState
+            current state of the simulation
+
+        Returns
+        -------
+        np.ndarray
+            nonlinear component
+        """
+
+
+class EnvelopeNonLinearOperator(NonLinearOperator):
+    def __init__(
+        self,
+        gamma_op: AbstractGamma,
+        ss_op: AbstractSelfSteepening,
+        spm_op: AbstractSPM,
+        raman_op: AbstractRaman,
+    ):
+        self.gamma_op = gamma_op
+        self.ss_op = ss_op
+        self.spm_op = spm_op
+        self.raman_op = raman_op
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return (
+            -1j
+            * self.gamma_op(state)
+            * (1 + self.ss_op(state))
+            * np.fft.fft(state.field * (self.spm_op(state) + self.raman_op(state)))
+        )
 
 
 ##################################################
