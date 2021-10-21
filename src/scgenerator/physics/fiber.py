@@ -5,11 +5,11 @@ from numpy import e
 from numpy.fft import fft
 from numpy.polynomial.chebyshev import Chebyshev, cheb2poly
 from scipy.interpolate import interp1d
+from sympy import re
 
 from .. import utils
 from ..cache import np_cache
-from ..logger import get_logger
-from ..math import argclosest, power_fact, u_nm
+from ..math import argclosest, u_nm
 from . import materials as mat
 from . import units
 from .units import c, pi
@@ -18,14 +18,28 @@ pipi = 2 * pi
 T = TypeVar("T")
 
 
-def lambda_for_dispersion(interpolation_range: tuple[float, float]) -> np.ndarray:
+def lambda_for_dispersion(
+    l: np.ndarray, interpolation_range: tuple[float, float]
+) -> tuple[np.ndarray, np.ndarray]:
     """Returns a wl vector for dispersion calculation
 
     Returns
     -------
-    array of wl values
+    np.ndarray
+        subset of l in the interpolation range with two extra values on each side
+        to accomodate for taking gradients
+    np.ndarray
+        indices of the original l where the values are valid (i.e. without the two extra on each side)
     """
-    return np.arange(interpolation_range[0] - 2e-9, interpolation_range[1] + 3e-9, 1e-9)
+    su = np.where((l >= interpolation_range[0]) & (l <= interpolation_range[1]))[0]
+    ind_above_cond = su >= len(l) // 2
+    ind_above = su[ind_above_cond]
+    ind_below = su[~ind_above_cond]
+    fu = np.concatenate((ind_below, (ind_below + 2)[-2:], (ind_above - 2)[:2], ind_above))
+    fs = fu[np.argsort(l[fu])[::-1]]
+    l_out = l[fs]
+    ind_out = fs[2:-2]
+    return l_out, ind_out
 
 
 def is_dynamic_dispersion(pressure=None):
@@ -107,9 +121,8 @@ def plasma_dispersion(wl_for_disp, number_density, simple=False):
         w_pl = number_density * e2_me_e0
         return -(w_pl ** 2) / (c * w ** 2)
 
-    beta = w / c * np.sqrt(1 - number_density * e2_me_e0 / w ** 2)
-    beta2 = np.gradient(np.gradient(beta, w), w)
-    return beta2
+    beta2_arr = beta2(w, np.sqrt(1 - number_density * e2_me_e0 / w ** 2))
+    return beta2_arr
 
 
 def n_eff_marcatili(wl_for_disp, n_gas_2, core_radius, he_mode=(1, 1)):
@@ -561,6 +574,14 @@ def HCPF_ZDW(
     return l[zdw_ind]
 
 
+def beta(w_for_disp: np.ndarray, n_eff: np.ndarray) -> np.ndarray:
+    return n_eff * w_for_disp / c
+
+
+def beta1(w_for_disp: np.ndarray, n_eff: np.ndarray) -> np.ndarray:
+    return np.gradient(beta(w_for_disp, n_eff), w_for_disp)
+
+
 def beta2(w_for_disp: np.ndarray, n_eff: np.ndarray) -> np.ndarray:
     """computes the dispersion parameter beta2 according to the effective refractive index of the fiber and the frequency range
 
@@ -575,7 +596,7 @@ def beta2(w_for_disp: np.ndarray, n_eff: np.ndarray) -> np.ndarray:
     -------
     beta2 : ndarray, shape (n, )
     """
-    return np.gradient(np.gradient(n_eff * w_for_disp / c, w_for_disp), w_for_disp)
+    return np.gradient(np.gradient(beta(w_for_disp, n_eff), w_for_disp), w_for_disp)
 
 
 def HCPCF_dispersion(
@@ -849,11 +870,10 @@ def load_custom_loss(l: np.ndarray, loss_file: str) -> np.ndarray:
 
 @np_cache
 def dispersion_coefficients(
-    wl_for_disp: np.ndarray,
+    w_for_disp: np.ndarray,
     beta2_arr: np.ndarray,
     w0: float,
-    interpolation_range=None,
-    interpolation_degree=8,
+    interpolation_degree: int,
 ):
     """Computes the taylor expansion of beta2 to be used in dispersion_op
 
@@ -865,8 +885,6 @@ def dispersion_coefficients(
         beta2 as function of wl_for_disp
     w0 : float
         pump angular frequency
-    interpolation_range : slice-like
-        index-style specifying wl range over which to fit to get beta2 coefficients
     interpolation_degree : int
         degree of polynomial fit. Will return deg+1 coefficients
 
@@ -875,29 +893,13 @@ def dispersion_coefficients(
         beta2_coef : 1D array
             Taylor coefficients in decreasing order
     """
-    logger = get_logger()
-    if interpolation_range is None:
-        r = slice(2, -2)
-    else:
-        # 2 discrete gradients are computed before getting to
-        # beta2, so we need to make sure coefficients are not affected
-        # by edge effects
-        r = (wl_for_disp >= interpolation_range[0]) & (wl_for_disp <= interpolation_range[1])
-    logger.debug(
-        f"interpolating dispersion between {wl_for_disp[r].min()*1e9:.1f}nm and {wl_for_disp[r].max()*1e9:.1f}nm"
-    )
 
     # we get the beta2 Taylor coeffiecients by making a fit around w0
-    w_c = units.m(wl_for_disp) - w0
-    interp = interp1d(w_c[r], beta2_arr[r])
-    w_c = np.linspace(w_c[r].min(), w_c[r].max(), len(w_c[r]))
+    w_c = w_for_disp - w0
 
-    # import matplotlib.pyplot as plt
-
-    # ax = plt.gca()
-    # ax.plot(w_c, interp(w_c) * 1e28)
-
-    fit = Chebyshev.fit(w_c, interp(w_c), interpolation_degree)
+    w_c = w_c[2:-2]
+    beta2_arr = beta2_arr[2:-2]
+    fit = Chebyshev.fit(w_c, beta2_arr, interpolation_degree)
     poly_coef = cheb2poly(fit.convert().coef)
     beta2_coef = poly_coef * np.cumprod([1] + list(range(1, interpolation_degree + 1)))
 
@@ -981,7 +983,7 @@ def delayed_raman_w(t: np.ndarray, raman_type: str) -> np.ndarray:
     return fft(delayed_raman_t(t, raman_type)) * (t[1] - t[0])
 
 
-def fast_dispersion_op(w_c, beta_arr, power_fact_arr, where=slice(None)):
+def fast_poly_dispersion_op(w_c, beta_arr, power_fact_arr, where=slice(None)):
     """
     dispersive operator
 
@@ -1015,39 +1017,32 @@ def _fast_disp_loop(dispersion: np.ndarray, beta_arr, power_fact_arr):
     return dispersion
 
 
-def dispersion_op(w_c, beta2_coefficients, where=None):
-    """
-    dispersive operator
+def direct_dispersion(w: np.ndarray, w0: float, n_eff: np.ndarray) -> np.ndarray:
+    """returns the dispersive operator in direct form (without polynomial interpolation)
+    i.e. -1j * (beta(w) - beta1 * (w - w0) - beta0)
 
     Parameters
     ----------
-    w_c : 1d array
-        angular frequencies centered around 0
-    beta2_coefficients : 1d array
-        beta coefficients returned by scgenerator.physics.fiber.dispersion_coefficients
-    where : indices over which to apply the operatory, otherwise 0
+    w : np.ndarray
+        angular frequency array
+    w0 : float
+        center frequency
+    n_eff : np.ndarray
+        effectiv refractive index
 
     Returns
     -------
-    disp_arr : dispersive component as an array of len = len(w_c)
+    np.ndarray
+        dispersive operator
     """
-
-    dispersion = np.zeros_like(w_c)
-
-    for k, beta in reversed(list(enumerate(beta2_coefficients))):
-        dispersion = dispersion + beta * power_fact(w_c, k + 2)
-
-    out = np.zeros_like(dispersion)
-    out[where] = dispersion[where]
-
-    return -1j * out
+    w0_ind = argclosest(w, w0)
+    return fast_direct_dispersion(w, w0, n_eff, w0_ind)
 
 
-def _get_radius(radius_param, wl_for_disp=None):
-    if isinstance(radius_param, tuple) and wl_for_disp is not None:
-        return effective_core_radius(wl_for_disp, *radius_param)
-    else:
-        return radius_param
+def fast_direct_dispersion(w: np.ndarray, w0: float, n_eff: np.ndarray, w0_ind: int) -> np.ndarray:
+    beta_arr = beta(w, n_eff)
+    beta1_arr = np.gradient(beta_arr, w)
+    return -1j * (beta_arr - beta1_arr[w0_ind] * (w - w0) - beta_arr[w0_ind])
 
 
 def effective_core_radius(wl_for_disp, core_radius, s=0.08, h=200e-9):

@@ -19,3 +19,4 @@ from .plotting import (
 from .spectra import SimulationSeries, Spectrum
 from .utils import Paths, _open_config, open_single_config
 from .variationer import DescriptorDict, VariationDescriptor, Variationer, VariationSpecsError
+from .evaluator import Evaluator

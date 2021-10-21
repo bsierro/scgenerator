@@ -4,24 +4,40 @@ It is recommended to import scgenerator in the following manner :
 # How to run a set of simulations
 create a config file
 
-run `sc.parallel_simulations(config_file)` or `sc.simulate(config_file)`
+run `sc.run_simulation(config_file)`
 
 # How to analyse a simulation
 
-load data with the load_sim_data method
-spectra, params = load_sim_data("varyTechNoise100kW_sim_data")
-    to plot
-        plot_results_2D(spectra[0], (600, 1450, nm), params)
+Load completed simulations with the SimulationSeries class. The path argument should be that of the last fiber in the series (of the form `xx fiber A...` where `xx` is an integer)
+
+The SimulationSeries class has basic plotting functions available. See the class documentation for more info
+
+```
+series = sc.SimulationSeries(path_to_data_folder)
+fig, ax = plt.subplots()
+series.plot_2D(800, 1600, "nm", ax)
+plt.show()
+```
 
 # Environment variables
 
-SCGENERATOR_PBAR_POLICY : "none", "file", "print", "both", optional
+`SCGENERATOR_PBAR_POLICY` : "none", "file", "print", "both", optional
     whether progress should be printed to a file ("file"), to the standard output ("print") or both, default : print
+
+`SCGENERATOR_LOG_FILE_LEVEL` : "debug", "info", "warning", "error", "critical", optional
+    level of logging printed in $PWD/scgenerator.log
+
+`SCGENERATOR_LOG_PRINT_LEVEL` : "debug", "info", "warning", "error", "critical", optional
+    level of logging printed in the cli.
 
 # Configuration
 
 You can load parameters by simply passing the path to a toml file to the appropriate simulation function. Each possible key of this dictionary is described below. Every value must be given in standard SI units (m, s, W, J, ...)
 the root of the file has information concerning the whole simulation : name, grid information, input pulse, ...
+Then, there must be a `[[Fiber]]` array with at least one fiber with fiber-specific parameters.
+
+Parameters can be variable (either in the root or in one fiber). if at most one single `[variable]` dict is specified by section, all the possible combinations of those variable parameters are considered. Another possibility is to specify a `[[variable]]` array where the length of each set of parameter is the same so they're coupled to each other. 
+
 Examples : 
 
 ```
@@ -38,11 +54,14 @@ n2 = 2.2e-20
 [variable]
 n2 = [2.1e-20, 2.4e-20, 2.6e-20]
 ```
-NOT ALLOWED
+NOT ALLOWED. You cannot specified the same parameter twice.
 
 Here is an example of a configuration file
 
 ```
+# these be applied to the whole simulation fiber PM1550_1 only
+# fiber parameters specified here would apply to the whole simulation as well
+# unless overridden in one of the individual fiber
 name = "Test/Compound 1"
 
 field_file = "Toptica/init_field.npz"
@@ -57,11 +76,9 @@ z_num = 32
 mean_power = 200e-3
 repeat = 3
 
-# will be applied to the whole simulation fiber PM1550_1 only
-# fiber parameters specified here would apply to the whole simulation as well
-# unless overridden in one of the individual fiber
-[variable] 
-behaviors = [["spm", "ss", "raman"], ["spm", "ss"]]
+
+[[variable]]
+spm = [true, false]
 raman_type = ["agrawal", "stolen"]
 
 [[Fiber]]
@@ -82,8 +99,7 @@ dispersion_file = "PM2000D/Dispersion/PM2000D_1 extrapolated 0 4.npz"
 input_transmission = [0.9, 0.95]
 ```
 
-
-note : internally, another structure with a flattened dictionary is used
+this means that only `(spm=true, raman_type="agrawal")` and `(spm=false, raman_type="stolen")` are considered and not `(spm=false, raman_type="agrawal")` for example. In the end, 12 simulations are ran with this configuration.
 
 
 

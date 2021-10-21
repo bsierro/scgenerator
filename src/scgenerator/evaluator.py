@@ -131,9 +131,24 @@ class Evaluator:
                     self.rules[t].append(r)
                     self.rules[t].sort(key=lambda el: el.targets[t], reverse=True)
 
-    def set(self, **params: Any):
-        self.params.update(params)
-        for k in params:
+    def set(self, dico: dict[str, Any] = None, **params: Any):
+        """sets the internal set of parameters
+
+        Parameters
+        ----------
+        dico : dict, optional
+            if given, replace current dict of parameters with this one
+            (not a copy of it), by default None
+        params : Any
+            if dico is None, update the internal dict of parameters with params
+        """
+        if dico is None:
+            dico = params
+            self.params.update(dico)
+        else:
+            self.reset()
+            self.params = dico
+        for k in dico:
             self.eval_stats[k].priority = np.inf
 
     def reset(self):
@@ -175,7 +190,9 @@ class Evaluator:
                 self.__curent_lookup.append(target)
 
             if len(self.rules[target]) == 0:
-                error = EvaluatorError(f"no rule for {target}")
+                error = EvaluatorError(
+                    f"no rule for {target}, trying to evaluate {self.__curent_lookup!r}"
+                )
             else:
                 error = None
 
@@ -312,13 +329,9 @@ default_rules: list[Rule] = [
     Rule("L_NL", pulse.L_NL),
     Rule("L_sol", pulse.L_sol),
     # Fiber Dispersion
-    Rule("wl_for_disp", fiber.lambda_for_dispersion),
+    Rule(["wl_for_disp", "dispersion_ind"], fiber.lambda_for_dispersion),
     Rule("w_for_disp", units.m, ["wl_for_disp"]),
-    Rule(
-        "beta2_coefficients",
-        fiber.dispersion_coefficients,
-        ["wl_for_disp", "beta2_arr", "w0", "interpolation_range", "interpolation_degree"],
-    ),
+    Rule("beta2_coefficients", fiber.dispersion_coefficients),
     Rule("beta2_arr", fiber.beta2),
     Rule("beta2_arr", fiber.dispersion_from_coefficients),
     Rule("beta2", lambda beta2_coefficients: beta2_coefficients[0]),

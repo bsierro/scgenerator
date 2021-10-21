@@ -75,8 +75,8 @@ class Operator(ABC):
 
 
 class NoOp:
-    def __init__(self, w: np.ndarray):
-        self.arr_const = np.zeros_like(w)
+    def __init__(self, t_num: int):
+        self.arr_const = np.zeros(t_num)
 
 
 ##################################################
@@ -112,23 +112,45 @@ class ConstantPolyDispersion(AbstractDispersion):
 
     def __init__(
         self,
-        wl_for_disp: np.ndarray,
+        w_for_disp: np.ndarray,
         beta2_arr: np.ndarray,
         w0: float,
         w_c: np.ndarray,
-        interpolation_range: tuple[float, float],
         interpolation_degree: int,
     ):
-        self.coefs = fiber.dispersion_coefficients(
-            wl_for_disp, beta2_arr, w0, interpolation_range, interpolation_degree
-        )
+        self.coefs = fiber.dispersion_coefficients(w_for_disp, beta2_arr, w0, interpolation_degree)
         self.w_c = w_c
         self.w_power_fact = np.array(
             [math.power_fact(w_c, k) for k in range(2, interpolation_degree + 3)]
         )
 
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return fiber.fast_dispersion_op(self.w_c, self.coefs, self.w_power_fact)
+    def __call__(self, state: CurrentState = None) -> np.ndarray:
+        return fiber.fast_poly_dispersion_op(self.w_c, self.coefs, self.w_power_fact)
+
+
+class ConstantDirectDispersion(AbstractDispersion):
+    """
+    Direct dispersion for when the refractive index is known
+    """
+
+    disp_arr_const: np.ndarray
+
+    def __init__(
+        self,
+        w_for_disp: np.ndarray,
+        w0: np.ndarray,
+        t_num: int,
+        n_eff: np.ndarray,
+        dispersion_ind: np.ndarray,
+    ):
+        self.disp_arr_const = np.zeros(t_num)
+        w0_ind = math.argclosest(w_for_disp, w0)
+        self.disp_arr_const[dispersion_ind] = fiber.fast_direct_dispersion(
+            w_for_disp, w0, n_eff, w0_ind
+        )[2:-2]
+
+    def __call__(self, state: CurrentState = None):
+        return self.disp_arr_const
 
 
 ##################################################
@@ -286,8 +308,8 @@ class AbstractGamma(Operator):
 
 
 class ConstantScalarGamma(AbstractGamma):
-    def __init__(self, gamma: np.ndarray, w: np.ndarray):
-        self.arr_const = gamma * np.ones_like(w)
+    def __init__(self, gamma: np.ndarray, t_num: int):
+        self.arr_const = gamma * np.ones(t_num)
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         return self.arr_const
@@ -373,8 +395,8 @@ class AbstractLoss(Operator):
 class ConstantLoss(AbstractLoss):
     arr_const: np.ndarray
 
-    def __init__(self, alpha: float, w: np.ndarray):
-        self.arr_const = alpha * np.ones_like(w)
+    def __init__(self, alpha: float, t_num: int):
+        self.arr_const = alpha * np.ones(t_num)
 
     def __call__(self, state: CurrentState = None) -> np.ndarray:
         return self.arr_const
@@ -388,15 +410,15 @@ class NoLoss(ConstantLoss):
 class CapillaryLoss(ConstantLoss):
     def __init__(
         self,
-        l: np.ndarray,
+        wl_for_disp: np.ndarray,
+        dispersion_ind: np.ndarray,
+        t_num: int,
         core_radius: float,
-        interpolation_range: tuple[float, float],
         he_mode: tuple[int, int],
     ):
-        mask = (l < interpolation_range[1]) & (l > interpolation_range[0])
-        alpha = fiber.capillary_loss(l[mask], he_mode, core_radius)
-        self.arr = np.zeros_like(l)
-        self.arr[mask] = alpha
+        alpha = fiber.capillary_loss(wl_for_disp, he_mode, core_radius)
+        self.arr = np.zeros(t_num)
+        self.arr[dispersion_ind] = alpha[2:-2]
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         return self.arr
