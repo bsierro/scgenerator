@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
 import scipy.special
@@ -130,12 +130,12 @@ def sellmeier(lambda_, material_dico, pressure=None, temperature=None):
     chi = np.zeros_like(lambda_)  # = n^2 - 1
     if kind == 1:
         logger.debug("materials : using Sellmeier 1st kind equation")
-        for b, c in zip(B, C):
-            chi[ind] += temp_l ** 2 * b / (temp_l ** 2 - c)
+        for b, c_ in zip(B, C):
+            chi[ind] += temp_l ** 2 * b / (temp_l ** 2 - c_)
     elif kind == 2:  # gives n-1
         logger.debug("materials : using Sellmeier 2nd kind equation")
-        for b, c in zip(B, C):
-            chi[ind] += b / (c - 1 / temp_l ** 2)
+        for b, c_ in zip(B, C):
+            chi[ind] += b / (c_ - 1 / temp_l ** 2)
         chi += const
         chi = (chi + 1) ** 2 - 1
     elif kind == 3:  # Schott formula
@@ -239,7 +239,10 @@ def ionization_rate_ADK(
 
     omega_p = ionization_energy / hbar
     nstar = Z * np.sqrt(2.1787e-18 / ionization_energy)
-    omega_t = lambda field: e * np.abs(field) / np.sqrt(2 * me * ionization_energy)
+
+    def omega_t(field):
+        return e * np.abs(field) / np.sqrt(2 * me * ionization_energy)
+
     Cnstar = 2 ** (2 * nstar) / (scipy.special.gamma(nstar + 1) ** 2)
     omega_pC = omega_p * Cnstar
 

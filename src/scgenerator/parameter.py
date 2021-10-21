@@ -5,7 +5,7 @@ import enum
 import os
 import time
 from copy import copy
-from dataclasses import asdict, dataclass, fields
+from dataclasses import dataclass, field, fields
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, TypeVar, Union
@@ -14,7 +14,7 @@ import numpy as np
 
 from . import env, legacy, utils
 from .const import MANDATORY_PARAMETERS, PARAM_FN, VALID_VARIABLE, __version__
-from .evaluator import Evaluator
+from .evaluator import Evaluator, pdict
 from .logger import get_logger
 from .operators import LinearOperator, NonLinearOperator
 from .utils import fiber_folder, update_path_name
@@ -204,6 +204,7 @@ class Parameter:
         self.converter = converter
         self.default = default
         self.display_info = display_info
+        self.value = None
 
     def __set_name__(self, owner, name):
         self.name = name
@@ -214,7 +215,10 @@ class Parameter:
     def __get__(self, instance, owner):
         if instance is None:
             return self
-        return instance.__dict__[self.name]
+        if self.name not in instance._param_dico:
+            instance._evaluator.compute(self.name)
+        return instance._param_dico[self.name]
+        # return instance.__dict__[self.name]
 
     def __delete__(self, instance):
         raise AttributeError("Cannot delete parameter")
@@ -222,13 +226,15 @@ class Parameter:
     def __set__(self, instance, value):
         if isinstance(value, Parameter):
             defaut = None if self.default is None else copy(self.default)
-            instance.__dict__[self.name] = defaut
+            instance._param_dico[self.name] = defaut
+            # instance.__dict__[self.name] = defaut
         else:
             if value is not None:
                 if self.converter is not None:
                     value = self.converter(value)
                 self.validator(self.name, value)
-            instance.__dict__[self.name] = value
+            instance._param_dico[self.name] = value
+            # instance.__dict__[self.name] = value
 
     def display(self, num: float) -> str:
         if self.display_info is None:
@@ -241,11 +247,15 @@ class Parameter:
             return f"{num_str} {unit}"
 
 
-@dataclass
+@dataclass(repr=False)
 class Parameters:
     """
     This class defines each valid parameter's name, type and valid value.
     """
+
+    # internal machinery
+    _param_dico: pdict[str, Any] = field(init=False, default_factory=pdict, repr=False)
+    _evaluator: Evaluator = field(init=False, repr=False)
 
     # root
     name: str = Parameter(string, default="no name")
@@ -348,40 +358,37 @@ class Parameters:
     L_D: float = Parameter(non_negative(float, int))
     L_NL: float = Parameter(non_negative(float, int))
     L_sol: float = Parameter(non_negative(float, int))
-    dynamic_dispersion: bool = Parameter(boolean)
     adapt_step_size: bool = Parameter(boolean)
     hr_w: np.ndarray = Parameter(type_checker(np.ndarray))
     z_targets: np.ndarray = Parameter(type_checker(np.ndarray))
     const_qty: np.ndarray = Parameter(type_checker(np.ndarray))
-    beta_func: Callable[[float], list[float]] = Parameter(func_validator)
-    gamma_func: Callable[[float], float] = Parameter(func_validator)
 
     num: int = Parameter(non_negative(int))
     datetime: datetime_module.datetime = Parameter(type_checker(datetime_module.datetime))
     version: str = Parameter(string)
 
-    def prepare_for_dump(self) -> dict[str, Any]:
-        param = asdict(self)
-        param = Parameters.strip_params_dict(param)
+    def __post_init__(self):
+        self._evaluator = Evaluator.default()
+        self._evaluator.set(self._param_dico)
+
+    def __repr__(self) -> str:
+        return "Parameter(" + ", ".join(f"{k}={v}" for k, v in self.dump_dict().items()) + ")"
+
+    def dump_dict(self) -> dict[str, Any]:
+        param = Parameters.strip_params_dict(self._param_dico)
         param["datetime"] = datetime_module.datetime.now()
         param["version"] = __version__
         return param
 
-    def compute(self, to_compute: list[str] = MANDATORY_PARAMETERS):
-        param_dict = {k: v for k, v in asdict(self).items() if v is not None}
-        evaluator = Evaluator.default()
-        evaluator.set(**param_dict)
-        results = [evaluator.compute(p_name) for p_name in to_compute]
-        valid_fields = self.all_parameters()
-        for k, v in evaluator.params.items():
-            if k in valid_fields:
-                setattr(self, k, v)
-        return results
+    def compute_in_place(self, *to_compute: str):
+        if len(to_compute) == 0:
+            to_compute = MANDATORY_PARAMETERS
+        for k in to_compute:
+            getattr(self, k)
 
     def pformat(self) -> str:
         return "\n".join(
-            f"{k} = {VariationDescriptor.format_value(k, v)}"
-            for k, v in self.prepare_for_dump().items()
+            f"{k} = {VariationDescriptor.format_value(k, v)}" for k, v in self.dump_dict().items()
         )
 
     @classmethod
@@ -391,12 +398,6 @@ class Parameters:
     @classmethod
     def load(cls, path: os.PathLike) -> "Parameters":
         return cls(**utils.load_toml(path))
-
-    @classmethod
-    def load_and_compute(cls, path: os.PathLike) -> "Parameters":
-        p = cls.load(path)
-        p.compute()
-        return p
 
     @staticmethod
     def strip_params_dict(dico: dict[str, Any]) -> dict[str, Any]:
@@ -409,6 +410,8 @@ class Parameters:
             dictionary
         """
         forbiden_keys = {
+            "_param_dico",
+            "_evaluator",
             "w_c",
             "w_power_fact",
             "field_0",

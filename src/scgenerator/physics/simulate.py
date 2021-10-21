@@ -440,8 +440,7 @@ class Simulations:
 
     def _run_available(self):
         for _, params in self.configuration:
-            params.compute()
-            utils.save_parameters(params.prepare_for_dump(), params.output_path)
+            utils.save_parameters(params.dump_dict(), params.output_path)
 
             self.new_sim(params)
         self.finish()
@@ -694,8 +693,6 @@ def parallel_RK4IP(
 ]:
     logger = get_logger(__name__)
     params = list(Configuration(config))
-    for _, param in params:
-        param.compute()
     n = len(params)
     z_num = params[0][1].z_num
 

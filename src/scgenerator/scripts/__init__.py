@@ -239,7 +239,7 @@ def finish_plot(fig: plt.Figure, legend_axes: plt.Axes, all_labels: list[str], p
 
     handles, _ = legend_axes.get_legend_handles_labels()
 
-    legend = legend_axes.legend(handles, all_labels, prop=dict(size=8, family="monospace"))
+    legend_axes.legend(handles, all_labels, prop=dict(size=8, family="monospace"))
 
     out_path = env.output_path()
 
@@ -261,7 +261,6 @@ def finish_plot(fig: plt.Figure, legend_axes: plt.Axes, all_labels: list[str], p
 def plot_helper(config_path: Path) -> Iterable[tuple[dict, list[str], Parameters]]:
     cc = cycler(color=[f"C{i}" for i in range(10)]) * cycler(ls=["-", "--"])
     for style, (descriptor, params) in zip(cc, Configuration(config_path)):
-        params.compute()
         yield style, descriptor.branch.formatted_descriptor(), params
 
 

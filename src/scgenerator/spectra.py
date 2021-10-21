@@ -134,7 +134,6 @@ class SimulationSeries:
         else:
             raise FileNotFoundError(f"No simulation in {path}")
         self.params = Parameters.load(self.path / PARAM_FN)
-        self.params.compute(["name", "t", "l", "w_c", "w0", "z_targets"])
         self.t = self.params.t
         self.w = self.params.w
         if self.params.prev_data_dir is not None:

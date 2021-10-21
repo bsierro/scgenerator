@@ -40,5 +40,5 @@ class EvaluatorError(Exception):
     pass
 
 
-class NoDefaultError(Exception):
+class NoDefaultError(EvaluatorError):
     pass

@@ -95,6 +95,17 @@ class EvalStat:
     priority: float = np.inf
 
 
+class pdict(dict):
+    """a dictionary that cannot have any None value"""
+
+    def __setitem__(self, k, v):
+        if v is None:
+            if k in self:
+                del self[k]
+        else:
+            super().__setitem__(k, v)
+
+
 class Evaluator:
     defaults: dict[str, Any] = {}
 
@@ -231,7 +242,7 @@ class Evaluator:
                         if param_name == target:
                             value = returned_value
                     break
-                except (EvaluatorError, KeyError, NoDefaultError) as e:
+                except EvaluatorError as e:
                     error = e
                     self.logger.debug(
                         prefix + f"error using {rule.func.__name__} : {str(error).strip()}"
@@ -269,7 +280,7 @@ class Evaluator:
     def validate_condition(self, rule: Rule) -> bool:
         try:
             return all(self.compute(k) == v for k, v in rule.conditions.items())
-        except (EvaluatorError, KeyError, NoDefaultError):
+        except EvaluatorError:
             return False
 
     def attempted_rules_str(self, target: str) -> str:

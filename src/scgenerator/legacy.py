@@ -67,7 +67,7 @@ def convert_sim_folder(path: os.PathLike):
         processed_specs.add(descr)
         if (parent := descr.parent) is not None:
             new_params.prev_data_dir = str(new_paths[parent].final_path)
-        save_parameters(new_params.prepare_for_dump(), new_params.final_path)
+        save_parameters(new_params.dump_dict(), new_params.final_path)
         for spec_num in range(start_z, end_z):
             old_spec = old_path / SPECN_FN1.format(spec_num)
             if move_specs:
