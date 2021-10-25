@@ -1072,8 +1072,9 @@ def annotate_fwhm(
 
 
 def partial_plot(root: os.PathLike):
-    fig, (left, right) = plt.subplots(1, 2, figsize=(12, 8))
     path = Path(root)
+    fig, (left, right) = plt.subplots(1, 2, figsize=(12, 8))
+    fig.suptitle(path.name)
     spec_list = sorted(
         path.glob(SPEC1_FN.format("*")), key=lambda el: int(re.search("[0-9]+", el.name)[0])
     )

@@ -95,17 +95,6 @@ class EvalStat:
     priority: float = np.inf
 
 
-class pdict(dict):
-    """a dictionary that cannot have any None value"""
-
-    def __setitem__(self, k, v):
-        if v is None:
-            if k in self:
-                del self[k]
-        else:
-            super().__setitem__(k, v)
-
-
 class Evaluator:
     defaults: dict[str, Any] = {}
 

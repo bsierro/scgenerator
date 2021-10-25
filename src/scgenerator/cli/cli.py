@@ -175,9 +175,10 @@ def merge(args):
 
 
 def preview(args):
-    path = args.path
-    partial_plot(path)
-    plt.show()
+    for path in utils.simulations_list(args.path):
+        partial_plot(path)
+        plt.show()
+        plt.close()
 
 
 def prep_ray():

@@ -9,12 +9,8 @@ from typing import Any, Generator, Optional, Type, Union
 import numpy as np
 
 from .. import utils
-from ..errors import EvaluatorError
 from ..logger import get_logger
-from ..operators import (
-    AbstractConservedQuantity,
-    CurrentState,
-)
+from ..operators import AbstractConservedQuantity, CurrentState
 from ..parameter import Configuration, Parameters
 from ..pbar import PBars, ProgressBarActor, progress_worker
 
@@ -97,9 +93,9 @@ class RK4IP:
         self.store_num = len(self.z_targets)
 
         # Setup initial values for every physical quantity that we want to track
-        try:
+        if self.params.A_eff_arr is not None:
             C_to_A_factor = (self.params.A_eff_arr / self.params.A_eff_arr[0]) ** (1 / 4)
-        except EvaluatorError:
+        else:
             C_to_A_factor = 1.0
         z = self.z_targets.pop(0)
         # Initial step size
