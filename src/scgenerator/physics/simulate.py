@@ -2,16 +2,21 @@ import multiprocessing
 import multiprocessing.connection
 import os
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Generator, Type, Union, Optional
 from logging import Logger
+from pathlib import Path
+from typing import Any, Generator, Optional, Type, Union
+
 import numpy as np
 
 from .. import utils
+from ..errors import EvaluatorError
 from ..logger import get_logger
+from ..operators import (
+    AbstractConservedQuantity,
+    CurrentState,
+)
 from ..parameter import Configuration, Parameters
 from ..pbar import PBars, ProgressBarActor, progress_worker
-from ..operators import CurrentState, ConservedQuantity, NoConservedQuantity
 
 try:
     import ray
@@ -35,7 +40,7 @@ class RK4IP:
     cons_qty: list[float]
 
     state: CurrentState
-    conserved_quantity_func: ConservedQuantity
+    conserved_quantity: AbstractConservedQuantity
     stored_spectra: list[np.ndarray]
 
     def __init__(
@@ -82,21 +87,7 @@ class RK4IP:
             params.tolerated_error if self.params.adapt_step_size else self.params.step_size
         )
 
-        self.set_cons_qty()
         self._setup_sim_parameters()
-
-    def set_cons_qty(self):
-        # Set up which quantity is conserved for adaptive step size
-        if self.params.adapt_step_size:
-            self.conserved_quantity_func = ConservedQuantity.create(
-                self.params.nonlinear_operator.raman_op,
-                self.params.nonlinear_operator.gamma_op,
-                self.params.linear_operator.loss_op,
-                self.params.w,
-            )
-        else:
-            self.logger.debug(f"Using constant step size of {1e6*self.error_ok:.3f}μm")
-            self.conserved_quantity_func = NoConservedQuantity()
 
     def _setup_sim_parameters(self):
         # making sure to keep only the z that we want
@@ -106,7 +97,10 @@ class RK4IP:
         self.store_num = len(self.z_targets)
 
         # Setup initial values for every physical quantity that we want to track
-        C_to_A_factor = (self.params.A_eff_arr / self.params.A_eff_arr[0]) ** (1 / 4)
+        try:
+            C_to_A_factor = (self.params.A_eff_arr / self.params.A_eff_arr[0]) ** (1 / 4)
+        except EvaluatorError:
+            C_to_A_factor = 1.0
         z = self.z_targets.pop(0)
         # Initial step size
         if self.params.adapt_step_size:
@@ -124,7 +118,7 @@ class RK4IP:
             self.state.spectrum.copy()
         ]
         self.cons_qty = [
-            self.conserved_quantity_func(self.state),
+            self.params.conserved_quantity(self.state),
             0,
         ]
         self.size_fac = 2 ** (1 / 5)
@@ -267,7 +261,7 @@ class RK4IP:
             new_state = self.state.replace(expD * (A_I + k1 / 6 + k2 / 3 + k3 / 3) + k4 / 6)
 
             if self.params.adapt_step_size:
-                self.cons_qty[step] = self.conserved_quantity_func(new_state)
+                self.cons_qty[step] = self.params.conserved_quantity(new_state)
                 curr_p_change = np.abs(self.cons_qty[step - 1] - self.cons_qty[step])
                 cons_qty_change_ok = self.error_ok * self.cons_qty[step - 1]
 
@@ -531,7 +525,7 @@ class MultiProcSimulations(Simulations, priority=1):
         super().run()
 
     def new_sim(self, params: Parameters):
-        self.queue.put((params,), block=True, timeout=None)
+        self.queue.put(params.dump_dict(), block=True, timeout=None)
 
     def finish(self):
         """0 means finished"""
@@ -556,7 +550,7 @@ class MultiProcSimulations(Simulations, priority=1):
             if raw_data == 0:
                 queue.task_done()
                 return
-            (params,) = raw_data
+            params = Parameters(**raw_data)
             MutliProcRK4IP(
                 params,
                 p_queue,

@@ -13,7 +13,8 @@ from ..parameter import Configuration, Parameters
 from ..physics import fiber, units
 from ..plotting import plot_setup
 from ..spectra import SimulationSeries
-from ..utils import _open_config, auto_crop, save_toml, simulations_list, translate_parameters
+from ..utils import _open_config, auto_crop, save_toml, simulations_list
+from ..legacy import translate_parameters
 
 
 def fingerprint(params: Parameters):

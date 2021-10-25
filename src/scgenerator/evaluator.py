@@ -24,7 +24,7 @@ class Rule:
         targets = list(target) if isinstance(target, (list, tuple)) else [target]
         self.func = func
         if priorities is None:
-            priorities = [1] * len(targets)
+            priorities = [0] * len(targets)
         elif isinstance(priorities, (int, float, np.integer, np.floating)):
             priorities = [priorities]
         self.targets = dict(zip(targets, priorities))
@@ -293,7 +293,7 @@ class Evaluator:
 default_rules: list[Rule] = [
     # Grid
     *Rule.deduce(
-        ["z_targets", "t", "time_window", "t_num", "dt", "w_c", "w0", "w", "l"],
+        ["z_targets", "t", "time_window", "t_num", "dt", "w_c", "w0", "w", "w_order", "l"],
         math.build_sim_grid,
         ["time_window", "t_num", "dt"],
         2,
@@ -403,11 +403,16 @@ default_rules: list[Rule] = [
     Rule("raman_op", operators.Raman),
     Rule("raman_op", operators.NoRaman, priorities=-1),
     Rule("nonlinear_operator", operators.EnvelopeNonLinearOperator),
-    Rule("loss_op", operators.CustomConstantLoss, priorities=3),
+    Rule("loss_op", operators.CustomLoss, priorities=3),
     Rule("loss_op", operators.CapillaryLoss, priorities=2, conditions=dict(loss="capillary")),
     Rule("loss_op", operators.ConstantLoss, priorities=1),
     Rule("loss_op", operators.NoLoss, priorities=-1),
+    Rule("n_op", operators.ConstantRefractiveIndex),
+    Rule("n_op", operators.MarcatiliRefractiveIndex),
+    Rule("n_op", operators.MarcatiliAdjustedRefractiveIndex),
+    Rule("n_op", operators.HasanRefractiveIndex),
     Rule("dispersion_op", operators.ConstantPolyDispersion),
+    Rule("dispersion_op", operators.DirectDispersion),
     Rule("linear_operator", operators.LinearOperator),
-    Rule("conserved_quantity", operators.ConservedQuantity),
+    Rule("conserved_quantity", operators.conserved_quantity),
 ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 import datetime as datetime_module
 import enum
 import os
@@ -16,7 +17,7 @@ from . import env, legacy, utils
 from .const import MANDATORY_PARAMETERS, PARAM_FN, VALID_VARIABLE, __version__
 from .evaluator import Evaluator, pdict
 from .logger import get_logger
-from .operators import LinearOperator, NonLinearOperator
+from .operators import AbstractConservedQuantity, LinearOperator, NonLinearOperator
 from .utils import fiber_folder, update_path_name
 from .variationer import VariationDescriptor, Variationer
 
@@ -261,7 +262,6 @@ class Parameters:
     name: str = Parameter(string, default="no name")
     prev_data_dir: str = Parameter(string)
     recovery_data_dir: str = Parameter(string)
-    previous_config_file: str = Parameter(string)
     output_path: Path = Parameter(type_checker(Path), default=Path("sc_data"), converter=Path)
 
     # # fiber
@@ -334,7 +334,7 @@ class Parameters:
     tolerated_error: float = Parameter(in_range_excl(1e-15, 1e-3), default=1e-11)
     step_size: float = Parameter(non_negative(float, int), default=0)
     interpolation_range: tuple[float, float] = Parameter(float_pair)
-    interpolation_degree: int = Parameter(positive(int), default=8)
+    interpolation_degree: int = Parameter(non_negative(int))
     prev_sim_dir: str = Parameter(string)
     recovery_last_stored: int = Parameter(non_negative(int), default=0)
     parallel: bool = Parameter(boolean, default=True)
@@ -343,6 +343,9 @@ class Parameters:
     # computed
     linear_operator: LinearOperator = Parameter(type_checker(LinearOperator))
     nonlinear_operator: NonLinearOperator = Parameter(type_checker(NonLinearOperator))
+    conserved_quantity: AbstractConservedQuantity = Parameter(
+        type_checker(AbstractConservedQuantity)
+    )
     field_0: np.ndarray = Parameter(type_checker(np.ndarray))
     spec_0: np.ndarray = Parameter(type_checker(np.ndarray))
     beta2: float = Parameter(type_checker(int, float))
@@ -372,7 +375,13 @@ class Parameters:
         self._evaluator.set(self._param_dico)
 
     def __repr__(self) -> str:
-        return "Parameter(" + ", ".join(f"{k}={v}" for k, v in self.dump_dict().items()) + ")"
+        return "Parameter(" + ", ".join(self.__repr_list__()) + ")"
+
+    def __pformat__(self) -> str:
+        return "\n".join(["Parameter(", *list(self.__repr_list__()), ")"])
+
+    def __repr_list__(self) -> Iterator[str]:
+        yield from (f"{k}={v}" for k, v in self.dump_dict().items())
 
     def dump_dict(self) -> dict[str, Any]:
         param = Parameters.strip_params_dict(self._param_dico)
@@ -427,7 +436,7 @@ class Parameters:
             "nonlinear_op",
             "linear_op",
         }
-        types = (np.ndarray, float, int, str, list, tuple, dict)
+        types = (np.ndarray, float, int, str, list, tuple, dict, Path)
         out = {}
         for key, value in dico.items():
             if key in forbiden_keys:
@@ -436,8 +445,12 @@ class Parameters:
                 continue
             if isinstance(value, dict):
                 out[key] = Parameters.strip_params_dict(value)
+            elif isinstance(value, Path):
+                out[key] = str(value)
             elif isinstance(value, np.ndarray) and value.dtype == complex:
                 continue
+            elif isinstance(value, np.ndarray):
+                out[key] = value.tolist()
             else:
                 out[key] = value
 

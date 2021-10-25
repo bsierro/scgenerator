@@ -2,6 +2,7 @@ from typing import Union
 
 import numpy as np
 from scipy.special import jn_zeros
+
 from .cache import np_cache
 
 pi = np.pi
@@ -244,7 +245,6 @@ def build_sim_grid(
     length: float,
     z_num: int,
     wavelength: float,
-    interpolation_degree: int,
     time_window: float = None,
     t_num: int = None,
     dt: float = None,
@@ -286,6 +286,8 @@ def build_sim_grid(
         pump angular frequency
     w : np.ndarray, shape (t_num, )
         actual angualr frequency grid in rad/s
+    w_order : np.ndarray, shape (t_num, )
+        result of w.argsort()
     l : np.ndarray, shape (t_num)
         wavelengths in m
     """
@@ -295,31 +297,34 @@ def build_sim_grid(
     dt = t[1] - t[0]
     t_num = len(t)
     z_targets = np.linspace(0, length, z_num)
-    w_c, w0, w = update_frequency_domain(t, wavelength, interpolation_degree)
-    l = 2 * pi * c / w
-    return z_targets, t, time_window, t_num, dt, w_c, w0, w, l
-
-
-def update_frequency_domain(
-    t: np.ndarray, wavelength: float, deg: int
-) -> tuple[np.ndarray, float, np.ndarray, np.ndarray]:
-    """updates the frequency grid
-
-    Parameters
-    ----------
-    t : np.ndarray
-        time array
-    wavelength : float
-        wavelength
-    deg : int
-        interpolation degree of the dispersion
-
-    Returns
-    -------
-    Tuple[np.ndarray, float, np.ndarray, np.ndarray]
-        w_c, w0, w
-    """
     w_c = wspace(t)
     w0 = 2 * pi * c / wavelength
     w = w_c + w0
-    return w_c, w0, w
+    w_order = np.argsort(w)
+    l = 2 * pi * c / w
+    return z_targets, t, time_window, t_num, dt, w_c, w0, w, w_order, l
+
+
+def linear_extrapolation(y: np.ndarray) -> np.ndarray:
+    """extrapolates IN PLACE linearily on both side of the support
+
+    Parameters
+    ----------
+    y : np.ndarray
+        array
+    left_ind : int
+        first value we want to keep (extrapolate to the left of that)
+    right_ind : int
+        last value we want to keep (extrapolate to the right of that)
+    """
+    out = y.copy()
+    order = np.argsort(y)
+    left_ind, *_, right_ind = np.nonzero(out[order])[0]
+    _linear_extrapolation_in_place(out[order], left_ind, right_ind)
+    return out
+
+
+def _linear_extrapolation_in_place(y: np.ndarray, left_ind: int, right_ind: int):
+    y[:left_ind] = -(1 + np.arange(left_ind))[::-1] * (y[left_ind + 1] - y[left_ind]) + y[left_ind]
+    y[right_ind:] = np.arange(len(y) - right_ind) * (y[right_ind] - y[right_ind - 1]) + y[right_ind]
+    return y

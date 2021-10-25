@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 import scipy.special
@@ -18,6 +18,17 @@ def n_gas_2(
     """Returns the sqare of the index of refraction of the specified gas"""
     material_dico = utils.load_material_dico(gas_name)
 
+    n_gas_2 = fast_n_gas_2(wl_for_disp, pressure, temperature, ideal_gas, material_dico)
+    return n_gas_2
+
+
+def fast_n_gas_2(
+    wl_for_disp: np.ndarray,
+    pressure: float,
+    temperature: float,
+    ideal_gas: bool,
+    material_dico: dict[str, Any],
+):
     if ideal_gas:
         n_gas_2 = sellmeier(wl_for_disp, material_dico, pressure, temperature) + 1
     else:

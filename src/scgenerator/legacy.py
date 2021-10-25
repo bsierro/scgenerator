@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Any, Set
 
 import numpy as np
-import toml
+import tomli
+import tomli_w
 
 from .const import SPEC1_FN, SPEC1_FN_N, SPECN_FN1
 from .parameter import Configuration, Parameters
@@ -15,8 +16,8 @@ from .variationer import VariationDescriptor
 
 
 def load_config(path: os.PathLike) -> dict[str, Any]:
-    with open(path) as file:
-        d = toml.load(file)
+    with open(path, "rb") as file:
+        d = tomli.load(file)
     d.setdefault("variable", {})
     return d
 
@@ -40,8 +41,8 @@ def convert_sim_folder(path: os.PathLike):
     os.makedirs(new_root, exist_ok=True)
     _, configs = load_config_sequence(path)
     master_config = dict(name=path.name, Fiber=configs)
-    with open(new_root / "initial_config.toml", "w") as f:
-        toml.dump(master_config, f, encoder=toml.TomlNumpyEncoder())
+    with open(new_root / "initial_config.toml", "wb") as f:
+        tomli_w.dump(Parameters.strip_params_dict(master_config), f)
     configuration = Configuration(path, final_output_path=new_root)
     pbar = PBars(configuration.total_num_steps, "Converting")
 

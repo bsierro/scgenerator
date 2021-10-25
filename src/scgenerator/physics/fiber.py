@@ -1087,7 +1087,7 @@ def capillary_loss(wl: np.ndarray, he_mode: tuple[int, int], core_radius: float)
     np.ndarray
         loss in 1/m
     """
-    chi_silica = mat.sellmeier(wl, utils.load_material_dico("silica"))
+    chi_silica = abs(mat.sellmeier(wl, utils.load_material_dico("silica")))
     nu_n = 0.5 * (chi_silica + 2) / np.sqrt(chi_silica)
     return nu_n * (u_nm(*he_mode) * wl / pipi) ** 2 * core_radius ** -3
 

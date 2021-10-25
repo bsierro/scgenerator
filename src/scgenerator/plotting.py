@@ -174,7 +174,6 @@ def create_zoom_axis(
     # copy the plot content
     if plot:
         lines = axis.get_lines()
-        ymin, ymax = 0, 0
         for line in lines:
             xdata = line.get_xdata()
             xdata, ind, _ = sort_axis(xdata, (*xlim, units.s))
@@ -1071,9 +1070,36 @@ def partial_plot(root: os.PathLike):
     spec_list = sorted(
         path.glob(SPEC1_FN.format("*")), key=lambda el: int(re.search("[0-9]+", el.name)[0])
     )
+    params = Parameters.load(path / "params.toml")
+    params.z_targets = params.z_targets[: len(spec_list)]
     raw_values = np.array([load_spectrum(s) for s in spec_list])
-    specs = units.to_log2D(math.abs2(np.fft.fftshift(raw_values, axes=-1)))
-    fields = math.abs2(np.fft.ifft(raw_values))
-    left.imshow(specs, origin="lower", aspect="auto", vmin=-60, interpolation="nearest")
-    right.imshow(fields, origin="lower", aspect="auto", interpolation="nearest")
+
+    wl, z, values = transform_2D_propagation(
+        raw_values,
+        PlotRange(
+            0.5 * params.interpolation_range[0] * 1e9,
+            1.1 * params.interpolation_range[1] * 1e9,
+            "nm",
+        ),
+        params,
+        log="2D",
+    )
+    left.imshow(
+        values,
+        origin="lower",
+        aspect="auto",
+        vmin=-60,
+        interpolation="nearest",
+        extent=get_extent(wl, z),
+    )
+
+    t, z, values = transform_2D_propagation(
+        np.fft.ifft(raw_values),
+        PlotRange(-10, 10, "ps"),
+        params,
+        log=False,
+    )
+    right.imshow(
+        values, origin="lower", aspect="auto", interpolation="nearest", extent=get_extent(t, z)
+    )
     return left, right

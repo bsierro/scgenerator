@@ -1,5 +1,6 @@
 numpy
 matplotlib
 scipy
-toml
+tomli
+tomli-w
 tqdm

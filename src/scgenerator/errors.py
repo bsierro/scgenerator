@@ -42,3 +42,7 @@ class EvaluatorError(Exception):
 
 class NoDefaultError(EvaluatorError):
     pass
+
+
+class OperatorError(EvaluatorError):
+    pass

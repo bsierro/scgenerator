@@ -18,7 +18,8 @@ from typing import Any, Callable, MutableMapping, Sequence, TypeVar, Set
 
 import numpy as np
 import pkg_resources as pkg
-import toml
+import tomli
+import tomli_w
 
 from .const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, Z_FN, ROOT_PARAMETERS
 from .logger import get_logger
@@ -47,8 +48,8 @@ class Paths:
     def get(cls, key):
         if key not in cls.paths:
             if os.path.exists("paths.toml"):
-                with open("paths.toml") as file:
-                    paths_dico = toml.load(file)
+                with open("paths.toml", "rb") as file:
+                    paths_dico = tomli.load(file)
                 for k, v in paths_dico.items():
                     cls.paths[k] = v
         if key not in cls.paths:
@@ -182,18 +183,18 @@ def load_toml(descr: os.PathLike) -> dict[str, Any]:
     descr = str(descr)
     if ":" in descr:
         path, entry = descr.split(":", 1)
-        with open(path) as file:
-            return toml.load(file)[entry]
+        with open(path, "rb") as file:
+            return tomli.load(file)[entry]
     else:
-        with open(descr) as file:
-            return toml.load(file)
+        with open(descr, "rb") as file:
+            return tomli.load(file)
 
 
 def save_toml(path: os.PathLike, dico):
     """saves a dictionary into a toml file"""
     path = conform_toml_path(path)
-    with open(path, mode="w") as file:
-        toml.dump(dico, file)
+    with open(path, mode="wb") as file:
+        tomli_w.dump(dico, file)
     return dico
 
 
@@ -247,7 +248,7 @@ def load_material_dico(name: str) -> dict[str, Any]:
     ----------
         material_dico : dict
     """
-    return toml.loads(Paths.gets("materials"))[name]
+    return tomli.loads(Paths.gets("materials"))[name]
 
 
 def save_data(data: np.ndarray, data_dir: Path, file_name: str):
@@ -478,8 +479,8 @@ def save_parameters(
     os.makedirs(file_path.parent, exist_ok=True)
 
     # save toml of the simulation
-    with open(file_path, "w") as file:
-        toml.dump(params, file, encoder=toml.TomlNumpyEncoder())
+    with open(file_path, "wb") as file:
+        tomli_w.dump(params, file)
 
     return file_path
 
