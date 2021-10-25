@@ -3,6 +3,7 @@
 **/*.npy
 
 plots*
+/make_*.py
 Archive
 *.mp4
 *.png

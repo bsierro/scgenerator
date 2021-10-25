@@ -1,5 +1,5 @@
 from . import math
-from .math import abs2, argclosest, span
+from .math import abs2, argclosest, span, normalized
 from .physics import fiber, materials, pulse, simulate, units
 from .physics.simulate import RK4IP, parallel_RK4IP, run_simulation
 from .plotting import (

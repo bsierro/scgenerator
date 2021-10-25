@@ -1146,3 +1146,7 @@ def remove_2nd_order_dispersion2(
     opti = minimize_scalar(score, bounds=(-max_gdd * 1e30, max_gdd * 1e30))
     opti["x"] *= 1e-30
     return propagate(opti.x * 1e30), opti
+
+
+def gdd(w: np.ndarray, gdd: float) -> np.ndarray:
+    return np.exp(0.5j * w ** 2 * gdd)
