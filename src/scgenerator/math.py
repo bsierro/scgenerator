@@ -77,6 +77,11 @@ def abs2(z: np.ndarray) -> np.ndarray:
     return z.real ** 2 + z.imag ** 2
 
 
+def normalized(z: np.ndarray) -> np.ndarray:
+    ab = abs2(z)
+    return ab / ab.max()
+
+
 def sigmoid(x):
     return 1 / (np.exp(-x) + 1)
 

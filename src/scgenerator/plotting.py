@@ -1041,12 +1041,20 @@ def measure_and_annotate_fwhm(
         field = abs2(field)
     _, (left, right), *_ = pulse.find_lobe_limits(unit.inv(t), field)
     arrow_label = f"{right - left:.1f} {unit.name}"
+
+    annotate_fwhm(ax, left, right, arrow_label, field.max(), side, arrow_length_pts, arrow_props)
+    return right - left
+
+
+def annotate_fwhm(
+    ax, left, right, arrow_label, v_max=1, side="right", arrow_length_pts=20.0, arrow_props=None
+):
     arrow_dict = dict(arrowstyle="->")
     if arrow_props is not None:
         arrow_dict |= arrow_props
     ax.annotate(
         "" if side == "right" else arrow_label,
-        (left, field.max() / 2),
+        (left, v_max / 2),
         xytext=(-arrow_length_pts, 0),
         ha="right",
         va="center",
@@ -1055,13 +1063,12 @@ def measure_and_annotate_fwhm(
     )
     ax.annotate(
         "" if side == "left" else arrow_label,
-        (right, field.max() / 2),
+        (right, v_max / 2),
         xytext=(arrow_length_pts, 0),
         textcoords="offset points",
         arrowprops=arrow_dict,
         va="center",
     )
-    return right - left
 
 
 def partial_plot(root: os.PathLike):
