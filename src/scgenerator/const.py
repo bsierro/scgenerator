@@ -1,7 +1,4 @@
-__version__ = "0.2.3rules"
-
-
-from typing import Any
+__version__ = "0.2.4"
 
 
 def pbar_format(worker_id: int):
