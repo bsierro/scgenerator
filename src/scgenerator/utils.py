@@ -452,7 +452,7 @@ def update_params(new_path: Path, file: Path):
     if (p := params.get("prev_data_dir")) is not None:
         p = Path(p)
         params["prev_data_dir"] = str(p.parent / update_path_name(p.name))
-    params["output_path"] = new_path
+    params["output_path"] = str(new_path)
     save_toml(new_path / PARAM_FN, params)
     file.unlink()
 

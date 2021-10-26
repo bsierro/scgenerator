@@ -1,5 +1,5 @@
 # flake8: noqa
-from . import math
+from . import math, operators
 from .evaluator import Evaluator
 from .legacy import convert_sim_folder
 from .math import abs2, argclosest, normalized, span

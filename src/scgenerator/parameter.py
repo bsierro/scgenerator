@@ -376,7 +376,7 @@ class Parameters:
     spec_0: np.ndarray = Parameter(type_checker(np.ndarray))
     beta2: float = Parameter(type_checker(int, float))
     alpha_arr: np.ndarray = Parameter(type_checker(np.ndarray))
-    alpha: float = Parameter(non_negative(float, int), default=0)
+    alpha: float = Parameter(non_negative(float, int))
     gamma_arr: np.ndarray = Parameter(type_checker(np.ndarray))
     A_eff_arr: np.ndarray = Parameter(type_checker(np.ndarray))
     w: np.ndarray = Parameter(type_checker(np.ndarray))

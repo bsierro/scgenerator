@@ -207,9 +207,10 @@ class RK4IP:
                     "{} steps, z = {:.4f}, h = {:.5g}".format(step, self.state.z, h_taken)
                 )
 
-                self.stored_spectra.append(self.state.spectrum)
+                current_spec = self.get_current_spectrum()
+                self.stored_spectra.append(current_spec)
 
-                yield step, len(self.stored_spectra) - 1, self.get_current_spectrum()
+                yield step, len(self.stored_spectra) - 1, current_spec
 
                 self.z_stored.append(self.state.z)
                 del self.z_targets[0]
@@ -256,8 +257,8 @@ class RK4IP:
             k4 = h * self.params.nonlinear_operator(self.state.replace(expD * (A_I + k3)))
             new_state = self.state.replace(expD * (A_I + k1 / 6 + k2 / 3 + k3 / 3) + k4 / 6)
 
+            self.cons_qty[step] = self.params.conserved_quantity(new_state)
             if self.params.adapt_step_size:
-                self.cons_qty[step] = self.params.conserved_quantity(new_state)
                 curr_p_change = np.abs(self.cons_qty[step - 1] - self.cons_qty[step])
                 cons_qty_change_ok = self.error_ok * self.cons_qty[step - 1]
 

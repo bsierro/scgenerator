@@ -310,7 +310,7 @@ def build_sim_grid(
     return z_targets, t, time_window, t_num, dt, w_c, w0, w, w_order, l
 
 
-def linear_extrapolation(y: np.ndarray) -> np.ndarray:
+def polynom_extrapolation(x: np.ndarray, y: np.ndarray, degree: float) -> np.ndarray:
     """extrapolates IN PLACE linearily on both side of the support
 
     Parameters
@@ -323,13 +323,14 @@ def linear_extrapolation(y: np.ndarray) -> np.ndarray:
         last value we want to keep (extrapolate to the right of that)
     """
     out = y.copy()
-    order = np.argsort(y)
+    order = np.argsort(x)
     left_ind, *_, right_ind = np.nonzero(out[order])[0]
-    _linear_extrapolation_in_place(out[order], left_ind, right_ind)
-    return out
+    return _polynom_extrapolation_in_place(out[order], left_ind, right_ind, degree)[order.argsort]
 
 
-def _linear_extrapolation_in_place(y: np.ndarray, left_ind: int, right_ind: int):
-    y[:left_ind] = -(1 + np.arange(left_ind))[::-1] * (y[left_ind + 1] - y[left_ind]) + y[left_ind]
-    y[right_ind:] = np.arange(len(y) - right_ind) * (y[right_ind] - y[right_ind - 1]) + y[right_ind]
+def _polynom_extrapolation_in_place(y: np.ndarray, left_ind: int, right_ind: int, degree: float):
+    r_left = (1 + np.arange(left_ind))[::-1] ** degree
+    r_right = np.arange(len(y) - right_ind) ** degree
+    y[:left_ind] = r_left * (y[left_ind] - y[left_ind + 1]) + y[left_ind]
+    y[right_ind:] = r_right * (y[right_ind] - y[right_ind - 1]) + y[right_ind]
     return y

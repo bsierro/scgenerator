@@ -22,8 +22,10 @@ from .utils import load_material_dico
 class SpectrumDescriptor:
     name: str
     value: np.ndarray = None
+    _counter = 0
 
-    def __set__(self, instance, value):
+    def __set__(self, instance: CurrentState, value: np.ndarray):
+        self._counter += 1
         instance.spec2 = math.abs2(value)
         instance.field = np.fft.ifft(value)
         instance.field2 = math.abs2(instance.field)
@@ -243,11 +245,6 @@ class ConstantRefractiveIndex(AbstractRefractiveIndex):
         return self.n_eff_arr
 
 
-class PCFRefractiveIndex(AbstractRefractiveIndex):
-    def __int__(self, wl_for_disp: np.ndarray, pitch: float, pitch_ratio: float):
-        self.n_eff_const = fiber.n_eff_pcf(wl_for_disp, pitch, pitch_ratio)
-
-
 class MarcatiliRefractiveIndex(AbstractRefractiveIndex):
     gas_op: AbstractGas
     core_radius: float
@@ -281,26 +278,6 @@ class HasanRefractiveIndex(AbstractRefractiveIndex):
     capillary_radius: float
     capillary_resonance_strengths: list[float]
     wl_for_disp: np.ndarray
-
-    # def __init__(
-    #     self,
-    #     gas_op: ConstantGas,
-    #     core_radius: float,
-    #     capillary_num: int,
-    #     capillary_nested: int,
-    #     capillary_thickness: float,
-    #     capillary_radius: float,
-    #     capillary_resonance_strengths: list[float],
-    #     wl_for_disp: np.ndarray,
-    # ):
-    #     self.gas_op = gas_op
-    #     self.core_radius = core_radius
-    #     self.capillary_num = capillary_num
-    #     self.capillary_nested = capillary_nested
-    #     self.capillary_thickness = capillary_thickness
-    #     self.capillary_radius = capillary_radius
-    #     self.capillary_resonance_strengths = capillary_resonance_strengths
-    #     self.wl_for_disp = wl_for_disp
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         return fiber.n_eff_hasan(
@@ -391,8 +368,8 @@ class ConstantDirectDispersion(AbstractDispersion):
             w_for_disp, w0, n_op(), w0_ind
         )[2:-2]
         left_ind, *_, right_ind = np.nonzero(self.disp_arr[w_order])[0]
-        self.disp_arr[w_order] = math._linear_extrapolation_in_place(
-            self.disp_arr[w_order], left_ind, right_ind
+        self.disp_arr[w_order] = math._polynom_extrapolation_in_place(
+            self.disp_arr[w_order], left_ind, right_ind, 1
         )
 
     def __call__(self, state: CurrentState = None) -> np.ndarray:
@@ -468,8 +445,8 @@ class ConstantLoss(AbstractLoss):
 
 
 class NoLoss(ConstantLoss):
-    def __init__(self, w: np.ndarray):
-        super().__init__(0, w)
+    def __init__(self, t_num: int):
+        super().__init__(0, t_num)
 
 
 class CapillaryLoss(ConstantLoss):
@@ -790,7 +767,7 @@ def conserved_quantity(
         return NoConservedQuantity()
     logger = get_logger(__name__)
     raman = not isinstance(raman_op, NoRaman)
-    loss = not isinstance(raman_op, NoLoss)
+    loss = not isinstance(loss_op, NoLoss)
     if raman and loss:
         logger.debug("Conserved quantity : photon number with loss")
         return PhotonNumberLoss(w, gamma_op, loss_op)
