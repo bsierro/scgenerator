@@ -880,10 +880,12 @@ class Configuration:
             self.z_num += config["z_num"]
             fiber_names.add(config["name"])
             vary_dict_list: list[dict[str, list]] = config.pop("variable")
+            if len(vary_dict_list) > 1:
+                vary_dict_list = [d for d in vary_dict_list if len(d) > 0]
             self.variationer.append(vary_dict_list)
             self.fiber_paths.append(
                 utils.ensure_folder(
-                    self.final_path / fiber_folder(i, self.name, config["name"]),
+                    self.final_path / fiber_folder(i, self.name, Path(config["name"]).name),
                     mkdir=False,
                     prevent_overwrite=not self.overwrite,
                 )
@@ -1027,7 +1029,7 @@ class Configuration:
         num = utils.find_last_spectrum_num(data_dir)
         if config_dict is None:
             try:
-                config_dict = utils._open_config(data_dir / PARAM_FN)
+                config_dict = utils.load_toml(data_dir / PARAM_FN)
             except FileNotFoundError:
                 self.logger.warning(f"did not find {PARAM_FN!r} in {data_dir}")
                 return self.State.ABSENT, 0

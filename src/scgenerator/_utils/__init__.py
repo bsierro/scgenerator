@@ -202,7 +202,7 @@ def load_config_sequence(path: os.PathLike) -> tuple[Path, list[dict[str, Any]]]
     ):
         if len(common := root_vary.keys() & first_vary.keys()) != 0:
             raise ValueError(f"These variable keys are specified twice : {common!r}")
-    configs[0] |= {k: v for k, v in loaded_config.items() if k != "variable"}
+    # configs[0] |= {k: v for k, v in loaded_config.items() if k != "variable"}
     configs[0]["variable"].append(dict(num=list(range(configs[0].get("repeat", 1)))))
     return Path(final_path), configs
 
