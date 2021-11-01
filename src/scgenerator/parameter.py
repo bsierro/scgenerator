@@ -18,7 +18,7 @@ from .const import MANDATORY_PARAMETERS, PARAM_FN, VALID_VARIABLE, __version__
 from .errors import EvaluatorError
 from .evaluator import Evaluator
 from .logger import get_logger
-from .operators import AbstractConservedQuantity, LinearOperator, NonLinearOperator
+from .operators import AbstractConservedQuantity, EnvelopeLinearOperator, NonLinearOperator
 from .utils import fiber_folder, update_path_name
 from .variationer import VariationDescriptor, Variationer
 
@@ -367,7 +367,7 @@ class Parameters:
     worker_num: int = Parameter(positive(int))
 
     # computed
-    linear_operator: LinearOperator = Parameter(type_checker(LinearOperator))
+    linear_operator: EnvelopeLinearOperator = Parameter(type_checker(EnvelopeLinearOperator))
     nonlinear_operator: NonLinearOperator = Parameter(type_checker(NonLinearOperator))
     conserved_quantity: AbstractConservedQuantity = Parameter(
         type_checker(AbstractConservedQuantity)

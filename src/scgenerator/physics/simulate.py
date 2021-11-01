@@ -10,7 +10,7 @@ import numpy as np
 
 from .. import utils
 from ..logger import get_logger
-from ..operators import AbstractConservedQuantity, CurrentState
+from ..operators import CurrentState
 from ..parameter import Configuration, Parameters
 from ..pbar import PBars, ProgressBarActor, progress_worker
 
@@ -36,7 +36,6 @@ class RK4IP:
     cons_qty: list[float]
 
     state: CurrentState
-    conserved_quantity: AbstractConservedQuantity
     stored_spectra: list[np.ndarray]
 
     def __init__(
@@ -229,7 +228,7 @@ class RK4IP:
                 store = True
                 self.state.h = self.z_targets[0] - self.state.z
 
-    def take_step(self, step: int) -> tuple[float, float, np.ndarray]:
+    def take_step(self, step: int) -> float:
         """computes a new spectrum, whilst adjusting step size if required, until the error estimation
         validates the new spectrum. Saves the result in the internal state attribute
 

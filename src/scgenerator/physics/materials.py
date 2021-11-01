@@ -8,7 +8,7 @@ from .. import utils
 from ..cache import np_cache
 from ..logger import get_logger
 from . import units
-from .units import NA, c, e, hbar, kB, me
+from .units import NA, c, e, hbar, kB, me, epsilon0
 
 
 @np_cache
@@ -233,63 +233,35 @@ def gas_n2(gas_name: str, pressure: float, temperature: float) -> float:
     return non_linear_refractive_index(utils.load_material_dico(gas_name), pressure, temperature)
 
 
-def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:
-    return w * np.sqrt(2 * me * I) / (e * np.abs(field))
+def gas_chi3(gas_name: str, wavelength: float, pressure: float, temperature: float) -> float:
+    """returns the chi3 of a particular material
+
+    Parameters
+    ----------
+    gas_name : str
+        [description]
+    pressure : float
+        [description]
+    temperature : float
+        [description]
+
+    Returns
+    -------
+    float
+        [description]
+    """
+    mat_dico = utils.load_material_dico(gas_name)
+    chi = sellmeier(wavelength, mat_dico, pressure=pressure, temperature=temperature)
+    return n2_to_chi3(
+        non_linear_refractive_index(mat_dico, pressure, temperature), np.sqrt(chi + 1)
+    )
 
 
-def free_electron_density(
-    t: np.ndarray, field: np.ndarray, N0: float, rate_func: Callable[[np.ndarray], np.ndarray]
-) -> np.ndarray:
-    return N0 * (1 - np.exp(-cumulative_trapezoid(rate_func(field), t, initial=0)))
+def n2_to_chi3(n2: float, n0: float) -> float:
+    return n2 / 3.0 * 4 * epsilon0 * n0 * c ** 2
 
 
-def ionization_rate_ADK(
-    ionization_energy: float, atomic_number
-) -> Callable[[np.ndarray], np.ndarray]:
-    Z = -(atomic_number - 1) * e
-
-    omega_p = ionization_energy / hbar
-    nstar = Z * np.sqrt(2.1787e-18 / ionization_energy)
-
-    def omega_t(field):
-        return e * np.abs(field) / np.sqrt(2 * me * ionization_energy)
-
-    Cnstar = 2 ** (2 * nstar) / (scipy.special.gamma(nstar + 1) ** 2)
-    omega_pC = omega_p * Cnstar
-
-    def rate(field: np.ndarray) -> np.ndarray:
-        opt4 = 4 * omega_p / omega_t(field)
-        return omega_pC * opt4 ** (2 * nstar - 1) * np.exp(-opt4 / 3)
-
-    return rate
+def chi3_to_n2(chi3: float, n0: float) -> float:
+    return 3.0 * chi3 / (4.0 * epsilon0 * c * n0 ** 2)
 
 
-class Plasma:
-    def __init__(self, t: np.ndarray, ionization_energy: float, atomic_number: int):
-        self.t = t
-        self.Ip = ionization_energy
-        self.atomic_number = atomic_number
-        self.rate = ionization_rate_ADK(self.Ip, self.atomic_number)
-
-    def __call__(self, field: np.ndarray, N0: float) -> np.ndarray:
-        """returns the number density of free electrons as function of time
-
-        Parameters
-        ----------
-        field : np.ndarray
-            electric field in V/m
-        N0 : float
-            total number density of matter
-
-        Returns
-        -------
-        np.ndarray
-            number density of free electrons as function of time
-        """
-        Ne = free_electron_density(self.t, field, N0, self.rate)
-        return cumulative_trapezoid(
-            np.gradient(Ne, self.t) * self.Ip / field
-            + e ** 2 / me * cumulative_trapezoid(Ne * field, self.t, initial=0),
-            self.t,
-            initial=0,
-        )
