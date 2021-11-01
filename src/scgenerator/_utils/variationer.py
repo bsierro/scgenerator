@@ -79,7 +79,7 @@ class Variationer:
                 len_to_test = len(values[0])
                 if not all(len(v) == len_to_test for v in values[1:]):
                     raise VariationSpecsError(
-                        f"variable items should all have the same number of parameters"
+                        "variable items should all have the same number of parameters"
                     )
                 num_vars.append(len_to_test)
         if len(num_vars) == 0:
@@ -172,8 +172,7 @@ class VariationDescriptor(BaseModel):
         str_list = []
 
         for p_name, p_value in self.flat:
-            ps = p_name.replace("/", "").replace("\\", "").replace(PARAM_SEPARATOR, "")
-            vs = self.format_value(p_name, p_value).replace("/", "").replace(PARAM_SEPARATOR, "")
+            ps, vs = self._format_single_pair(p_name, p_value)
             str_list.append(ps + PARAM_SEPARATOR + vs)
         tmp_name = PARAM_SEPARATOR.join(str_list)
         if not add_identifier:
@@ -181,6 +180,11 @@ class VariationDescriptor(BaseModel):
         return (
             self.identifier + PARAM_SEPARATOR + self.branch.identifier + PARAM_SEPARATOR + tmp_name
         )
+
+    def _format_single_pair(self, p_name: str, p_value: Any) -> tuple[str, str]:
+        ps = p_name.replace("/", "").replace("\\", "").replace(PARAM_SEPARATOR, "")
+        vs = self.format_value(p_name, p_value).replace("/", "").replace(PARAM_SEPARATOR, "")
+        return ps, vs
 
     def __getitem__(self, key) -> "VariationDescriptor":
         return VariationDescriptor(
@@ -234,6 +238,13 @@ class VariationDescriptor(BaseModel):
         if (p := self.parent) is not None:
             yield from p.iter_parents()
         yield self
+
+    @property
+    def short(self) -> str:
+        """shortened description of the simulation"""
+        return " ".join(
+            self._format_single_pair(p, v)[1] for p, v in self.flat if p not in {"fiber", "num"}
+        )
 
     @property
     def flat(self) -> list[tuple[str, Any]]:
