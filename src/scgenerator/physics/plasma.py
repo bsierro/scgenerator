@@ -1,8 +1,17 @@
+from dataclasses import dataclass
 import numpy as np
 import scipy.special
 from scipy.integrate import cumulative_trapezoid
 
 from .units import e, hbar, me
+from ..math import inverse_integral_exponential
+
+
+@dataclass
+class PlasmaInfo:
+    electron_density: np.ndarray
+    dn_dt: np.ndarray
+    polarization: np.ndarray
 
 
 class IonizationRate:
@@ -12,7 +21,7 @@ class IonizationRate:
 
 class IonizationRateADK(IonizationRate):
     def __init__(self, ionization_energy: float, atomic_number: int):
-        self.Z = -(atomic_number - 1) * e
+        self.Z = (atomic_number - 1) * e
         self.ionization_energy = ionization_energy
         self.omega_p = ionization_energy / hbar
 
@@ -24,7 +33,8 @@ class IonizationRateADK(IonizationRate):
         return e * np.abs(field) / np.sqrt(2 * me * self.ionization_energy)
 
     def __call__(self, field: np.ndarray) -> np.ndarray:
-        opt4 = 4 * self.omega_p / self.omega_t(field)
+        ot = self.omega_t(field)
+        opt4 = 4 * self.omega_p / (ot + 1e-14 * ot.max())
         return self.omega_pC * opt4 ** (2 * self.nstar - 1) * np.exp(-opt4 / 3)
 
 
@@ -35,7 +45,7 @@ class Plasma:
         self.atomic_number = atomic_number
         self.rate = IonizationRateADK(self.Ip, self.atomic_number)
 
-    def __call__(self, field: np.ndarray, N0: float) -> np.ndarray:
+    def __call__(self, field: np.ndarray, N0: float) -> PlasmaInfo:
         """returns the number density of free electrons as function of time
 
         Parameters
@@ -50,13 +60,20 @@ class Plasma:
         np.ndarray
             number density of free electrons as function of time
         """
-        Ne = free_electron_density(self.t, field, N0, self.rate)
-        return cumulative_trapezoid(
-            np.gradient(Ne, self.t) * self.Ip / field
-            + e ** 2 / me * cumulative_trapezoid(Ne * field, self.t, initial=0),
+        # Ne = free_electron_density(self.t, field, N0, self.rate)
+        field_abs = np.abs(field)
+        delta = 1e-14 * field_abs.max()
+        exp_int = inverse_integral_exponential(self.t, self.rate(field_abs))
+        electron_density = N0 * (1 - exp_int)
+        dn_dt = N0 * self.rate(field_abs) * exp_int
+        out = cumulative_trapezoid(
+            # np.gradient(self.density, self.t) * self.Ip / field
+            dn_dt * self.Ip / (field + delta)
+            + e ** 2 / me * cumulative_trapezoid(electron_density * field, self.t, initial=0),
             self.t,
             initial=0,
         )
+        return PlasmaInfo(electron_density, dn_dt, out)
 
 
 def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:

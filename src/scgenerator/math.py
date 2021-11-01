@@ -1,12 +1,18 @@
 from typing import Union
 
 import numpy as np
+from scipy.integrate import cumulative_trapezoid
 from scipy.special import jn_zeros
 
 from .cache import np_cache
 
 pi = np.pi
 c = 299792458.0
+
+
+def inverse_integral_exponential(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """evaluates exp(-func(y)) from x=-inf to x"""
+    return np.exp(-cumulative_trapezoid(y, x, initial=0))
 
 
 def span(*vec):
