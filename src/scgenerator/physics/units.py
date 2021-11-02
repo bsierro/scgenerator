@@ -16,6 +16,7 @@ epsilon0 = 8.85418781e-12
 me = 9.1093837015e-31
 e = 1.602176634e-19
 
+
 prefix = dict(P=1e12, G=1e9, M=1e6, k=1e3, d=1e-1, c=1e-2, m=1e-3, u=1e-6, n=1e-9, p=1e-12, f=1e-15)
 
 """
@@ -35,6 +36,22 @@ class To:
 
 
 units_map = dict()
+
+
+def W_to_Vm(n0: float, A_eff: float) -> float:
+    """returns the factor to convert from [|E|²] = W to [|E|] = V/m
+
+    Parameters
+    ----------
+    n : float
+        refractive index
+
+    Returns
+    -------
+    float
+        p such that E_sqrt(W) * p = W_Vm
+    """
+    return 1.0 / np.sqrt(A_eff * 0.5 * epsilon0 * c * n0)
 
 
 def unit(tpe: str, label: str, inv: Callable = None):

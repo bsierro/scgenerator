@@ -7,7 +7,7 @@ from __future__ import annotations
 import dataclasses
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 from scipy.interpolate import interp1d
@@ -23,11 +23,13 @@ class SpectrumDescriptor:
     name: str
     value: np.ndarray = None
     _counter = 0
+    _full_field: bool = False
+    _converter: Callable[[np.ndarray], np.ndarray]
 
     def __set__(self, instance: CurrentState, value: np.ndarray):
         self._counter += 1
         instance.spec2 = math.abs2(value)
-        instance.field = np.fft.ifft(value)
+        instance.field = instance.converter(value)
         instance.field2 = math.abs2(instance.field)
         self.value = value
 
@@ -38,6 +40,9 @@ class SpectrumDescriptor:
         raise AttributeError("Cannot delete Spectrum field")
 
     def __set_name__(self, owner, name):
+        for field_name in ["converter", "field", "field2", "spec2"]:
+            if not hasattr(owner, field_name):
+                raise AttributeError(f"{owner!r} doesn't have a {field_name!r} attribute")
         self.name = name
 
 
@@ -47,6 +52,7 @@ class CurrentState:
     z: float
     h: float
     C_to_A_factor: np.ndarray
+    converter: Callable[[np.ndarray], np.ndarray] = np.fft.ifft
     spectrum: np.ndarray = SpectrumDescriptor()
     spec2: np.ndarray = dataclasses.field(init=False)
     field: np.ndarray = dataclasses.field(init=False)
@@ -57,7 +63,9 @@ class CurrentState:
         return self.z / self.length
 
     def replace(self, new_spectrum) -> CurrentState:
-        return CurrentState(self.length, self.z, self.h, self.C_to_A_factor, new_spectrum)
+        return CurrentState(
+            self.length, self.z, self.h, self.C_to_A_factor, self.converter, new_spectrum
+        )
 
 
 class Operator(ABC):
@@ -82,9 +90,20 @@ class Operator(ABC):
         pass
 
 
-class NoOp:
+class NoOpTime(Operator):
     def __init__(self, t_num: int):
         self.arr_const = np.zeros(t_num)
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return self.arr_const
+
+
+class NoOpFreq(Operator):
+    def __init__(self, w_num: int):
+        self.arr_const = np.zeros(w_num)
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return self.arr_const
 
 
 ##################################################
@@ -440,12 +459,17 @@ class ConstantWaveVector(AbstractWaveVector):
         self,
         n_op: ConstantRefractiveIndex,
         w_for_disp: np.ndarray,
-        t_num: int,
+        w_num: int,
         dispersion_ind: np.ndarray,
+        w_order: np.ndarray,
     ):
 
-        self.beta_arr = np.zeros(t_num, dtype=float)
+        self.beta_arr = np.zeros(w_num, dtype=float)
         self.beta_arr[dispersion_ind] = fiber.beta(w_for_disp, n_op())[2:-2]
+        left_ind, *_, right_ind = np.nonzero(self.beta_arr[w_order])[0]
+        self.beta_arr[w_order] = math._polynom_extrapolation_in_place(
+            self.beta_arr[w_order], left_ind, right_ind, 1.0
+        )
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         return self.beta_arr
@@ -475,16 +499,16 @@ class AbstractLoss(Operator):
 class ConstantLoss(AbstractLoss):
     arr_const: np.ndarray
 
-    def __init__(self, alpha: float, t_num: int):
-        self.arr_const = alpha * np.ones(t_num)
+    def __init__(self, alpha: float, w_num: int):
+        self.arr_const = alpha * np.ones(w_num)
 
     def __call__(self, state: CurrentState = None) -> np.ndarray:
         return self.arr_const
 
 
 class NoLoss(ConstantLoss):
-    def __init__(self, t_num: int):
-        super().__init__(0, t_num)
+    def __init__(self, w_num: int):
+        super().__init__(0, w_num)
 
 
 class CapillaryLoss(ConstantLoss):
@@ -492,12 +516,12 @@ class CapillaryLoss(ConstantLoss):
         self,
         wl_for_disp: np.ndarray,
         dispersion_ind: np.ndarray,
-        t_num: int,
+        w_num: int,
         core_radius: float,
         he_mode: tuple[int, int],
     ):
         alpha = fiber.capillary_loss(wl_for_disp, he_mode, core_radius)
-        self.arr = np.zeros(t_num)
+        self.arr = np.zeros(w_num)
         self.arr[dispersion_ind] = alpha[2:-2]
 
     def __call__(self, state: CurrentState = None) -> np.ndarray:
@@ -538,9 +562,8 @@ class AbstractRaman(Operator):
         """
 
 
-class NoRaman(NoOp, AbstractRaman):
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.arr_const
+class NoRaman(NoOpTime, AbstractRaman):
+    pass
 
 
 class EnvelopeRaman(AbstractRaman):
@@ -585,9 +608,12 @@ class AbstractSPM(Operator):
         """
 
 
-class NoSPM(NoOp, AbstractSPM):
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.arr_const
+class NoEnvelopeSPM(NoOpFreq, AbstractSPM):
+    pass
+
+
+class NoFullFieldSPM(NoOpTime, AbstractSPM):
+    pass
 
 
 class EnvelopeSPM(AbstractSPM):
@@ -599,11 +625,12 @@ class EnvelopeSPM(AbstractSPM):
 
 
 class FullFieldSPM(AbstractSPM):
-    def __init__(self, raman_op: AbstractRaman):
+    def __init__(self, raman_op: AbstractRaman, chi3: float):
         self.fraction = 1 - raman_op.f_r
+        self.factor = self.fraction * chi3 * units.epsilon0
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.fraction * state.field2
+        return self.fraction * state.field2 * state.field
 
 
 ##################################################
@@ -627,9 +654,8 @@ class AbstractSelfSteepening(Operator):
         """
 
 
-class NoSelfSteepening(NoOp, AbstractSelfSteepening):
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.arr_const
+class NoSelfSteepening(NoOpFreq, AbstractSelfSteepening):
+    pass
 
 
 class SelfSteepening(AbstractSelfSteepening):
@@ -692,9 +718,8 @@ class Plasma(Operator):
     pass
 
 
-class NoPlasma(NoOp, Plasma):
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.arr_const
+class NoPlasma(NoOpTime, Plasma):
+    pass
 
 
 ##################################################
@@ -786,50 +811,43 @@ def conserved_quantity(
 ##################################################
 
 
-class EnvelopeLinearOperator(Operator):
+class LinearOperator(Operator):
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        """returns the linear operator to be multiplied by the spectrum in the frequency domain
+
+        Parameters
+        ----------
+        state : CurrentState
+
+        Returns
+        -------
+        np.ndarray
+            linear component
+        """
+
+
+class EnvelopeLinearOperator(LinearOperator):
     def __init__(self, dispersion_op: AbstractDispersion, loss_op: AbstractLoss):
         self.dispersion_op = dispersion_op
         self.loss_op = loss_op
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the linear operator to be multiplied by the spectrum in the frequency domain
-
-        Parameters
-        ----------
-        state : CurrentState
-
-        Returns
-        -------
-        np.ndarray
-            linear component
-        """
         return self.dispersion_op(state) - self.loss_op(state) / 2
 
 
-class FullFieldLinearOperator(Operator):
+class FullFieldLinearOperator(LinearOperator):
     def __init__(
         self,
-        wave_vector: AbstractWaveVector,
+        beta_op: AbstractWaveVector,
         loss_op: AbstractLoss,
-        reference_velocity: float,
+        frame_velocity: float,
         w: np.ndarray,
     ):
-        self.delay = w / reference_velocity
-        self.wave_vector = wave_vector
+        self.delay = w / frame_velocity
+        self.wave_vector = beta_op
         self.loss_op = loss_op
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the linear operator to be multiplied by the spectrum in the frequency domain
-
-        Parameters
-        ----------
-        state : CurrentState
-
-        Returns
-        -------
-        np.ndarray
-            linear component
-        """
         return 1j * (self.wave_vector(state) - self.delay) - self.loss_op(state) / 2
 
 
@@ -877,10 +895,20 @@ class EnvelopeNonLinearOperator(NonLinearOperator):
 
 
 class FullFieldNonLinearOperator(NonLinearOperator):
-    def __init__(self, raman_op: AbstractRaman, spm_op: AbstractSPM, plasma_op: Plasma):
+    def __init__(
+        self,
+        raman_op: AbstractRaman,
+        spm_op: AbstractSPM,
+        plasma_op: Plasma,
+        w: np.ndarray,
+        beta_op: AbstractWaveVector,
+    ):
         self.raman_op = raman_op
         self.spm_op = spm_op
         self.plasma_op = plasma_op
+        self.factor = 1j * w ** 2 / (2.0 * units.c ** 2 * units.epsilon0)
+        self.beta_op = beta_op
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.spm_op(state) + self.raman_op(state) + self.plasma_op(state)
+        total_nonlinear = self.spm_op(state) + self.raman_op(state) + self.plasma_op(state)
+        return self.factor / self.beta_op(state) * np.fft.rfft(total_nonlinear)

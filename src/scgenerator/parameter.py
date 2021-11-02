@@ -18,7 +18,12 @@ from .const import MANDATORY_PARAMETERS, PARAM_FN, VALID_VARIABLE, __version__
 from .errors import EvaluatorError
 from .evaluator import Evaluator
 from .logger import get_logger
-from .operators import AbstractConservedQuantity, EnvelopeLinearOperator, NonLinearOperator
+from .operators import (
+    AbstractConservedQuantity,
+    EnvelopeLinearOperator,
+    LinearOperator,
+    NonLinearOperator,
+)
 from .utils import fiber_folder, update_path_name
 from .variationer import VariationDescriptor, Variationer
 
@@ -79,6 +84,11 @@ def in_range_incl(_min, _max):
 def boolean(name, n):
     if n is not True and n is not False:
         raise ValueError(f"{name!r} must be True or False")
+
+
+def is_function(name, n):
+    if not callable(n):
+        raise TypeError(f"{name!r} must be callable")
 
 
 @lru_cache
@@ -294,6 +304,7 @@ class Parameters:
     input_transmission: float = Parameter(in_range_incl(0, 1), default=1.0)
     gamma: float = Parameter(non_negative(float, int))
     n2: float = Parameter(non_negative(float, int))
+    chi3: float = Parameter(non_negative(float, int))
     loss: str = Parameter(literal("capillary"))
     loss_file: str = Parameter(string)
     effective_mode_diameter: float = Parameter(positive(float, int))
@@ -348,6 +359,7 @@ class Parameters:
     t0: float = Parameter(in_range_excl(0, 1e-9), display_info=(1e15, "fs"))
 
     # simulation
+    full_field: bool = Parameter(boolean, default=False)
     raman_type: str = Parameter(literal("measured", "agrawal", "stolen"), converter=str.lower)
     self_steepening: bool = Parameter(boolean, default=True)
     spm: bool = Parameter(boolean, default=True)
@@ -367,11 +379,13 @@ class Parameters:
     worker_num: int = Parameter(positive(int))
 
     # computed
-    linear_operator: EnvelopeLinearOperator = Parameter(type_checker(EnvelopeLinearOperator))
+    linear_operator: LinearOperator = Parameter(type_checker(LinearOperator))
     nonlinear_operator: NonLinearOperator = Parameter(type_checker(NonLinearOperator))
     conserved_quantity: AbstractConservedQuantity = Parameter(
         type_checker(AbstractConservedQuantity)
     )
+    fft: Callable[[np.ndarray], np.ndarray] = Parameter(is_function)
+    ifft: Callable[[np.ndarray], np.ndarray] = Parameter(is_function)
     field_0: np.ndarray = Parameter(type_checker(np.ndarray))
     spec_0: np.ndarray = Parameter(type_checker(np.ndarray))
     beta2: float = Parameter(type_checker(int, float))
@@ -397,7 +411,7 @@ class Parameters:
     version: str = Parameter(string)
 
     def __post_init__(self):
-        self._evaluator = Evaluator.default()
+        self._evaluator = Evaluator.default(self.full_field)
         self._evaluator.set(self._param_dico)
 
     def __repr__(self) -> str:
@@ -422,6 +436,9 @@ class Parameters:
             to_compute = MANDATORY_PARAMETERS
         for k in to_compute:
             getattr(self, k)
+
+    def compute(self, key: str) -> Any:
+        return self._evaluator.compute(key)
 
     def pformat(self) -> str:
         return "\n".join(

@@ -75,7 +75,6 @@ VALID_VARIABLE = {
 
 MANDATORY_PARAMETERS = [
     "name",
-    "w_c",
     "w",
     "w0",
     "spec_0",

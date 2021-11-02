@@ -94,7 +94,37 @@ class PulseProperties:
         return [cls(*a) for a in arr]
 
 
-def initial_field(t: np.ndarray, shape: str, t0: float, peak_power: float) -> np.ndarray:
+def initial_full_field(
+    t: np.ndarray, shape: str, A_eff: float, t0: float, peak_power: float, w0: float, n0: float
+) -> np.ndarray:
+    """initial field in full field simulations
+
+    Parameters
+    ----------
+    t : np.ndarray, shape(n, )
+        time array
+    shape : str
+        gaussian or sech
+    t0 : float
+        t0 parameter
+    peak_power : float
+        peak power in W
+    w0 : float
+        center frequency
+    n0 : float
+        refractive index at center frequency
+
+    Returns
+    -------
+    np.ndarray, shape (n,)
+        initial field
+    """
+    return (
+        initial_field_envelope(t, shape, t0, peak_power) * np.cos(w0 * t) * units.W_to_Vm(n0, A_eff)
+    )
+
+
+def initial_field_envelope(t: np.ndarray, shape: str, t0: float, peak_power: float) -> np.ndarray:
     """returns the initial field
 
     Parameters
@@ -417,15 +447,13 @@ def technical_noise(rms_noise, noise_correlation=-0.4):
     return psy, 1 + noise_correlation * (psy - 1)
 
 
-def shot_noise(w_c, w0, T, dt, additional_noise_factor=1.0):
+def shot_noise(w: np.ndarray, T: float, dt: float, additional_noise_factor=1.0):
     """
 
     Parameters
     ----------
-        w_c : 1D array
+        w_c : array, shape (n,)
             angular frequencies centered around 0
-        w0 : float
-            pump angular frequency
         T : float
             length of the time windows
         dt : float
@@ -435,28 +463,27 @@ def shot_noise(w_c, w0, T, dt, additional_noise_factor=1.0):
 
     Returns
     -------
-        out : 1D array of size len(w_c)
+        out : array, shape (n,)
             noise field to be added on top of initial field in time domain
     """
-    rand_phase = np.random.rand(len(w_c)) * 2 * pi
-    A_oppm = np.sqrt(hbar * (np.abs(w_c + w0)) * T) * np.exp(-1j * rand_phase)
+    rand_phase = np.random.rand(len(w)) * 2 * pi
+    A_oppm = np.sqrt(hbar * (np.abs(w)) * T) * np.exp(-1j * rand_phase)
     out = ifft(A_oppm / dt * np.sqrt(2 * pi))
     return out * additional_noise_factor
 
 
 def finalize_pulse(
-    field_0: np.ndarray,
+    pre_field_0: np.ndarray,
     quantum_noise: bool,
-    w_c: bool,
-    w0: float,
+    w: np.ndarray,
     time_window: float,
     dt: float,
     additional_noise_factor: float,
     input_transmission: float,
 ) -> np.ndarray:
     if quantum_noise:
-        field_0 = field_0 + shot_noise(w_c, w0, time_window, dt, additional_noise_factor)
-    return np.sqrt(input_transmission) * field_0
+        pre_field_0 = pre_field_0 + shot_noise(w, time_window, dt, additional_noise_factor)
+    return np.sqrt(input_transmission) * pre_field_0
 
 
 def mean_phase(spectra):

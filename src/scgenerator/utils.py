@@ -404,6 +404,15 @@ def _mock_function(num_args: int, num_returns: int) -> Callable:
     return out_func
 
 
+def fft_functions(
+    full_field: bool,
+) -> tuple[Callable[[np.ndarray], np.ndarray], Callable[[np.ndarray], np.ndarray]]:
+    if full_field:
+        return np.fft.rfft, np.fft.irfft
+    else:
+        return np.fft.fft, np.fft.ifft
+
+
 def combine_simulations(path: Path, dest: Path = None):
     """combines raw simulations into one folder per branch
 

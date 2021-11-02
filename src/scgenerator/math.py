@@ -252,68 +252,82 @@ def tspace(time_window=None, t_num=None, dt=None):
         raise TypeError("not enough parameter to determine time vector")
 
 
-def build_sim_grid(
-    length: float,
-    z_num: int,
-    wavelength: float,
-    time_window: float = None,
-    t_num: int = None,
-    dt: float = None,
-) -> tuple[np.ndarray, np.ndarray, float, int, float, np.ndarray, float, np.ndarray, np.ndarray]:
+def build_envelope_w_grid(t: np.ndarray, w0: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """computes a bunch of values that relate to the simulation grid
 
     Parameters
     ----------
-    length : float
-        length of the fiber in m
-    z_num : int
-        number of spatial points
-    wavelength : float
-        pump wavelength in m
-    deg : int
-        dispersion interpolation degree
-    time_window : float, optional
-        total width of the temporal grid in s, by default None
-    t_num : int, optional
-        number of temporal grid points, by default None
-    dt : float, optional
-        spacing of the temporal grid in s, by default None
+    t : np.ndarray, shape (t_num,)
+        time array
+    w0 : float
+        center frequency
 
     Returns
     -------
-    z_targets : np.ndarray, shape (z_num, )
-        spatial points in m
+    w_c : np.ndarray, shape (n, )
+        centered angular frequencies in rad/s where 0 is the pump frequency
+    w : np.ndarray, shape (n, )
+        angular frequency grid
+    w_order : np.ndarray, shape (n,)
+        arrays of indices such that w[w_order] is sorted
+    """
+    w_c = wspace(t)
+    w = w_c + w0
+    w_order = np.argsort(w)
+    return w_c, w, w_order
+
+
+def build_full_field_w_grid(t_num: int, dt: float) -> tuple[np.ndarray, float, float, int]:
+    """
+    Paramters
+    ---------
+    t_num : int
+        number of temporal sampling points
+    dt : float
+        uniform spacing between sample points
+
+    Returns
+    -------
+    w : np.ndarray, shape (n, )
+        angular frequency grid
+    w_order : np.ndarray, shape (n,)
+        arrays of indices such that w[w_order] is sorted
+    """
+    w = 2 * pi * np.fft.rfftfreq(t_num, dt)
+    w_order = np.argsort(w)
+    ind = w != 0
+    l = np.zeros(len(w))
+    l[ind] = 2 * pi * c / w[ind]
+    if any(ind):
+        l[~ind] = 2 * pi * c / (np.abs(w[ind]).min())
+    return w, w_order, l
+
+
+def build_z_grid(z_num: int, length: float) -> np.ndarray:
+    return np.linspace(0, length, z_num)
+
+
+def build_t_grid(
+    time_window: float = None, t_num: int = None, dt: float = None
+) -> tuple[np.ndarray, float, float, int]:
+    """[summary]
+
+    Returns
+    -------
     t : np.ndarray, shape (t_num, )
         temporal points in s
     time_window : float
         total width of the temporal grid in s, by default None
-    t_num : int
-        number of temporal grid points, by default None
     dt : float
         spacing of the temporal grid in s, by default None
-    w_c : np.ndarray, shape (t_num, )
-        centered angular frequencies in rad/s where 0 is the pump frequency
-    w0 : float
-        pump angular frequency
-    w : np.ndarray, shape (t_num, )
-        actual angualr frequency grid in rad/s
-    w_order : np.ndarray, shape (t_num, )
-        result of w.argsort()
-    l : np.ndarray, shape (t_num)
-        wavelengths in m
+    t_num : int
+        number of temporal grid points, by default None
     """
     t = tspace(time_window, t_num, dt)
-
     time_window = t.max() - t.min()
     dt = t[1] - t[0]
     t_num = len(t)
-    z_targets = np.linspace(0, length, z_num)
-    w_c = wspace(t)
-    w0 = 2 * pi * c / wavelength
-    w = w_c + w0
-    w_order = np.argsort(w)
-    l = 2 * pi * c / w
-    return z_targets, t, time_window, t_num, dt, w_c, w0, w, w_order, l
+    return t, time_window, dt, t_num
 
 
 def polynom_extrapolation(x: np.ndarray, y: np.ndarray, degree: float) -> np.ndarray:

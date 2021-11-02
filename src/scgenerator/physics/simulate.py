@@ -107,6 +107,7 @@ class RK4IP:
             z=z,
             h=initial_h,
             C_to_A_factor=C_to_A_factor,
+            converter=self.params.ifft,
             spectrum=self.params.spec_0.copy() / C_to_A_factor,
         )
         self.stored_spectra = self.params.recovery_last_stored * [None] + [

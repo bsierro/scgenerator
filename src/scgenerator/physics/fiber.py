@@ -17,10 +17,10 @@ pipi = 2 * pi
 T = TypeVar("T")
 
 
-def lambda_for_dispersion(
+def lambda_for_envelope_dispersion(
     l: np.ndarray, interpolation_range: tuple[float, float]
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Returns a wl vector for dispersion calculation
+    """Returns a wl vector for dispersion calculation in envelope mode
 
     Returns
     -------
@@ -31,6 +31,12 @@ def lambda_for_dispersion(
         indices of the original l where the values are valid (i.e. without the two extra on each side)
     """
     su = np.where((l >= interpolation_range[0]) & (l <= interpolation_range[1]))[0]
+    if l[su].min() > 1.01 * interpolation_range[0]:
+        raise ValueError(
+            f"lower range of {1e9*interpolation_range[0]:.1f}nm is not reached by the grid. "
+            "try a finer grid"
+        )
+
     ind_above_cond = su >= len(l) // 2
     ind_above = su[ind_above_cond]
     ind_below = su[~ind_above_cond]
@@ -39,6 +45,29 @@ def lambda_for_dispersion(
     l_out = l[fs]
     ind_out = fs[2:-2]
     return l_out, ind_out
+
+
+def lambda_for_full_field_dispersion(
+    l: np.ndarray, interpolation_range: tuple[float, float]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Returns a wl vector for dispersion calculation in full field mode
+
+    Returns
+    -------
+    np.ndarray
+        subset of l in the interpolation range with two extra values on each side
+        to accomodate for taking gradients
+    np.ndarray
+        indices of the original l where the values are valid (i.e. without the two extra on each side)
+    """
+    su = np.where((l >= interpolation_range[0]) & (l <= interpolation_range[1]))[0]
+    if l[su].min() > 1.01 * interpolation_range[0]:
+        raise ValueError(
+            f"lower range of {1e9*interpolation_range[0]:.1f}nm is not reached by the grid. "
+            "try a finer grid"
+        )
+    fu = np.concatenate((su[:2] - 2, su, su[-2:] + 2))
+    return l[fu], su
 
 
 def is_dynamic_dispersion(pressure=None):
@@ -596,6 +625,10 @@ def beta2(w_for_disp: np.ndarray, n_eff: np.ndarray) -> np.ndarray:
     beta2 : ndarray, shape (n, )
     """
     return np.gradient(np.gradient(beta(w_for_disp, n_eff), w_for_disp), w_for_disp)
+
+
+def frame_velocity(beta1_arr: np.ndarray, w0_ind: int) -> float:
+    return 1.0 / beta1_arr[w0_ind]
 
 
 def HCPCF_dispersion(

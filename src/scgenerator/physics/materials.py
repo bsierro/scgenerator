@@ -1,14 +1,12 @@
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
-import scipy.special
-from scipy.integrate import cumulative_trapezoid
 
 from .. import utils
 from ..cache import np_cache
 from ..logger import get_logger
 from . import units
-from .units import NA, c, e, hbar, kB, me, epsilon0
+from .units import NA, c, kB, epsilon0
 
 
 @np_cache
@@ -112,24 +110,46 @@ def number_density_van_der_waals(
     return np.min(roots)
 
 
-def sellmeier(lambda_, material_dico, pressure=None, temperature=None):
-    """reads a file containing the Sellmeier values corresponding to the choses material and returns the real susceptibility
-    pressure and temperature adjustments are made according to ideal gas law.
+def sellmeier_scalar(
+    wavelength: float,
+    material_dico: dict[str, Any],
+    pressure: float = None,
+    temperature: float = None,
+) -> float:
+    return float(sellmeier(np.array([wavelength]), material_dico, pressure, temperature)[0])
+
+
+def sellmeier(
+    wl_for_disp: np.ndarray,
+    material_dico: dict[str, Any],
+    pressure: float = None,
+    temperature: float = None,
+) -> np.ndarray:
+    """reads a file containing the Sellmeier values corresponding to the choses material and
+    returns the real susceptibility pressure and temperature adjustments are made according to
+    ideal gas law.
+
     Parameters
     ----------
-        lambda_ : wl vector over which to compute the refractive index
-        material_dico : material dictionary as explained in scgenerator.utils.load_material_dico
-        pressure : pressure in mbar if material is a gas. Can be a constant or a tupple if a presure gradient is considered
-        temperature : temperature of the gas in Kelvin
+    wl_for_disp : array, shape (n,)
+        wavelength vector over which to compute the refractive index
+    material_dico : dict[str, Any]
+        material dictionary as explained in scgenerator.utils.load_material_dico
+    pressure : float, optional
+        pressure in Pa, by default None
+    temperature : float, optional
+        temperature of the gas in Kelvin
+
     Returns
-    ----------
-        an array n(lambda_)^2 - 1
+    -------
+    array, shape (n,)
+        chi = n^2 - 1
     """
     logger = get_logger(__name__)
 
     WL_THRESHOLD = 8.285e-6
-    ind = lambda_ < WL_THRESHOLD
-    temp_l = lambda_[ind]
+    ind = wl_for_disp < WL_THRESHOLD
+    temp_l = wl_for_disp[ind]
 
     B = material_dico["sellmeier"]["B"]
     C = material_dico["sellmeier"]["C"]
@@ -138,7 +158,7 @@ def sellmeier(lambda_, material_dico, pressure=None, temperature=None):
     t0 = material_dico["sellmeier"].get("t0", 273.15)
     kind = material_dico["sellmeier"].get("kind", 1)
 
-    chi = np.zeros_like(lambda_)  # = n^2 - 1
+    chi = np.zeros_like(wl_for_disp)  # = n^2 - 1
     if kind == 1:
         logger.debug("materials : using Sellmeier 1st kind equation")
         for b, c_ in zip(B, C):
@@ -251,17 +271,15 @@ def gas_chi3(gas_name: str, wavelength: float, pressure: float, temperature: flo
         [description]
     """
     mat_dico = utils.load_material_dico(gas_name)
-    chi = sellmeier(wavelength, mat_dico, pressure=pressure, temperature=temperature)
+    chi = sellmeier_scalar(wavelength, mat_dico, pressure=pressure, temperature=temperature)
     return n2_to_chi3(
         non_linear_refractive_index(mat_dico, pressure, temperature), np.sqrt(chi + 1)
     )
 
 
 def n2_to_chi3(n2: float, n0: float) -> float:
-    return n2 / 3.0 * 4 * epsilon0 * n0 * c ** 2
+    return n2 * 4 * epsilon0 * n0 ** 2 * c / 3
 
 
 def chi3_to_n2(chi3: float, n0: float) -> float:
     return 3.0 * chi3 / (4.0 * epsilon0 * c * n0 ** 2)
-
-

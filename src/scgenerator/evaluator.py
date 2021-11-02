@@ -1,6 +1,7 @@
 import itertools
 from collections import defaultdict
 from dataclasses import dataclass
+from operator import itemgetter
 from typing import Any, Callable, Optional, Union
 
 import numpy as np
@@ -26,7 +27,7 @@ class Rule:
         if priorities is None:
             priorities = [0] * len(targets)
         elif isinstance(priorities, (int, float, np.integer, np.floating)):
-            priorities = [priorities]
+            priorities = [priorities] * len(targets)
         self.targets = dict(zip(targets, priorities))
         if args is None:
             args = get_arg_names(func)
@@ -99,14 +100,20 @@ class Evaluator:
     defaults: dict[str, Any] = {}
 
     @classmethod
-    def default(cls) -> "Evaluator":
+    def default(cls, full_field: bool = False) -> "Evaluator":
         evaluator = cls()
-        evaluator.append(*default_rules)
+        logger = get_logger(__name__)
+        if full_field:
+            logger.debug("Full field simulation")
+            evaluator.append(*full_field_rules)
+        else:
+            logger.debug("Envelope simulation")
+            evaluator.append(*envelope_rules)
         return evaluator
 
     @classmethod
     def evaluate_default(cls, params: dict[str, Any], check_only=False) -> dict[str, Any]:
-        evaluator = cls.default()
+        evaluator = cls.default(params.get("full_field", False))
         evaluator.set(**params)
         for target in MANDATORY_PARAMETERS:
             evaluator.compute(target, check_only=check_only)
@@ -238,6 +245,8 @@ class Evaluator:
                     )
                     self.__failed_rules[target].append(rule)
                     continue
+                except Exception as e:
+                    raise type(e)(f"error while evaluating {target!r}")
             else:
                 default = self.defaults.get(target)
                 if default is None:
@@ -282,16 +291,19 @@ class Evaluator:
 default_rules: list[Rule] = [
     # Grid
     *Rule.deduce(
-        ["z_targets", "t", "time_window", "t_num", "dt", "w_c", "w0", "w", "w_order", "l"],
-        math.build_sim_grid,
-        ["time_window", "t_num", "dt"],
-        2,
+        ["t", "time_window", "dt", "t_num"], math.build_t_grid, ["time_window", "t_num", "dt"], 2
     ),
+    Rule("z_targets", math.build_z_grid),
     Rule("adapt_step_size", lambda step_size: step_size == 0),
     Rule("dynamic_dispersion", lambda pressure: isinstance(pressure, (list, tuple, np.ndarray))),
+    Rule("w0", units.m, ["wavelength"]),
+    Rule("l", units.m.inv, ["w"]),
+    Rule("w0_ind", math.argclosest, ["w_for_disp", "w0"]),
+    Rule("w_num", len, ["w"]),
+    Rule("dw", lambda w: w[1] - w[0]),
+    Rule(["fft", "ifft"], utils.fft_functions, priorities=1),
     # Pulse
-    Rule("spec_0", np.fft.fft, ["field_0"]),
-    Rule("field_0", np.fft.ifft, ["spec_0"]),
+    Rule("field_0", pulse.finalize_pulse),
     Rule("spec_0", utils.load_previous_spectrum, ["recovery_data_dir"], priorities=4),
     Rule("spec_0", utils.load_previous_spectrum, priorities=3),
     *Rule.deduce(
@@ -300,21 +312,6 @@ default_rules: list[Rule] = [
         ["energy", "peak_power"],
         1,
         priorities=[2, 1, 1, 1],
-    ),
-    Rule("pre_field_0", pulse.initial_field, priorities=1),
-    Rule(
-        "field_0",
-        pulse.finalize_pulse,
-        [
-            "pre_field_0",
-            "quantum_noise",
-            "w_c",
-            "w0",
-            "time_window",
-            "dt",
-            "additional_noise_factor",
-            "input_transmission",
-        ],
     ),
     Rule("peak_power", pulse.E0_to_P0, ["energy", "t0", "shape"]),
     Rule("peak_power", pulse.soliton_num_to_peak_power),
@@ -329,17 +326,7 @@ default_rules: list[Rule] = [
     Rule("L_NL", pulse.L_NL),
     Rule("L_sol", pulse.L_sol),
     # Fiber Dispersion
-    Rule(["wl_for_disp", "dispersion_ind"], fiber.lambda_for_dispersion),
     Rule("w_for_disp", units.m, ["wl_for_disp"]),
-    Rule("beta2_coefficients", fiber.dispersion_coefficients),
-    Rule("beta2_arr", fiber.beta2),
-    Rule("beta2_arr", fiber.dispersion_from_coefficients),
-    Rule("beta2", lambda beta2_coefficients: beta2_coefficients[0]),
-    Rule(
-        ["wl_for_disp", "beta2_arr", "interpolation_range"],
-        fiber.load_custom_dispersion,
-        priorities=[2, 2, 2],
-    ),
     Rule("hr_w", fiber.delayed_raman_w),
     Rule("n_gas_2", materials.n_gas_2),
     Rule("n_eff", fiber.n_eff_hasan, conditions=dict(model="hasan")),
@@ -351,9 +338,13 @@ default_rules: list[Rule] = [
         ["wl_for_disp", "pitch", "pitch_ratio"],
         conditions=dict(model="pcf"),
     ),
+    Rule("n0", lambda w0_ind, n_eff: n_eff[w0_ind]),
     Rule("capillary_spacing", fiber.capillary_spacing_hasan),
     Rule("capillary_resonance_strengths", fiber.capillary_resonance_strengths),
     Rule("capillary_resonance_strengths", lambda: [], priorities=-1),
+    Rule("beta_arr", fiber.beta),
+    Rule("beta1_arr", fiber.beta1),
+    Rule("beta2_arr", fiber.beta2),
     # Fiber nonlinearity
     Rule("A_eff", fiber.A_eff_from_V),
     Rule("A_eff", fiber.A_eff_from_diam),
@@ -376,32 +367,78 @@ default_rules: list[Rule] = [
         fiber.V_eff_step_index,
         ["l", "core_radius", "numerical_aperture", "interpolation_range"],
     ),
+    Rule("n2", materials.gas_n2),
+    Rule("n2", lambda: 2.2e-20, priorities=-1),
+    # operators
+    Rule("n_op", operators.ConstantRefractiveIndex),
+    Rule("n_op", operators.MarcatiliRefractiveIndex),
+    Rule("n_op", operators.MarcatiliAdjustedRefractiveIndex),
+    Rule("n_op", operators.HasanRefractiveIndex),
+    Rule("raman_op", operators.NoRaman, priorities=-1),
+    Rule("loss_op", operators.NoLoss, priorities=-1),
+    Rule("plasma_op", operators.NoPlasma, priorities=-1),
+    Rule("conserved_quantity", operators.NoConservedQuantity, priorities=-1),
+]
+
+envelope_rules = default_rules + [
+    # Grid
+    Rule(["w_c", "w", "w_order"], math.build_envelope_w_grid),
+    # Pulse
+    Rule("pre_field_0", pulse.initial_field_envelope, priorities=1),
+    Rule("spec_0", np.fft.fft, ["field_0"]),
+    Rule("field_0", np.fft.ifft, ["spec_0"]),
+    # Dispersion
+    Rule(["wl_for_disp", "dispersion_ind"], fiber.lambda_for_envelope_dispersion),
+    Rule("beta2_coefficients", fiber.dispersion_coefficients),
+    Rule("beta2_arr", fiber.dispersion_from_coefficients),
+    Rule("beta2", lambda beta2_coefficients: beta2_coefficients[0]),
+    Rule(
+        ["wl_for_disp", "beta2_arr", "interpolation_range"],
+        fiber.load_custom_dispersion,
+        priorities=[2, 2, 2],
+    ),
+    # Nonlinearity
     Rule("gamma", lambda gamma_arr: gamma_arr[0], priorities=-1),
     Rule("gamma", fiber.gamma_parameter),
     Rule("gamma_arr", fiber.gamma_parameter, ["n2", "w0", "A_eff_arr"]),
-    Rule("n2", materials.gas_n2),
-    Rule("n2", lambda: 2.2e-20, priorities=-1),
     # Operators
     Rule("gamma_op", operators.ConstantGamma, priorities=1),
     Rule("gamma_op", operators.ConstantScalarGamma),
     Rule("gamma_op", operators.NoGamma, priorities=-1),
     Rule("ss_op", operators.SelfSteepening),
     Rule("ss_op", operators.NoSelfSteepening, priorities=-1),
+    Rule("spm_op", operators.NoEnvelopeSPM, priorities=-1),
     Rule("spm_op", operators.EnvelopeSPM),
-    Rule("spm_op", operators.NoSPM, priorities=-1),
     Rule("raman_op", operators.EnvelopeRaman),
-    Rule("raman_op", operators.NoRaman, priorities=-1),
     Rule("nonlinear_operator", operators.EnvelopeNonLinearOperator),
     Rule("loss_op", operators.CustomLoss, priorities=3),
     Rule("loss_op", operators.CapillaryLoss, priorities=2, conditions=dict(loss="capillary")),
     Rule("loss_op", operators.ConstantLoss, priorities=1),
-    Rule("loss_op", operators.NoLoss, priorities=-1),
-    Rule("n_op", operators.ConstantRefractiveIndex),
-    Rule("n_op", operators.MarcatiliRefractiveIndex),
-    Rule("n_op", operators.MarcatiliAdjustedRefractiveIndex),
-    Rule("n_op", operators.HasanRefractiveIndex),
     Rule("dispersion_op", operators.ConstantPolyDispersion),
     Rule("dispersion_op", operators.DirectDispersion),
     Rule("linear_operator", operators.EnvelopeLinearOperator),
     Rule("conserved_quantity", operators.conserved_quantity),
+]
+
+full_field_rules = default_rules + [
+    # Grid
+    Rule(["w", "w_order", "l"], math.build_full_field_w_grid, priorities=1),
+    # Pulse
+    Rule("spec_0", np.fft.rfft, ["field_0"]),
+    Rule("field_0", np.fft.irfft, ["spec_0"]),
+    Rule("pre_field_0", pulse.initial_full_field),
+    # Dispersion
+    Rule(["wl_for_disp", "dispersion_ind"], fiber.lambda_for_full_field_dispersion),
+    Rule("frame_velocity", fiber.frame_velocity),
+    # Nonlinearity
+    Rule("chi3", materials.gas_chi3),
+    # Operators
+    Rule("spm_op", operators.FullFieldSPM),
+    Rule("spm_op", operators.NoFullFieldSPM, priorities=-1),
+    Rule("beta_op", operators.ConstantWaveVector),
+    Rule(
+        "linear_operator",
+        operators.FullFieldLinearOperator,
+    ),
+    Rule("nonlinear_operator", operators.FullFieldNonLinearOperator),
 ]
