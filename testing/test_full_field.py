@@ -30,8 +30,6 @@ def main():
         spec_ax.set_xlabel(rs.unit.label)
         field_ax = app[1]
         field_ax.set_xlabel(rt.unit.label)
-        x: float = 4.5
-        y = sc.units.m.to.nm(x)
 
         @app.update
         def draw(i):
