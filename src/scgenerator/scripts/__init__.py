@@ -127,7 +127,7 @@ def plot_init(
         lbl = plot_1_dispersion(lim_disp, tl, tr, style, lbl, params, loss_ax)
         lbl = plot_1_init_spec_field(lim_field, lim_spec, bl, br, style, lbl, params)
         all_labels.append(lbl)
-        print(params.pformat())
+        print(params.pretty_str())
     finish_plot(fig, tr, all_labels, params)
 
 
@@ -142,8 +142,8 @@ def plot_1_init_spec_field(
 ):
     field = math.abs2(params.field_0)
     spec = math.abs2(params.spec_0)
-    t = units.To.fs(params.t)
-    wl = units.To.nm(params.w)
+    t = units.fs.inv(params.t)
+    wl = units.nm.inv(params.w)
 
     lbl += f" max at {wl[spec.argmax()]:.1f} nm"
 
@@ -219,7 +219,7 @@ def plot_1_dispersion(
     right.set_ylabel(units.D_ps_nm_km.label)
 
     # plot beta2
-    left.plot(units.To.nm(params.w[m]), units.beta2_fs_cm.inv(beta_arr[m]), label=" ", **style)
+    left.plot(units.nm.inv(params.w[m]), units.beta2_fs_cm.inv(beta_arr[m]), label=" ", **style)
     left.set_ylabel(units.beta2_fs_cm.label)
 
     left.set_xlabel(units.nm.label)

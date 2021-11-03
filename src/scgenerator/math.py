@@ -354,3 +354,48 @@ def _polynom_extrapolation_in_place(y: np.ndarray, left_ind: int, right_ind: int
     y[:left_ind] = r_left * (y[left_ind] - y[left_ind + 1]) + y[left_ind]
     y[right_ind:] = r_right * (y[right_ind] - y[right_ind - 1]) + y[right_ind]
     return y
+
+
+def envelope_ind(
+    signal: np.ndarray, dmin: int = 1, dmax: int = 1, split: bool = False
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    returns the indices of the top/bottom envelope of a signal
+
+    Parameters
+    ----------
+    signal : np.ndarray, shape (n,)
+        signal array (must be sorted)
+    dmin, dmax : int, optional
+        size of chunks for lower/upper envelope
+    split: bool, optional
+        split the signal in half along its mean, might help to generate the envelope in some cases
+        this has the effect of forcing the envlopes to be on either side of the dc signal
+        by default False
+
+    Returns
+    -------
+    np.ndarray, shape (m,), m < n
+        lower envelope indices
+    np.ndarray, shape (l,), l < n
+        upper envelope indices
+    """
+
+    local_min = (np.diff(np.sign(np.diff(signal))) > 0).nonzero()[0] + 1
+    local_max = (np.diff(np.sign(np.diff(signal))) < 0).nonzero()[0] + 1
+
+    if split:
+        dc_value = np.mean(signal)
+        local_min = local_min[signal[local_min] < dc_value]
+        local_max = local_max[signal[local_max] > dc_value]
+
+    if dmin > 1:
+        local_min = local_min[
+            [i + np.argmin(signal[local_min[i : i + dmin]]) for i in range(0, len(local_min), dmin)]
+        ]
+    if dmax > 1:
+        local_max = local_max[
+            [i + np.argmax(signal[local_max[i : i + dmax]]) for i in range(0, len(local_max), dmax)]
+        ]
+
+    return local_min, local_max

@@ -20,7 +20,6 @@ from .evaluator import Evaluator
 from .logger import get_logger
 from .operators import (
     AbstractConservedQuantity,
-    EnvelopeLinearOperator,
     LinearOperator,
     NonLinearOperator,
 )
@@ -423,12 +422,13 @@ class Parameters:
     def __repr_list__(self) -> Iterator[str]:
         yield from (f"{k}={v}" for k, v in self.dump_dict().items())
 
-    def dump_dict(self, compute=True) -> dict[str, Any]:
+    def dump_dict(self, compute=True, add_metadata=True) -> dict[str, Any]:
         if compute:
             self.compute_in_place()
         param = Parameters.strip_params_dict(self._param_dico)
-        param["datetime"] = datetime_module.datetime.now()
-        param["version"] = __version__
+        if add_metadata:
+            param["datetime"] = datetime_module.datetime.now()
+            param["version"] = __version__
         return param
 
     def compute_in_place(self, *to_compute: str):
@@ -440,7 +440,8 @@ class Parameters:
     def compute(self, key: str) -> Any:
         return self._evaluator.compute(key)
 
-    def pformat(self) -> str:
+    def pretty_str(self) -> str:
+        """return a pretty formatted string describing the parameters"""
         return "\n".join(
             f"{k} = {VariationDescriptor.format_value(k, v)}" for k, v in self.dump_dict().items()
         )
@@ -597,7 +598,7 @@ class Configuration:
             self.variationer.append(config.variable)
             self.fiber_paths.append(
                 utils.ensure_folder(
-                    self.final_path / fiber_folder(i, self.name, config.fixed["name"]),
+                    self.final_path / fiber_folder(i, self.name, Path(config.fixed["name"]).name),
                     mkdir=False,
                     prevent_overwrite=not self.overwrite,
                 )

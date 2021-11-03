@@ -419,6 +419,7 @@ def transform_2D_propagation(
     params: Parameters,
     log: Union[int, float, bool, str] = "1D",
     skip: int = 1,
+    y_axis=None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """transforms raws values into plottable values
 
@@ -455,8 +456,8 @@ def transform_2D_propagation(
     is_complex, x_axis, plt_range = prep_plot_axis(values, plt_range, params)
     if is_complex:
         values = abs2(values)
-
-    y_axis = params.z_targets
+    if y_axis is None:
+        y_axis = params.z_targets
 
     x_axis, values = uniform_axis(x_axis, values, plt_range)
     y_axis, values.T[:] = uniform_axis(y_axis, values.T, None)
@@ -1102,7 +1103,7 @@ def partial_plot(root: os.PathLike):
     )
 
     t, z, values = transform_2D_propagation(
-        np.fft.ifft(raw_values),
+        params.ifft(raw_values),
         PlotRange(-10, 10, "ps"),
         params,
         log=False,

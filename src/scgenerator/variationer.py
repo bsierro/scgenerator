@@ -149,6 +149,8 @@ class VariationDescriptor(BaseModel):
             p = Path(value)
             if p.exists():
                 return p.stem
+        elif callable(value):
+            return getattr(value, "__name__", repr(value))
         return str(value)
 
     class Config:

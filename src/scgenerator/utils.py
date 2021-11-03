@@ -311,8 +311,18 @@ def ensure_folder(path: Path, prevent_overwrite: bool = True, mkdir=True) -> Pat
         path = path.parent / (folder_name + f"_{i}")
 
 
-def branch_id(branch: tuple[Path, ...]) -> str:
-    return branch[-1].name.split()[1]
+def branch_id(branch: Path) -> tuple[int, int]:
+    sim_match = branch.parent.name.split()[0]
+    if sim_match.isdigit():
+        s_int = int(sim_match)
+    else:
+        s_int = 0
+    branch_match = re.search(r"(?<=b_)[0-9]+", branch.name)
+    if branch_match is None:
+        b_int = 0
+    else:
+        b_int = int(branch_match[0])
+    return s_int, b_int
 
 
 def find_last_spectrum_num(data_dir: Path):
@@ -519,5 +529,5 @@ def simulations_list(path: os.PathLike) -> list[Path]:
     for pwd, _, files in os.walk(path):
         if PARAM_FN in files:
             paths.append(Path(pwd))
-    paths.sort(key=lambda el: el.parent.name)
+    paths.sort(key=branch_id)
     return [p for p in paths if p.parent.name == paths[-1].parent.name]

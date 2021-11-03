@@ -58,7 +58,7 @@ def material_dispersion(
         disp = np.zeros(len(w))
         ind = w > 0
         disp[ind] = material_dispersion(
-            units.To.m(w[ind]), material, pressure, temperature, ideal, False
+            units.m.inv(w[ind]), material, pressure, temperature, ideal, False
         )
         return disp
     else:
@@ -102,7 +102,7 @@ def find_optimal_depth(
     w = w_c + w0
     disp = np.zeros(len(w))
     ind = w > (w0 / 10)
-    disp[ind] = material_dispersion(units.To.m(w[ind]), material)
+    disp[ind] = material_dispersion(units.m.inv(w[ind]), material)
 
     propagate = lambda z: spectrum * np.exp(-0.5j * disp * w_c ** 2 * z)
     integrate = lambda z: math.abs2(np.fft.ifft(propagate(z)))

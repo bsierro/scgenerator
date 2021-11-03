@@ -2,7 +2,11 @@
 # For example, nm(X) means "I give the number X in nm, figure out the ang. freq."
 # to be used especially when giving plotting ranges : (400, 1400, nm), (-4, 8, ps), ...
 
+from __future__ import annotations
+from collections import defaultdict
+
 from typing import Callable, TypeVar, Union
+from functools import wraps
 from operator import itemgetter
 import numpy as np
 from numpy import pi
@@ -25,17 +29,38 @@ provided you decorate it with @unit and provide at least a type and a label
 types are "WL", "FREQ", "AFREQ", "TIME", "PRESSURE", "TEMPERATURE", "OTHER"
 """
 _T = TypeVar("_T")
+_UT = Callable[[_T], _T]
 
 
-class From:
-    pass
+def chain(c1: _UT, c2: _UT) -> _UT:
+    def chained_function(x: _T) -> _T:
+        return c1(c2(x))
+
+    return chained_function
+
+
+class UnitMap(dict):
+    def __setitem__(self, new_name, new_func):
+        super().__setitem__(new_name, new_func)
+        already_here = [(name, func) for name, func in self.items() if isinstance(name, str)]
+        for name, func in already_here:
+            super().__setitem__((name, new_name), chain(self[name].inv, new_func))
+            super().__setitem__((new_name, name), chain(self[new_name].inv, func))
+
+
+units_map: dict[str, dict[Union[str, tuple[str, str]], Unit]] = defaultdict(UnitMap)
 
 
 class To:
-    pass
+    def __init__(self, name: str, tpe: str):
+        self.name = name
+        self.type = tpe
 
-
-units_map = dict()
+    def __getattr__(self, key: str):
+        try:
+            return units_map[self.type][self.name, key]
+        except KeyError:
+            raise KeyError(f"no registered unit named {key!r} of type {self.type!r}") from None
 
 
 def W_to_Vm(n0: float, A_eff: float) -> float:
@@ -54,22 +79,36 @@ def W_to_Vm(n0: float, A_eff: float) -> float:
     return 1.0 / np.sqrt(A_eff * 0.5 * epsilon0 * c * n0)
 
 
+class Unit:
+    __func: _UT
+    to: To
+    inv: _UT
+    name: str
+    label: str
+
+    def __init__(self, func: _UT, inv: _UT, name: str, label: str, tpe: str):
+        self.__func = func
+        self.inv = inv
+        self.to = To(name, tpe)
+        self.name = name
+        self.label = label
+        self.type = tpe
+        self.__name__ = name
+
+    def __call__(self, x: _T) -> _T:
+        """call the original unit function"""
+        return self.__func(x)
+
+
 def unit(tpe: str, label: str, inv: Callable = None):
-    def unit_maker(func):
+    def unit_maker(func) -> Unit:
         nonlocal inv
         name = func.__name__
         if inv is None:
             inv = func
-        setattr(From, name, func.__call__)
-        setattr(To, name, inv.__call__)
-        func.type = tpe
-        func.label = label
-        func.name = name
-        func.inv = inv
-        if name in units_map:
-            raise NameError(f"Two unit functions with the same name {name!r} were defined")
-        units_map[name] = func
-        return func
+        unit_obj = wraps(func)(Unit(func, inv, name, label, tpe))
+        units_map[tpe][name] = unit_obj
+        return unit_obj
 
     return unit_maker
 
@@ -87,6 +126,11 @@ def nm(l: _T) -> _T:
 @unit("WL", r"Wavelength $\lambda$ (μm)")
 def um(l: _T) -> _T:
     return 2 * pi * c / (l * 1e-6)
+
+
+@unit("FREQ", r"Frequency $f$ (Hz)", lambda w: w / (2 * pi))
+def Hz(f: _T) -> _T:
+    return 2 * pi * f
 
 
 @unit("FREQ", r"Frequency $f$ (THz)", lambda w: w / (1e12 * 2 * pi))
@@ -306,7 +350,7 @@ class PlotRange(tuple):
     def __iter__(self):
         yield self.left
         yield self.right
-        yield self.unit.__name__
+        yield self.unit.name
 
     def __repr__(self):
         return "PlotRange" + super().__repr__()

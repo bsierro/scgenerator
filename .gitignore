@@ -4,6 +4,7 @@
 
 plots*
 /make_*.py
+/debug*.py
 Archive
 *.mp4
 *.png

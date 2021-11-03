@@ -1,7 +1,6 @@
 import itertools
 from collections import defaultdict
 from dataclasses import dataclass
-from operator import itemgetter
 from typing import Any, Callable, Optional, Union
 
 import numpy as np
@@ -259,8 +258,8 @@ class Evaluator:
                     value = default
                     self.logger.info(prefix + f"using default value of {value} for {target}")
                     self.set_value(target, value, 0)
-
-            assert target == self.__curent_lookup.pop()
+            last_target = self.__curent_lookup.pop()
+            assert target == last_target
             self.__failed_rules[target] = []
 
             if value is None and error is not None:

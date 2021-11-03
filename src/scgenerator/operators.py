@@ -630,7 +630,7 @@ class FullFieldSPM(AbstractSPM):
         self.factor = self.fraction * chi3 * units.epsilon0
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.fraction * state.field2 * state.field
+        return self.factor * state.field2 * state.field
 
 
 ##################################################
