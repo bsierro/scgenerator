@@ -13,6 +13,8 @@ from typing import Any, Callable, ClassVar, Iterable, Iterator, Set, Type, TypeV
 
 import numpy as np
 
+from scgenerator.physics import units
+
 from . import env, legacy, utils
 from .const import MANDATORY_PARAMETERS, PARAM_FN, VALID_VARIABLE, __version__
 from .errors import EvaluatorError
@@ -532,7 +534,7 @@ class Configuration:
     worker_num: int
     parallel: bool
     overwrite: bool
-    final_path: str
+    final_path: Path
     all_configs: dict[tuple[tuple[int, ...], ...], "Configuration.__SimConfig"]
 
     @dataclass(frozen=True)

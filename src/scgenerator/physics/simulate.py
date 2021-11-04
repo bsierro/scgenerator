@@ -592,7 +592,9 @@ class RaySimulations(Simulations, priority=2):
         self.num_submitted = 0
         self.rolling_id = 0
         self.p_actor = ray.remote(ProgressBarActor).remote(
-            self.configuration.final_path, self.sim_jobs_total, self.configuration.total_num_steps
+            self.configuration.final_path.name,
+            self.sim_jobs_total,
+            self.configuration.total_num_steps,
         )
         self.configuration.skip_callback = lambda num: ray.get(self.p_actor.update.remote(0, num))
 

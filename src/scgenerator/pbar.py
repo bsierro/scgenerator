@@ -41,7 +41,7 @@ class PBars:
         try:
             self.width = os.get_terminal_size().columns
         except OSError:
-            self.width = 80
+            self.width = 120
         if isinstance(task, abc.Iterable):
             self.iterator: Iterable[T_] = iter(task)
             self.num_tot: int = len(task)

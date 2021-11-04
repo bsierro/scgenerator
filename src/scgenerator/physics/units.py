@@ -53,11 +53,19 @@ class UnitMap(dict):
         return chained_function
 
 
-units_map: dict[Union[str, tuple[str, str]], Unit] = UnitMap()
+units_map: dict[Union[str, tuple[str, str]], _UT] = UnitMap()
 
 
 class To:
     def __init__(self, name: str):
+        self.name = name
+
+    def __getstate__(self):
+        """make pickle happy"""
+        return self.name
+
+    def __setstate__(self, name):
+        """make pickle happy"""
         self.name = name
 
     def __getattr__(self, key: str):
@@ -83,48 +91,37 @@ def W_to_Vm(n0: float, A_eff: float) -> float:
     return 1.0 / np.sqrt(A_eff * 0.5 * epsilon0 * c * n0)
 
 
-class Unit:
-    func: _UT
-    inv: _UT
-    to: To = None
-    name: str = "unit"
-    type: str = "other"
-    label: str = ""
+class unit:
+    inv = None
 
-    def __init_subclass__(cls):
-        def call(self, x: _T) -> _T:
-            return self.func(x)
+    def __init__(self, tpe: str, label: str):
+        self.type = tpe
+        self.label = label
 
-        call.__doc__ = f"Transform x from {cls.name!r} to {PRIMARIES.get(cls.type)!r}"
-        cls.__call__ = call
-
-    def __init__(self, func: _UT, inv: _UT = None):
+    def __call__(self, func):
+        self.name = func.__name__
         self.func = func
-        if inv is None:
-            self.inv = func
-        else:
-            self.inv = inv
-        self.to = To(self.name)
-        units_map[self.name] = self
+        self.inv = func
 
-    def __call__(self, x: _T) -> _T:
-        """call the original unit function"""
-        return self.func(x)
+        units_map[self.name] = self.func
+
+        func.to = To(self.name)
+        func.inv = func
+        func.inverse = self.inverse
+        func.type = self.type
+        func.label = self.label
+        func.name = self.name
+        func.__doc__ = f"Transform x from {self.name!r} to {PRIMARIES.get(self.type)!r}"
+        return func
 
     def inverse(self, func: _UT):
+        if func.__name__ == self.name:
+            raise ValueError(
+                f"inverse function of {self.name} must be named something else than {self.name}"
+            )
         self.inv = func
-        return self
-
-
-def unit(tpe: str, label: str, inv: Callable = None):
-    def unit_maker(func) -> Unit:
-        nonlocal inv
-        name = func.__name__
-        unit_type = type(f"Unit_{name}", (Unit,), dict(name=name, label=label, type=tpe))
-
-        return unit_type(func, inv)
-
-    return unit_maker
+        self.func.inv = func
+        return func
 
 
 @unit("WL", r"Wavelength $\lambda$ (m)")
@@ -142,19 +139,34 @@ def um(l: _T) -> _T:
     return 2 * pi * c / (l * 1e-6)
 
 
-@unit("FREQ", r"Frequency $f$ (Hz)", lambda w: w / (2 * pi))
+@unit("FREQ", r"Frequency $f$ (Hz)")
 def Hz(f: _T) -> _T:
     return 2 * pi * f
 
 
-@unit("FREQ", r"Frequency $f$ (THz)", lambda w: w / (1e12 * 2 * pi))
+@Hz.inverse
+def Hz_inv(w):
+    return w / (2 * pi)
+
+
+@unit("FREQ", r"Frequency $f$ (THz)")
 def THz(f: _T) -> _T:
     return 1e12 * 2 * pi * f
 
 
-@unit("FREQ", r"Frequency $f$ (PHz)", lambda w: w / (1e15 * 2 * pi))
+@THz.inverse
+def THz_inv(w):
+    return w / (1e12 * 2 * pi)
+
+
+@unit("FREQ", r"Frequency $f$ (PHz)")
 def PHz(f: _T) -> _T:
     return 1e15 * 2 * pi * f
+
+
+@PHz.inverse
+def PHz_inv(w):
+    return w / (1e15 * 2 * pi)
 
 
 @unit("AFREQ", r"Angular frequency $\omega$ ($\frac{\mathrm{rad}}{\mathrm{s}}$)")
@@ -162,11 +174,14 @@ def rad_s(w: _T) -> _T:
     return w
 
 
-@unit(
-    "AFREQ", r"Angular frequency $\omega$ ($\frac{\mathrm{Prad}}{\mathrm{s}}$)", lambda w: 1e-15 * w
-)
+@unit("AFREQ", r"Angular frequency $\omega$ ($\frac{\mathrm{Prad}}{\mathrm{s}}$)")
 def Prad_s(w: _T) -> _T:
     return w * 1e15
+
+
+@Prad_s.inverse
+def Prad_s_inv(w):
+    return w * 1e-15
 
 
 @unit("TIME", r"relative time ${\tau}/{\tau_\mathrm{0, FWHM}}$")
@@ -184,24 +199,44 @@ def s(t: _T) -> _T:
     return t
 
 
-@unit("TIME", r"Time $t$ (us)", lambda t: t * 1e6)
+@unit("TIME", r"Time $t$ (us)")
 def us(t: _T) -> _T:
     return t * 1e-6
 
 
-@unit("TIME", r"Time $t$ (ns)", lambda t: t * 1e9)
+@us.inverse
+def us_inv(t):
+    return t * 1e6
+
+
+@unit("TIME", r"Time $t$ (ns)")
 def ns(t: _T) -> _T:
     return t * 1e-9
 
 
-@unit("TIME", r"Time $t$ (ps)", lambda t: t * 1e12)
+@ns.inverse
+def ns_inv(t):
+    return t * 1e9
+
+
+@unit("TIME", r"Time $t$ (ps)")
 def ps(t: _T) -> _T:
     return t * 1e-12
 
 
-@unit("TIME", r"Time $t$ (fs)", lambda t: t * 1e15)
+@ps.inverse
+def ps_inv(t):
+    return t * 1e12
+
+
+@unit("TIME", r"Time $t$ (fs)")
 def fs(t: _T) -> _T:
     return t * 1e-15
+
+
+@fs.inverse
+def fs_inv(t):
+    return t * 1e15
 
 
 @unit("WL", "inverse")
@@ -209,24 +244,44 @@ def inv(x: _T) -> _T:
     return 1 / x
 
 
-@unit("PRESSURE", "Pressure (bar)", lambda p: 1e-5 * p)
+@unit("PRESSURE", "Pressure (bar)")
 def bar(p: _T) -> _T:
     return 1e5 * p
 
 
-@unit("OTHER", r"$\beta_2$ (fs$^2$/cm)", lambda b2: 1e28 * b2)
+@bar.inverse
+def bar_inv(p):
+    return p * 1e-5
+
+
+@unit("OTHER", r"$\beta_2$ (fs$^2$/cm)")
 def beta2_fs_cm(b2: _T) -> _T:
     return 1e-28 * b2
 
 
-@unit("OTHER", r"$\beta_2$ (ps$^2$/km)", lambda b2: 1e27 * b2)
+@beta2_fs_cm.inverse
+def beta2_fs_cm_inv(b2):
+    return 1e28 * b2
+
+
+@unit("OTHER", r"$\beta_2$ (ps$^2$/km)")
 def beta2_ps_km(b2: _T) -> _T:
     return 1e-27 * b2
 
 
-@unit("OTHER", r"$D$ (ps/(nm km))", lambda D: 1e6 * D)
+@beta2_ps_km.inverse
+def beta2_ps_km_inv(b2):
+    return 1e27 * b2
+
+
+@unit("OTHER", r"$D$ (ps/(nm km))")
 def D_ps_nm_km(D: _T) -> _T:
     return 1e-6 * D
+
+
+@D_ps_nm_km.inverse
+def D_ps_nm_km_inv(D):
+    return 1e6 * D
 
 
 @unit("OTHER", r"a.u.")
@@ -239,9 +294,14 @@ def K(t: _T) -> _T:
     return t
 
 
-@unit("TEMPERATURE", r"Temperature (°C)", lambda t_K: t_K - 272.15)
+@unit("TEMPERATURE", r"Temperature (°C)")
 def C(t_C: _T) -> _T:
     return t_C + 272.15
+
+
+@C.inverse
+def C_inv(t_K):
+    return t_K - 272.15
 
 
 def get_unit(unit: Union[str, Callable]) -> Callable[[float], float]:

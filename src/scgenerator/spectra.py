@@ -214,7 +214,7 @@ class SimulationSeries:
     def fields(
         self, z_descr: Union[float, int, None] = None, sim_ind: Optional[int] = 0
     ) -> Spectrum:
-        return np.fft.ifft(self.spectra(z_descr, sim_ind))
+        return self.params.ifft(self.spectra(z_descr, sim_ind))
 
     # Plotting
 

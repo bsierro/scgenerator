@@ -1,10 +1,9 @@
 from dataclasses import dataclass
 import numpy as np
 import scipy.special
-from scipy.integrate import cumulative_trapezoid
 
 from .units import e, hbar, me
-from ..math import inverse_integral_exponential
+from ..math import inverse_integral_exponential, cumulative_simpson
 
 
 @dataclass
@@ -12,6 +11,8 @@ class PlasmaInfo:
     electron_density: np.ndarray
     dn_dt: np.ndarray
     polarization: np.ndarray
+    loss: np.ndarray
+    phase_effect: np.ndarray
 
 
 class IonizationRate:
@@ -39,8 +40,8 @@ class IonizationRateADK(IonizationRate):
 
 
 class Plasma:
-    def __init__(self, t: np.ndarray, ionization_energy: float, atomic_number: int):
-        self.t = t
+    def __init__(self, dt: float, ionization_energy: float, atomic_number: int):
+        self.dt = dt
         self.Ip = ionization_energy
         self.atomic_number = atomic_number
         self.rate = IonizationRateADK(self.Ip, self.atomic_number)
@@ -60,20 +61,20 @@ class Plasma:
         np.ndarray
             number density of free electrons as function of time
         """
-        # Ne = free_electron_density(self.t, field, N0, self.rate)
         field_abs = np.abs(field)
         delta = 1e-14 * field_abs.max()
-        exp_int = inverse_integral_exponential(self.t, self.rate(field_abs))
+        rate = self.rate(field_abs)
+        exp_int = inverse_integral_exponential(rate, self.dt)
         electron_density = N0 * (1 - exp_int)
-        dn_dt = N0 * self.rate(field_abs) * exp_int
-        out = cumulative_trapezoid(
-            # np.gradient(self.density, self.t) * self.Ip / field
+        dn_dt = N0 * rate * exp_int
+        out = self.dt * cumulative_simpson(
             dn_dt * self.Ip / (field + delta)
-            + e ** 2 / me * cumulative_trapezoid(electron_density * field, self.t, initial=0),
-            self.t,
-            initial=0,
+            + e ** 2 / me * self.dt * cumulative_simpson(electron_density * field)
         )
-        return PlasmaInfo(electron_density, dn_dt, out)
+        loss = cumulative_simpson(dn_dt * self.Ip / (field + delta)) * self.dt
+        phase_effect = e ** 2 / me * self.dt * cumulative_simpson(electron_density * field)
+        phase_effect = exp_int
+        return PlasmaInfo(electron_density, dn_dt, out, loss, phase_effect)
 
 
 def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:
@@ -81,6 +82,6 @@ def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:
 
 
 def free_electron_density(
-    t: np.ndarray, field: np.ndarray, N0: float, rate: IonizationRate
+    field: np.ndarray, dt: float, N0: float, rate: IonizationRate
 ) -> np.ndarray:
-    return N0 * (1 - np.exp(-cumulative_trapezoid(rate(field), t, initial=0)))
+    return N0 * (1 - np.exp(-dt * cumulative_simpson(rate(field))))

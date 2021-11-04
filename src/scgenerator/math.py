@@ -3,6 +3,7 @@ from typing import Union
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
 from scipy.special import jn_zeros
+import numba
 
 from .cache import np_cache
 
@@ -10,9 +11,10 @@ pi = np.pi
 c = 299792458.0
 
 
-def inverse_integral_exponential(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+def inverse_integral_exponential(y: np.ndarray, dx: float) -> np.ndarray:
     """evaluates exp(-func(y)) from x=-inf to x"""
-    return np.exp(-cumulative_trapezoid(y, x, initial=0))
+    # return np.exp(-cumulative_trapezoid(y, dx=dx, initial=0))
+    return np.exp(-cumulative_simpson(y) * dx)
 
 
 def span(*vec):
@@ -399,3 +401,28 @@ def envelope_ind(
         ]
 
     return local_min, local_max
+
+
+@numba.jit(nopython=True)
+def cumulative_simpson(x: np.ndarray) -> np.ndarray:
+    out = np.zeros_like(x)
+    c1 = 1 / 3
+    c2 = 4 / 3
+    out[1] = (x[1] + x[0]) * 0.5
+    for i in range(2, len(x)):
+        out[i] = out[i - 2] + x[i - 2] * c1 + x[i - 1] * c2 + c1 * x[i]
+    return out
+
+
+@numba.jit(nopython=True)
+def cumulative_boole(x: np.ndarray) -> np.ndarray:
+    out = np.zeros_like(x)
+    c1 = 14 / 45
+    c2 = 64 / 45
+    c3 = 24 / 45
+    c = np.array([c1, c2, c3, c2, c1])
+    ind = np.arange(5)
+    out[ind] = cumulative_simpson(x[ind])
+    for i in range(4, len(x)):
+        out[i] = out[i - 4] + np.sum(c * x[i - 4 : i + 1])
+    return out
