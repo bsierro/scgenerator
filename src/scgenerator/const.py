@@ -2,6 +2,12 @@ __version__ = "0.2.4dev"
 
 from typing import Any
 
+ONE_2 = 1 / 2
+ONE_3 = 1 / 3
+ONE_FOURTH = 1 / 4
+ONE_FIFTH = 1 / 5
+ONE_6 = 1 / 6
+
 
 def pbar_format(worker_id: int) -> dict[str, Any]:
     if worker_id == 0:

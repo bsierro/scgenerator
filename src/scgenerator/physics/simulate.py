@@ -13,6 +13,7 @@ from ..logger import get_logger
 from ..operators import CurrentState
 from ..parameter import Configuration, Parameters
 from ..pbar import PBars, ProgressBarActor, progress_worker
+from ..const import ONE_2, ONE_3, ONE_6
 
 try:
     import ray
@@ -248,14 +249,16 @@ class RK4IP:
         while not keep:
             h = h_next_step
 
-            expD = np.exp(h / 2 * self.params.linear_operator(self.state))
+            expD = np.exp(h * ONE_2 * self.params.linear_operator(self.state))
 
             A_I = expD * self.state.spectrum
             k1 = expD * (h * self.params.nonlinear_operator(self.state))
-            k2 = h * self.params.nonlinear_operator(self.state.replace(A_I + k1 / 2))
-            k3 = h * self.params.nonlinear_operator(self.state.replace(A_I + k2 / 2))
+            k2 = h * self.params.nonlinear_operator(self.state.replace(A_I + k1 * ONE_2))
+            k3 = h * self.params.nonlinear_operator(self.state.replace(A_I + k2 * ONE_2))
             k4 = h * self.params.nonlinear_operator(self.state.replace(expD * (A_I + k3)))
-            new_state = self.state.replace(expD * (A_I + k1 / 6 + k2 / 3 + k3 / 3) + k4 / 6)
+            new_state = self.state.replace(
+                expD * (A_I + k1 * ONE_6 + k2 * ONE_3 + k3 * ONE_3) + k4 * ONE_6
+            )
 
             self.cons_qty[step] = self.params.conserved_quantity(new_state)
             if self.params.adapt_step_size:
@@ -266,8 +269,8 @@ class RK4IP:
                     progress_str = f"step {step} rejected with h = {h:.4e}, doing over"
                     self.logger.debug(progress_str)
                     keep = False
-                    h_next_step = h / 2
-                elif cons_qty_change_ok < curr_p_change <= 2 * cons_qty_change_ok:
+                    h_next_step = h * ONE_2
+                elif cons_qty_change_ok < curr_p_change <= 2.0 * cons_qty_change_ok:
                     keep = True
                     h_next_step = h / self.size_fac
                 elif curr_p_change < 0.1 * cons_qty_change_ok:

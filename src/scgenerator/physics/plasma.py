@@ -3,7 +3,7 @@ import numpy as np
 import scipy.special
 
 from .units import e, hbar, me
-from ..math import inverse_integral_exponential, cumulative_simpson
+from ..math import expm1_int, cumulative_simpson
 
 
 @dataclass
@@ -12,7 +12,7 @@ class PlasmaInfo:
     dn_dt: np.ndarray
     polarization: np.ndarray
     loss: np.ndarray
-    phase_effect: np.ndarray
+    debug: np.ndarray
 
 
 class IonizationRate:
@@ -64,17 +64,15 @@ class Plasma:
         field_abs = np.abs(field)
         delta = 1e-14 * field_abs.max()
         rate = self.rate(field_abs)
-        exp_int = inverse_integral_exponential(rate, self.dt)
-        electron_density = N0 * (1 - exp_int)
-        dn_dt = N0 * rate * exp_int
+        exp_int = expm1_int(rate, self.dt)
+        electron_density = N0 * exp_int
+        dn_dt = (N0 - electron_density) * rate
         out = self.dt * cumulative_simpson(
             dn_dt * self.Ip / (field + delta)
             + e ** 2 / me * self.dt * cumulative_simpson(electron_density * field)
         )
         loss = cumulative_simpson(dn_dt * self.Ip / (field + delta)) * self.dt
-        phase_effect = e ** 2 / me * self.dt * cumulative_simpson(electron_density * field)
-        phase_effect = exp_int
-        return PlasmaInfo(electron_density, dn_dt, out, loss, phase_effect)
+        return PlasmaInfo(electron_density, dn_dt, out, loss, loss)
 
 
 def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:

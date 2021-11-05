@@ -69,6 +69,16 @@ class CurrentState:
 
 
 class Operator(ABC):
+    def values(self) -> dict[str, float]:
+        return {}
+
+    def get_values(self) -> dict[str, float]:
+        out = self.values()
+        for operator in self.__dict__.values():
+            if isinstance(operator, Operator):
+                out |= operator.get_values()
+        return out
+
     def __repr__(self) -> str:
         value_pair_list = list(self.__dict__.items())
         if len(value_pair_list) == 0:

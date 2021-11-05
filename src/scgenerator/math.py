@@ -1,7 +1,6 @@
 from typing import Union
 
 import numpy as np
-from scipy.integrate import cumulative_trapezoid
 from scipy.special import jn_zeros
 import numba
 
@@ -11,10 +10,9 @@ pi = np.pi
 c = 299792458.0
 
 
-def inverse_integral_exponential(y: np.ndarray, dx: float) -> np.ndarray:
-    """evaluates exp(-func(y)) from x=-inf to x"""
-    # return np.exp(-cumulative_trapezoid(y, dx=dx, initial=0))
-    return np.exp(-cumulative_simpson(y) * dx)
+def expm1_int(y: np.ndarray, dx: float) -> np.ndarray:
+    """evaluates 1 - exp( -∫func(y(x))dx ) from x=-inf to x"""
+    return -np.expm1(-cumulative_simpson(y) * dx)
 
 
 def span(*vec):
