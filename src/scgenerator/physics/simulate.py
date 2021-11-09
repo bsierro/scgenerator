@@ -170,12 +170,11 @@ class RK4IP:
         store = False
         state = self.init_state.copy()
         yield len(self.stored_spectra) - 1, state
-        integrator = solver.ERK54(
+        integrator = solver.RK4IPSD(
             state,
             self.params.linear_operator,
             self.params.nonlinear_operator,
             self.params.tolerated_error,
-            self.params.dt,
         )
         for state in integrator:
 
