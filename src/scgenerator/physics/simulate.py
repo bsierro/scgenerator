@@ -1,15 +1,15 @@
-from collections import defaultdict
 import multiprocessing
 import multiprocessing.connection
 import os
+from collections import defaultdict
 from datetime import datetime
 from logging import Logger
 from pathlib import Path
-from typing import Any, Generator, Optional, Type, Union
+from typing import Any, Generator, Iterator, Optional, Type, Union
 
 import numpy as np
 
-from .. import utils
+from .. import solver, utils
 from ..logger import get_logger
 from ..operators import CurrentState
 from ..parameter import Configuration, Parameters
@@ -45,7 +45,7 @@ class RK4IP:
     size_fac: float
     cons_qty: list[float]
 
-    state: CurrentState
+    init_state: CurrentState
     stored_spectra: list[np.ndarray]
 
     def __init__(
@@ -96,7 +96,7 @@ class RK4IP:
             initial_h = (self.z_targets[1] - self.z_targets[0]) / 2
         else:
             initial_h = self.error_ok
-        self.state = CurrentState(
+        self.init_state = CurrentState(
             length=self.params.length,
             z=self.z_targets.pop(0),
             current_step_size=initial_h,
@@ -104,14 +104,14 @@ class RK4IP:
             step=1,
             C_to_A_factor=C_to_A_factor,
             converter=self.params.ifft,
-            spectrum=self.params.spec_0.copy() / C_to_A_factor,
+            solution=self.params.spec_0.copy() / C_to_A_factor,
         )
         self.stored_spectra = self.params.recovery_last_stored * [None] + [
-            self.state.spectrum.copy()
+            self.init_state.solution.spectrum.copy()
         ]
         self.tracked_values = TrackedValues()
 
-    def _save_current_spectrum(self, num: int):
+    def _save_current_spectrum(self, spectrum: np.ndarray, num: int):
         """saves the spectrum and the corresponding cons_qty array
 
         Parameters
@@ -119,19 +119,8 @@ class RK4IP:
         num : int
             index of the z postition
         """
-        self.write(self.get_current_spectrum(), f"spectrum_{num}")
+        self.write(spectrum, f"spectrum_{num}")
         self.write(self.tracked_values, "tracked_values")
-        self.step_saved()
-
-    def get_current_spectrum(self) -> np.ndarray:
-        """returns the current spectrum
-
-        Returns
-        -------
-        np.ndarray
-            spectrum
-        """
-        return self.state.C_to_A_factor * self.state.spectrum
 
     def write(self, data: np.ndarray, name: str):
         """calls the appropriate method to save data
@@ -147,14 +136,15 @@ class RK4IP:
 
     def run(self) -> list[np.ndarray]:
         time_start = datetime.today()
-
-        for step, num, _ in self.irun():
+        state = self.init_state
+        for num, state in self.irun():
             if self.save_data:
-                self._save_current_spectrum(num)
+                self._save_current_spectrum(state.actual_spectrum, num)
+                self.step_saved(state)
 
         self.logger.info(
             "propagation finished in {} steps ({} seconds)".format(
-                step, (datetime.today() - time_start).total_seconds()
+                state.step, (datetime.today() - time_start).total_seconds()
             )
         )
 
@@ -163,49 +153,49 @@ class RK4IP:
 
         return self.stored_spectra
 
-    def irun(self) -> Generator[tuple[int, int, np.ndarray], None, None]:
+    def irun(self) -> Iterator[tuple[int, CurrentState]]:
         """run the simulation as a generator obj
 
         Yields
         -------
         int
-            current simulation step
-        int
             current number of spectra returned
-        np.ndarray
-            spectrum
+        CurrentState
+            current simulation state
         """
 
         self.logger.debug(
             "Computing {} new spectra, first one at {}m".format(self.store_num, self.z_targets[0])
         )
         store = False
+        state = self.init_state.copy()
+        yield len(self.stored_spectra) - 1, state
+        integrator = solver.ERK54(
+            state,
+            self.params.linear_operator,
+            self.params.nonlinear_operator,
+            self.params.tolerated_error,
+            self.params.dt,
+        )
+        for state in integrator:
 
-        yield self.state.step, len(self.stored_spectra) - 1, self.get_current_spectrum()
-
-        while self.state.z < self.params.length:
-            self.state = self.params.integrator(self.state)
-
-            self.state.step += 1
-            new_tracked_values = (
-                dict(step=self.state.step, z=self.state.z) | self.params.integrator.all_values()
-            )
-            self.logger.debug(f"tracked values at z={self.state.z} : {new_tracked_values}")
+            new_tracked_values = integrator.all_values()
+            self.logger.debug(f"tracked values at z={state.z} : {new_tracked_values}")
             self.tracked_values.append(new_tracked_values)
 
             # Whether the current spectrum has to be stored depends on previous step
             if store:
-                current_spec = self.get_current_spectrum()
+                current_spec = state.actual_spectrum
                 self.stored_spectra.append(current_spec)
 
-                yield self.state.step, len(self.stored_spectra) - 1, current_spec
+                yield len(self.stored_spectra) - 1, state.copy()
 
-                self.z_stored.append(self.state.z)
+                self.z_stored.append(state.z)
                 del self.z_targets[0]
 
                 # reset the constant step size after a spectrum is stored
                 if not self.params.adapt_step_size:
-                    self.state.current_step_size = self.error_ok
+                    integrator.state.current_step_size = self.error_ok
 
                 if len(self.z_targets) == 0:
                     break
@@ -213,14 +203,14 @@ class RK4IP:
 
             # if the next step goes over a position at which we want to store
             # a spectrum, we shorten the step to reach this position exactly
-            if self.state.z + self.state.current_step_size >= self.z_targets[0]:
+            if state.z + integrator.state.current_step_size >= self.z_targets[0]:
                 store = True
-                self.state.current_step_size = self.z_targets[0] - self.state.z
+                integrator.state.current_step_size = self.z_targets[0] - state.z
 
-    def step_saved(self):
+    def step_saved(self, state: CurrentState):
         pass
 
-    def __iter__(self) -> Generator[tuple[int, int, np.ndarray], None, None]:
+    def __iter__(self) -> Iterator[tuple[int, CurrentState]]:
         yield from self.irun()
 
     def __len__(self) -> int:
@@ -240,8 +230,8 @@ class SequentialRK4IP(RK4IP):
             save_data=save_data,
         )
 
-    def step_saved(self):
-        self.pbars.update(1, self.state.z / self.params.length - self.pbars[1].n)
+    def step_saved(self, state: CurrentState):
+        self.pbars.update(1, state.z / self.params.length - self.pbars[1].n)
 
 
 class MutliProcRK4IP(RK4IP):
@@ -259,8 +249,8 @@ class MutliProcRK4IP(RK4IP):
             save_data=save_data,
         )
 
-    def step_saved(self):
-        self.p_queue.put((self.worker_id, self.state.z / self.params.length))
+    def step_saved(self, state: CurrentState):
+        self.p_queue.put((self.worker_id, state.z / self.params.length))
 
 
 class RayRK4IP(RK4IP):
@@ -286,8 +276,8 @@ class RayRK4IP(RK4IP):
         self.set(params, p_actor, worker_id, save_data)
         self.run()
 
-    def step_saved(self):
-        self.p_actor.update.remote(self.worker_id, self.state.z / self.params.length)
+    def step_saved(self, state: CurrentState):
+        self.p_actor.update.remote(self.worker_id, state.z / self.params.length)
         self.p_actor.update.remote(0)
 
 

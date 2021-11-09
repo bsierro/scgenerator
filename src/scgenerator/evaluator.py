@@ -377,8 +377,7 @@ default_rules: list[Rule] = [
     Rule("loss_op", operators.NoLoss, priorities=-1),
     Rule("plasma_op", operators.NoPlasma, priorities=-1),
     Rule("conserved_quantity", operators.NoConservedQuantity, priorities=-1),
-    Rule("step_taker", solver.RK4IPStepTaker),
-    Rule("integrator", solver.ConstantStepIntegrator, priorities=-1),
+    Rule("integrator", solver.ERK54),
 ]
 
 envelope_rules = default_rules + [

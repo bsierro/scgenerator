@@ -6,8 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-import re
+from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 import numpy as np
@@ -21,37 +20,6 @@ from .utils import load_material_dico
 
 
 class SpectrumDescriptor:
-    name: str
-    value: np.ndarray = None
-    _counter = 0
-    _converter: Callable[[np.ndarray], np.ndarray]
-
-    def __init__(self, spec2_name: str, field_name: str, field2_name: str):
-        self.spec2_name = spec2_name
-        self.field_name = field_name
-        self.field2_name = field2_name
-
-    def __set__(self, instance: CurrentState, value: np.ndarray):
-        self._counter += 1
-        setattr(instance, self.spec2_name, math.abs2(value))
-        setattr(instance, self.field_name, instance.converter(value))
-        setattr(instance, self.field2_name, math.abs2(getattr(instance, self.field_name)))
-        self.value = value
-
-    def __get__(self, instance, owner):
-        return self.value
-
-    def __delete__(self, instance):
-        raise AttributeError("Cannot delete Spectrum field")
-
-    def __set_name__(self, owner, name):
-        for field_name in ["converter", "field", "field2", "spec2"]:
-            if not hasattr(owner, field_name):
-                raise AttributeError(f"{owner!r} doesn't have a {field_name!r} attribute")
-        self.name = name
-
-
-class SpectrumDescriptor2:
     name: str
     spectrum: np.ndarray = None
     __spec2: np.ndarray = None
@@ -100,14 +68,7 @@ class CurrentState:
     step: int
     C_to_A_factor: np.ndarray
     converter: Callable[[np.ndarray], np.ndarray] = np.fft.ifft
-    spectrum: np.ndarray = SpectrumDescriptor("spec2", "field", "field2")
-    spec2: np.ndarray = dataclasses.field(init=False)
-    field: np.ndarray = dataclasses.field(init=False)
-    field2: np.ndarray = dataclasses.field(init=False)
-    prev_spectrum: np.ndarray = SpectrumDescriptor("prev_spec2", "prev_field", "prev_field2")
-    prev_spec2: np.ndarray = dataclasses.field(init=False)
-    prev_field: np.ndarray = dataclasses.field(init=False)
-    prev_field2: np.ndarray = dataclasses.field(init=False)
+    solution: SpectrumDescriptor = SpectrumDescriptor()
 
     @property
     def z_ratio(self) -> float:
@@ -116,7 +77,7 @@ class CurrentState:
     def replace(self, new_spectrum: np.ndarray, **new_params) -> CurrentState:
         """returns a new state with new attributes"""
         params = dict(
-            spectrum=new_spectrum,
+            solution=new_spectrum,
             length=self.length,
             z=self.z,
             current_step_size=self.current_step_size,
@@ -126,6 +87,13 @@ class CurrentState:
             converter=self.converter,
         )
         return CurrentState(**(params | new_params))
+
+    def copy(self) -> CurrentState:
+        return replace(self, solution=self.solution.spectrum)
+
+    @property
+    def actual_spectrum(self) -> np.ndarray:
+        return self.C_to_A_factor * self.solution.spectrum
 
 
 class ValueTracker(ABC):
@@ -644,7 +612,7 @@ class EnvelopeRaman(AbstractRaman):
         self.f_r = 0.245 if raman_type == "agrawal" else 0.18
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.f_r * np.fft.ifft(self.hr_w * np.fft.fft(state.field2))
+        return self.f_r * np.fft.ifft(self.hr_w * np.fft.fft(state.solution.field2))
 
 
 class FullFieldRaman(AbstractRaman):
@@ -654,7 +622,7 @@ class FullFieldRaman(AbstractRaman):
         self.multiplier = units.epsilon0 * chi3 * self.f_r
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.multiplier * np.fft.ifft(np.fft.fft(state.field2) * self.hr_w)
+        return self.multiplier * np.fft.ifft(np.fft.fft(state.solution.field2) * self.hr_w)
 
 
 ##################################################
@@ -693,7 +661,7 @@ class EnvelopeSPM(AbstractSPM):
         self.fraction = 1 - raman_op.f_r
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.fraction * state.field2
+        return self.fraction * state.solution.field2
 
 
 class FullFieldSPM(AbstractSPM):
@@ -702,7 +670,7 @@ class FullFieldSPM(AbstractSPM):
         self.factor = self.fraction * chi3 * units.epsilon0
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.factor * state.field2 * state.field
+        return self.factor * state.solution.field2 * state.solution.field
 
 
 ##################################################
@@ -819,7 +787,7 @@ class PhotonNumberLoss(AbstractConservedQuantity):
 
     def __call__(self, state: CurrentState) -> float:
         return pulse.photon_number_with_loss(
-            state.spec2,
+            state.solution.spec2,
             self.w,
             self.dw,
             self.gamma_op(state),
@@ -835,7 +803,7 @@ class PhotonNumberNoLoss(AbstractConservedQuantity):
         self.gamma_op = gamma_op
 
     def __call__(self, state: CurrentState) -> float:
-        return pulse.photon_number(state.spec2, self.w, self.dw, self.gamma_op(state))
+        return pulse.photon_number(state.solution.spec2, self.w, self.dw, self.gamma_op(state))
 
 
 class EnergyLoss(AbstractConservedQuantity):
@@ -845,7 +813,7 @@ class EnergyLoss(AbstractConservedQuantity):
 
     def __call__(self, state: CurrentState) -> float:
         return pulse.pulse_energy_with_loss(
-            math.abs2(state.C_to_A_factor * state.spectrum),
+            math.abs2(state.C_to_A_factor * state.solution.spectrum),
             self.dw,
             self.loss_op(state),
             state.current_step_size,
@@ -857,7 +825,7 @@ class EnergyNoLoss(AbstractConservedQuantity):
         self.dw = w[1] - w[0]
 
     def __call__(self, state: CurrentState) -> float:
-        return pulse.pulse_energy(math.abs2(state.C_to_A_factor * state.spectrum), self.dw)
+        return pulse.pulse_energy(math.abs2(state.C_to_A_factor * state.solution.spectrum), self.dw)
 
 
 def conserved_quantity(
@@ -970,7 +938,7 @@ class EnvelopeNonLinearOperator(NonLinearOperator):
             -1j
             * self.gamma_op(state)
             * (1 + self.ss_op(state))
-            * np.fft.fft(state.field * (self.spm_op(state) + self.raman_op(state)))
+            * np.fft.fft(state.solution.field * (self.spm_op(state) + self.raman_op(state)))
         )
 
 

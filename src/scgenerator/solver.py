@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from typing import Iterator
 
 import numpy as np
 
@@ -69,7 +70,7 @@ class RK4IPStepTaker(StepTaker):
         l0, nl0 = self.cached_values(state)
         expD = np.exp(h * self.c2 * l0)
 
-        A_I = expD * state.spectrum
+        A_I = expD * state.solution
         k1 = expD * (h * nl0)
         k2 = h * self.nonlinear_operator(state.replace(A_I + k1 * self.c2))
         k3 = h * self.nonlinear_operator(state.replace(A_I + k2 * self.c2))
@@ -114,13 +115,36 @@ class RK4IPStepTaker(StepTaker):
 
 
 class Integrator(ValueTracker):
-    last_step = 0.0
+    linear_operator: LinearOperator
+    nonlinear_operator: NonLinearOperator
+    _tracked_values: dict[str, float]
+
+    def __init__(self, linear_operator: LinearOperator, nonlinear_operator: NonLinearOperator):
+        self.linear_operator = linear_operator
+        self.nonlinear_operator = nonlinear_operator
+        self._tracked_values = {}
 
     @abstractmethod
-    def __call__(self, state: CurrentState) -> CurrentState:
+    def __iter__(self) -> Iterator[CurrentState]:
         """propagate the state with a step size of state.current_step_size
-        and return a new state with updated z and previous_step_size attributes"""
+        and yield a new state with updated z and previous_step_size attributes"""
         ...
+
+    def all_values(self) -> dict[str, float]:
+        """override ValueTracker.all_values to account for the fact that operators are called
+        multiple times per step, sometimes with different state, so we use value recorded
+        earlier. Please call self.recorde_tracked_values() one time only just after calling
+        the linear and nonlinear operators in your StepTaker.
+
+        Returns
+        -------
+        dict[str, float]
+            tracked values
+        """
+        return self.values() | self._tracked_values
+
+    def record_tracked_values(self):
+        self._tracked_values = super().all_values()
 
 
 class ConstantStepIntegrator(Integrator):
@@ -234,7 +258,7 @@ class LocalErrorIntegrator(Integrator):
                 h_next_step = h * self.size_fac
 
         self.local_error = delta
-        fine_state.spectrum = fine_spec * self.fine_fac + coarse_spec * self.coarse_fac
+        fine_state.solution = fine_spec * self.fine_fac + coarse_spec * self.coarse_fac
         fine_state.current_step_size = h_next_step
         fine_state.previous_step_size = h
         fine_state.z += h
@@ -249,32 +273,122 @@ class LocalErrorIntegrator(Integrator):
 
 
 class ERK43(Integrator):
+    state: CurrentState
     linear_operator: LinearOperator
     nonlinear_operator: NonLinearOperator
+    tolerated_error: float
     dt: float
+    current_error: float
+    next_h_factor = 1.0
 
     def __init__(
-        self, linear_operator: LinearOperator, nonlinear_operator: NonLinearOperator, dt: float
+        self,
+        init_state: CurrentState,
+        linear_operator: LinearOperator,
+        nonlinear_operator: NonLinearOperator,
+        tolerated_error: float,
+        dt: float,
     ):
+        self.state = init_state
         self.linear_operator = linear_operator
         self.nonlinear_operator = nonlinear_operator
         self.dt = dt
+        self.tolerated_error = tolerated_error
+        self.current_error = 0.0
 
-    def __call__(self, state: CurrentState) -> CurrentState:
-        keep = False
-        h_next_step = state.current_step_size
-        while not keep:
-            h = h_next_step
-            expD = np.exp(h * 0.5 * self.linear_operator(state))
-            A_I = expD * state.spectrum
-            k1 = expD * state.prev_spectrum
-            k2 = self.nonlinear_operator(state.replace(A_I + 0.5 * h * k1))
-            k3 = self.nonlinear_operator(state.replace(A_I + 0.5 * h * k2))
-            k4 = self.nonlinear_operator(state.replace(expD * A_I + h * k3))
-            r = expD * (A_I + h / 6 * (k1 + 2 * k2 + 2 * k3))
+    def __iter__(self) -> Iterator[CurrentState]:
+        h_next_step = self.state.current_step_size
+        k5 = self.nonlinear_operator(self.state)
+        while True:
+            lin = self.linear_operator(self.state)
+            self.record_tracked_values()
+            while True:
+                h = h_next_step
+                expD = np.exp(h * 0.5 * lin)
+                A_I = expD * self.state.solution.spectrum
+                k1 = expD * k5
+                k2 = self.nl(A_I + 0.5 * h * k1)
+                k3 = self.nl(A_I + 0.5 * h * k2)
+                k4 = self.nl(expD * A_I + h * k3)
+                r = expD * (A_I + h / 6 * (k1 + 2 * k2 + 2 * k3))
 
-            new_fine = r + h / 6 * k4
+                new_fine = r + h / 6 * k4
 
-            k5 = self.nonlinear_operator(state.replace(new_fine))
+                tmp_k5 = self.nl(new_fine)
 
-            new_coarse = r + h / 30 * (2 * k4 + 3 * k5)
+                new_coarse = r + h / 30 * (2 * k4 + 3 * tmp_k5)
+
+                self.current_error = np.sqrt(self.dt * math.abs2(new_fine - new_coarse).sum())
+                self.next_h_factor = max(
+                    0.5, min(2.0, (self.tolerated_error / self.current_error) ** 0.25)
+                )
+                h_next_step = self.next_h_factor * h
+                if self.current_error <= self.tolerated_error:
+                    break
+            self.state.current_step_size = h_next_step
+            self.state.previous_step_size = h
+            self.state.z += h
+            self.state.step += 1
+            self.state.solution = new_fine
+            k5 = tmp_k5
+            yield self.state
+
+    def values(self) -> dict[str, float]:
+        return dict(
+            step=self.state.step,
+            z=self.state.z,
+            local_error=self.current_error,
+            next_h_factor=self.next_h_factor,
+        )
+
+    def nl(self, spectrum: np.ndarray) -> np.ndarray:
+        return self.nonlinear_operator(self.state.replace(spectrum))
+
+
+class ERK54(ERK43):
+    def __iter__(self) -> Iterator[CurrentState]:
+        print("using ERK54")
+        h_next_step = self.state.current_step_size
+        k7 = self.nonlinear_operator(self.state)
+        while True:
+            lin = self.linear_operator(self.state)
+            self.record_tracked_values()
+            while True:
+                h = h_next_step
+                expD2 = np.exp(h * 0.5 * lin)
+                expD4p = np.exp(h * 0.25 * lin)
+                expD4m = 1 / expD4p
+
+                A_I = expD2 * self.state.solution.spectrum
+                k1 = expD2 * k7
+                k2 = self.nl(A_I + 0.5 * h * k1)
+                k3 = expD4p * self.nl(expD4m * (A_I + h / 16 * (3 * k1 + k2)))
+                k4 = self.nl(A_I + h / 4 * (k1 - k2 + 4 * k3))
+                k5 = expD4m * self.nl(expD4p * (A_I + 3 * h / 16 * (k1 + 3 * k4)))
+                k6 = self.nl(expD2 * (A_I + h / 7 * (-2 * k1 + k2 + 12 * k3 - 12 * k4 + 8 * k5)))
+
+                new_fine = (
+                    expD2 * (A_I + h / 90 * (7 * k1 + 32 * k3 + 12 * k4 + 32 * k5))
+                    + 7 * h / 90 * k6
+                )
+                tmp_k7 = self.nl(new_fine)
+                new_coarse = (
+                    expD2 * (A_I + h / 42 * (3 * k1 + 16 * k3 + 4 * k4 + 16 * k5)) + h / 14 * k7
+                )
+
+                self.current_error = np.sqrt(
+                    self.dt * math.abs2(np.abs(new_fine) - np.abs(new_coarse)).sum()
+                )
+                self.next_h_factor = max(
+                    0.5, min(2.0, (self.tolerated_error / self.current_error) ** 0.25)
+                )
+                h_next_step = self.next_h_factor * h
+                if self.current_error <= self.tolerated_error:
+                    break
+            self.state.current_step_size = h_next_step
+            self.state.previous_step_size = h
+            self.state.z += h
+            self.state.step += 1
+            self.state.solution = new_fine
+            k7 = tmp_k7
+            yield self.state
