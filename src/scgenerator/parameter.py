@@ -13,18 +13,13 @@ from typing import Any, Callable, ClassVar, Iterable, Iterator, Set, Type, TypeV
 
 import numpy as np
 
-from scgenerator.physics import units
-
 from . import env, legacy, utils
 from .const import MANDATORY_PARAMETERS, PARAM_FN, VALID_VARIABLE, __version__
 from .errors import EvaluatorError
 from .evaluator import Evaluator
 from .logger import get_logger
-from .operators import (
-    AbstractConservedQuantity,
-    LinearOperator,
-    NonLinearOperator,
-)
+from .operators import AbstractConservedQuantity, LinearOperator, NonLinearOperator
+from .solver import Integrator, StepTaker
 from .utils import fiber_folder, update_path_name
 from .variationer import VariationDescriptor, Variationer
 
@@ -382,6 +377,8 @@ class Parameters:
     # computed
     linear_operator: LinearOperator = Parameter(type_checker(LinearOperator))
     nonlinear_operator: NonLinearOperator = Parameter(type_checker(NonLinearOperator))
+    step_taker: StepTaker = Parameter(type_checker(StepTaker))
+    integrator: Integrator = Parameter(type_checker(Integrator))
     conserved_quantity: AbstractConservedQuantity = Parameter(
         type_checker(AbstractConservedQuantity)
     )

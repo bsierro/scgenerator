@@ -1,3 +1,4 @@
+from collections import defaultdict
 import multiprocessing
 import multiprocessing.connection
 import os
@@ -13,12 +14,20 @@ from ..logger import get_logger
 from ..operators import CurrentState
 from ..parameter import Configuration, Parameters
 from ..pbar import PBars, ProgressBarActor, progress_worker
-from ..const import ONE_2, ONE_3, ONE_6
 
 try:
     import ray
 except ModuleNotFoundError:
     ray = None
+
+
+class TrackedValues(defaultdict):
+    def __init__(self):
+        super().__init__(list)
+
+    def append(self, d: dict[str, Any]):
+        for k, v in d.items():
+            self[k].append(v)
 
 
 class RK4IP:
@@ -53,19 +62,7 @@ class RK4IP:
         save_data : bool, optional
             save calculated spectra to disk, by default False
         """
-        self.set(params, save_data)
 
-    def __iter__(self) -> Generator[tuple[int, int, np.ndarray], None, None]:
-        yield from self.irun()
-
-    def __len__(self) -> int:
-        return self.params.z_num
-
-    def set(
-        self,
-        params: Parameters,
-        save_data=False,
-    ):
         self.params = params
         self.save_data = save_data
 
@@ -77,16 +74,12 @@ class RK4IP:
 
         self.logger = get_logger(self.params.output_path.name)
 
-        self.dw = self.params.w[1] - self.params.w[0]
-        self.z_targets = self.params.z_targets
         self.error_ok = (
             params.tolerated_error if self.params.adapt_step_size else self.params.step_size
         )
 
-        self._setup_sim_parameters()
-
-    def _setup_sim_parameters(self):
-        # making sure to keep only the z that we want
+        # setup save targets
+        self.z_targets = self.params.z_targets
         self.z_stored = list(self.z_targets.copy()[0 : self.params.recovery_last_stored + 1])
         self.z_targets = list(self.z_targets.copy()[self.params.recovery_last_stored :])
         self.z_targets.sort()
@@ -97,16 +90,18 @@ class RK4IP:
             C_to_A_factor = (self.params.A_eff_arr / self.params.A_eff_arr[0]) ** (1 / 4)
         else:
             C_to_A_factor = 1.0
-        z = self.z_targets.pop(0)
+
         # Initial step size
         if self.params.adapt_step_size:
-            initial_h = (self.z_targets[0] - z) / 2
+            initial_h = (self.z_targets[1] - self.z_targets[0]) / 2
         else:
             initial_h = self.error_ok
         self.state = CurrentState(
             length=self.params.length,
-            z=z,
-            h=initial_h,
+            z=self.z_targets.pop(0),
+            current_step_size=initial_h,
+            previous_step_size=0.0,
+            step=1,
             C_to_A_factor=C_to_A_factor,
             converter=self.params.ifft,
             spectrum=self.params.spec_0.copy() / C_to_A_factor,
@@ -114,11 +109,7 @@ class RK4IP:
         self.stored_spectra = self.params.recovery_last_stored * [None] + [
             self.state.spectrum.copy()
         ]
-        self.cons_qty = [
-            self.params.conserved_quantity(self.state),
-            0,
-        ]
-        self.size_fac = 2 ** (1 / 5)
+        self.tracked_values = TrackedValues()
 
     def _save_current_spectrum(self, num: int):
         """saves the spectrum and the corresponding cons_qty array
@@ -128,8 +119,8 @@ class RK4IP:
         num : int
             index of the z postition
         """
-        self._save_data(self.get_current_spectrum(), f"spectrum_{num}")
-        self._save_data(self.cons_qty, "cons_qty")
+        self.write(self.get_current_spectrum(), f"spectrum_{num}")
+        self.write(self.tracked_values, "tracked_values")
         self.step_saved()
 
     def get_current_spectrum(self) -> np.ndarray:
@@ -142,7 +133,7 @@ class RK4IP:
         """
         return self.state.C_to_A_factor * self.state.spectrum
 
-    def _save_data(self, data: np.ndarray, name: str):
+    def write(self, data: np.ndarray, name: str):
         """calls the appropriate method to save data
 
         Parameters
@@ -168,7 +159,7 @@ class RK4IP:
         )
 
         if self.save_data:
-            self._save_data(self.z_stored, "z.npy")
+            self.write(self.z_stored, "z.npy")
 
         return self.stored_spectra
 
@@ -185,40 +176,36 @@ class RK4IP:
             spectrum
         """
 
-        # Print introduction
         self.logger.debug(
             "Computing {} new spectra, first one at {}m".format(self.store_num, self.z_targets[0])
         )
+        store = False
 
-        # Start of the integration
-        step = 1
-        store = False  # store a spectrum
-
-        yield step, len(self.stored_spectra) - 1, self.get_current_spectrum()
+        yield self.state.step, len(self.stored_spectra) - 1, self.get_current_spectrum()
 
         while self.state.z < self.params.length:
-            h_taken = self.take_step(step)
+            self.state = self.params.integrator(self.state)
 
-            step += 1
-            self.cons_qty.append(0)
+            self.state.step += 1
+            new_tracked_values = (
+                dict(step=self.state.step, z=self.state.z) | self.params.integrator.all_values()
+            )
+            self.logger.debug(f"tracked values at z={self.state.z} : {new_tracked_values}")
+            self.tracked_values.append(new_tracked_values)
 
             # Whether the current spectrum has to be stored depends on previous step
             if store:
-                self.logger.debug(
-                    "{} steps, z = {:.4f}, h = {:.5g}".format(step, self.state.z, h_taken)
-                )
-
                 current_spec = self.get_current_spectrum()
                 self.stored_spectra.append(current_spec)
 
-                yield step, len(self.stored_spectra) - 1, current_spec
+                yield self.state.step, len(self.stored_spectra) - 1, current_spec
 
                 self.z_stored.append(self.state.z)
                 del self.z_targets[0]
 
                 # reset the constant step size after a spectrum is stored
                 if not self.params.adapt_step_size:
-                    self.state.h = self.error_ok
+                    self.state.current_step_size = self.error_ok
 
                 if len(self.z_targets) == 0:
                     break
@@ -226,68 +213,18 @@ class RK4IP:
 
             # if the next step goes over a position at which we want to store
             # a spectrum, we shorten the step to reach this position exactly
-            if self.state.z + self.state.h >= self.z_targets[0]:
+            if self.state.z + self.state.current_step_size >= self.z_targets[0]:
                 store = True
-                self.state.h = self.z_targets[0] - self.state.z
-
-    def take_step(self, step: int) -> float:
-        """computes a new spectrum, whilst adjusting step size if required, until the error estimation
-        validates the new spectrum. Saves the result in the internal state attribute
-
-        Parameters
-        ----------
-        step : int
-            index of the current
-
-        Returns
-        -------
-        h : float
-            step sized used
-        """
-        keep = False
-        h_next_step = self.state.h
-        while not keep:
-            h = h_next_step
-
-            expD = np.exp(h * ONE_2 * self.params.linear_operator(self.state))
-
-            A_I = expD * self.state.spectrum
-            k1 = expD * (h * self.params.nonlinear_operator(self.state))
-            k2 = h * self.params.nonlinear_operator(self.state.replace(A_I + k1 * ONE_2))
-            k3 = h * self.params.nonlinear_operator(self.state.replace(A_I + k2 * ONE_2))
-            k4 = h * self.params.nonlinear_operator(self.state.replace(expD * (A_I + k3)))
-            new_state = self.state.replace(
-                expD * (A_I + k1 * ONE_6 + k2 * ONE_3 + k3 * ONE_3) + k4 * ONE_6
-            )
-
-            self.cons_qty[step] = self.params.conserved_quantity(new_state)
-            if self.params.adapt_step_size:
-                curr_p_change = np.abs(self.cons_qty[step - 1] - self.cons_qty[step])
-                cons_qty_change_ok = self.error_ok * self.cons_qty[step - 1]
-
-                if curr_p_change > 2 * cons_qty_change_ok:
-                    progress_str = f"step {step} rejected with h = {h:.4e}, doing over"
-                    self.logger.debug(progress_str)
-                    keep = False
-                    h_next_step = h * ONE_2
-                elif cons_qty_change_ok < curr_p_change <= 2.0 * cons_qty_change_ok:
-                    keep = True
-                    h_next_step = h / self.size_fac
-                elif curr_p_change < 0.1 * cons_qty_change_ok:
-                    keep = True
-                    h_next_step = h * self.size_fac
-                else:
-                    keep = True
-                    h_next_step = h
-            else:
-                keep = True
-        self.state = new_state
-        self.state.h = h_next_step
-        self.state.z += h
-        return h
+                self.state.current_step_size = self.z_targets[0] - self.state.z
 
     def step_saved(self):
         pass
+
+    def __iter__(self) -> Generator[tuple[int, int, np.ndarray], None, None]:
+        yield from self.irun()
+
+    def __len__(self) -> int:
+        return self.params.z_num
 
 
 class SequentialRK4IP(RK4IP):
@@ -339,7 +276,7 @@ class RayRK4IP(RK4IP):
     ):
         self.worker_id = worker_id
         self.p_actor = p_actor
-        super().set(
+        super().__init__(
             params,
             save_data=save_data,
         )

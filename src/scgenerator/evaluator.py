@@ -5,7 +5,7 @@ from typing import Any, Callable, Optional, Union
 
 import numpy as np
 
-from . import math, operators, utils
+from . import math, operators, utils, solver
 from .const import MANDATORY_PARAMETERS
 from .errors import EvaluatorError, NoDefaultError
 from .physics import fiber, materials, pulse, units
@@ -377,6 +377,8 @@ default_rules: list[Rule] = [
     Rule("loss_op", operators.NoLoss, priorities=-1),
     Rule("plasma_op", operators.NoPlasma, priorities=-1),
     Rule("conserved_quantity", operators.NoConservedQuantity, priorities=-1),
+    Rule("step_taker", solver.RK4IPStepTaker),
+    Rule("integrator", solver.ConstantStepIntegrator, priorities=-1),
 ]
 
 envelope_rules = default_rules + [
@@ -417,6 +419,7 @@ envelope_rules = default_rules + [
     Rule("dispersion_op", operators.DirectDispersion),
     Rule("linear_operator", operators.EnvelopeLinearOperator),
     Rule("conserved_quantity", operators.conserved_quantity),
+    Rule("integrator", solver.ConservedQuantityIntegrator),
 ]
 
 full_field_rules = default_rules + [
@@ -440,4 +443,6 @@ full_field_rules = default_rules + [
         operators.FullFieldLinearOperator,
     ),
     Rule("nonlinear_operator", operators.FullFieldNonLinearOperator),
+    # Integration
+    Rule("integrator", solver.LocalErrorIntegrator),
 ]

@@ -7,6 +7,7 @@ from __future__ import annotations
 import dataclasses
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import re
 from typing import Any, Callable
 
 import numpy as np
@@ -23,14 +24,18 @@ class SpectrumDescriptor:
     name: str
     value: np.ndarray = None
     _counter = 0
-    _full_field: bool = False
     _converter: Callable[[np.ndarray], np.ndarray]
+
+    def __init__(self, spec2_name: str, field_name: str, field2_name: str):
+        self.spec2_name = spec2_name
+        self.field_name = field_name
+        self.field2_name = field2_name
 
     def __set__(self, instance: CurrentState, value: np.ndarray):
         self._counter += 1
-        instance.spec2 = math.abs2(value)
-        instance.field = instance.converter(value)
-        instance.field2 = math.abs2(instance.field)
+        setattr(instance, self.spec2_name, math.abs2(value))
+        setattr(instance, self.field_name, instance.converter(value))
+        setattr(instance, self.field2_name, math.abs2(getattr(instance, self.field_name)))
         self.value = value
 
     def __get__(self, instance, owner):
@@ -46,41 +51,96 @@ class SpectrumDescriptor:
         self.name = name
 
 
+class SpectrumDescriptor2:
+    name: str
+    spectrum: np.ndarray = None
+    __spec2: np.ndarray = None
+    __field: np.ndarray = None
+    __field2: np.ndarray = None
+    _converter: Callable[[np.ndarray], np.ndarray]
+
+    def __set__(self, instance: CurrentState, value: np.ndarray):
+        self._converter = instance.converter
+        self.spectrum = value
+        self.__spec2 = None
+        self.__field = None
+        self.__field2 = None
+
+    @property
+    def spec2(self) -> np.ndarray:
+        if self.__spec2 is None:
+            self.__spec2 = math.abs2(self.spectrum)
+        return self.__spec2
+
+    @property
+    def field(self) -> np.ndarray:
+        if self.__field is None:
+            self.__field = self._converter(self.spectrum)
+        return self.__field
+
+    @property
+    def field2(self) -> np.ndarray:
+        if self.__field2 is None:
+            self.__field2 = math.abs2(self.field)
+        return self.__field2
+
+    def __delete__(self, instance):
+        raise AttributeError("Cannot delete Spectrum field")
+
+    def __set_name__(self, owner, name):
+        self.name = name
+
+
 @dataclasses.dataclass
 class CurrentState:
     length: float
     z: float
-    h: float
+    current_step_size: float
+    previous_step_size: float
+    step: int
     C_to_A_factor: np.ndarray
     converter: Callable[[np.ndarray], np.ndarray] = np.fft.ifft
-    spectrum: np.ndarray = SpectrumDescriptor()
+    spectrum: np.ndarray = SpectrumDescriptor("spec2", "field", "field2")
     spec2: np.ndarray = dataclasses.field(init=False)
     field: np.ndarray = dataclasses.field(init=False)
     field2: np.ndarray = dataclasses.field(init=False)
+    prev_spectrum: np.ndarray = SpectrumDescriptor("prev_spec2", "prev_field", "prev_field2")
+    prev_spec2: np.ndarray = dataclasses.field(init=False)
+    prev_field: np.ndarray = dataclasses.field(init=False)
+    prev_field2: np.ndarray = dataclasses.field(init=False)
 
     @property
     def z_ratio(self) -> float:
         return self.z / self.length
 
-    def replace(self, new_spectrum) -> CurrentState:
-        return CurrentState(
-            self.length, self.z, self.h, self.C_to_A_factor, self.converter, new_spectrum
+    def replace(self, new_spectrum: np.ndarray, **new_params) -> CurrentState:
+        """returns a new state with new attributes"""
+        params = dict(
+            spectrum=new_spectrum,
+            length=self.length,
+            z=self.z,
+            current_step_size=self.current_step_size,
+            previous_step_size=self.previous_step_size,
+            step=self.step,
+            C_to_A_factor=self.C_to_A_factor,
+            converter=self.converter,
         )
+        return CurrentState(**(params | new_params))
 
 
-class Operator(ABC):
+class ValueTracker(ABC):
     def values(self) -> dict[str, float]:
         return {}
 
-    def get_values(self) -> dict[str, float]:
+    def all_values(self) -> dict[str, float]:
         out = self.values()
-        for operator in self.__dict__.values():
-            if isinstance(operator, Operator):
-                out |= operator.get_values()
+        for operator in vars(self).values():
+            if isinstance(operator, ValueTracker):
+                out = operator.all_values() | out
         return out
 
     def __repr__(self) -> str:
-        value_pair_list = list(self.__dict__.items())
+        value_pair_list = list(vars(self).items())
         if len(value_pair_list) == 0:
             value_pair_str_list = ""
         elif len(value_pair_list) == 1:
@@ -95,6 +155,8 @@ class Operator(ABC):
             return repr(v[0])
         return repr(v)
 
+
+class Operator(ValueTracker):
     @abstractmethod
     def __call__(self, state: CurrentState) -> np.ndarray:
         pass
@@ -757,7 +819,12 @@ class PhotonNumberLoss(AbstractConservedQuantity):
 
     def __call__(self, state: CurrentState) -> float:
         return pulse.photon_number_with_loss(
-            state.spec2, self.w, self.dw, self.gamma_op(state), self.loss_op(state), state.h
+            state.spec2,
+            self.w,
+            self.dw,
+            self.gamma_op(state),
+            self.loss_op(state),
+            state.current_step_size,
         )
 
 
@@ -778,7 +845,10 @@ class EnergyLoss(AbstractConservedQuantity):
 
     def __call__(self, state: CurrentState) -> float:
         return pulse.pulse_energy_with_loss(
-            math.abs2(state.C_to_A_factor * state.spectrum), self.dw, self.loss_op(state), state.h
+            math.abs2(state.C_to_A_factor * state.spectrum),
+            self.dw,
+            self.loss_op(state),
+            state.current_step_size,
         )
 
 

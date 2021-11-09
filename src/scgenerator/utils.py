@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from string import printable as str_printable
-from typing import Any, Callable, MutableMapping, Sequence, TypeVar, Set
+from typing import Any, Callable, MutableMapping, Sequence, TypeVar, Set, Union
 
 import numpy as np
 import pkg_resources as pkg
@@ -251,12 +251,12 @@ def load_material_dico(name: str) -> dict[str, Any]:
     return tomli.loads(Paths.gets("materials"))[name]
 
 
-def save_data(data: np.ndarray, data_dir: Path, file_name: str):
+def save_data(data: Union[np.ndarray, MutableMapping], data_dir: Path, file_name: str):
     """saves numpy array to disk
 
     Parameters
     ----------
-    data : np.ndarray
+    data : Union[np.ndarray, MutableMapping]
         data to save
     file_name : str
         file name
@@ -266,7 +266,10 @@ def save_data(data: np.ndarray, data_dir: Path, file_name: str):
         identifier in the main data folder of the task, by default ""
     """
     path = data_dir / file_name
-    np.save(path, data)
+    if isinstance(data, np.ndarray):
+        np.save(path, data)
+    elif isinstance(data, MutableMapping):
+        np.savez(path, **data)
     get_logger(__name__).debug(f"saved data in {path}")
     return
 
