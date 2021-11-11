@@ -87,7 +87,7 @@ class ConstantStepIntegrator(Integrator):
             lin = self.linear_operator(self.state)
             nonlin = self.nonlinear_operator(self.state)
             self.record_tracked_values()
-            new_spec = RK4IP_step(
+            new_spec = rk4ip_step(
                 self.nonlinear_operator,
                 self.state,
                 self.state.solution.spectrum,
@@ -129,7 +129,7 @@ class ConservedQuantityIntegrator(Integrator):
             while True:
                 h = h_next_step
                 new_state = self.state.replace(
-                    RK4IP_step(
+                    rk4ip_step(
                         self.nonlinear_operator,
                         self.state,
                         self.state.solution.spectrum,
@@ -215,7 +215,7 @@ class RK4IPSD(Integrator):
     def take_step(
         self, h: float, spec: np.ndarray, lin: np.ndarray, nonlin: np.ndarray
     ) -> np.ndarray:
-        return RK4IP_step(self.nonlinear_operator, self.state, spec, h, lin, nonlin)
+        return rk4ip_step(self.nonlinear_operator, self.state, spec, h, lin, nonlin)
 
     def compute_diff(self, coarse_spec: np.ndarray, fine_spec: np.ndarray) -> float:
         return np.sqrt(math.abs2(coarse_spec - fine_spec).sum() / math.abs2(fine_spec).sum())
@@ -351,7 +351,7 @@ class ERK54(ERK43):
             yield self.state
 
 
-def RK4IP_step(
+def rk4ip_step(
     nonlinear_operator: NonLinearOperator,
     init_state: CurrentState,
     spectrum: np.ndarray,
