@@ -104,8 +104,11 @@ def find_optimal_depth(
     ind = w > (w0 / 10)
     disp[ind] = material_dispersion(units.m.inv(w[ind]), material)
 
-    propagate = lambda z: spectrum * np.exp(-0.5j * disp * w_c ** 2 * z)
-    integrate = lambda z: math.abs2(np.fft.ifft(propagate(z)))
+    def propagate(z):
+        return spectrum * np.exp(-0.5j * disp * w_c ** 2 * z)
+
+    def integrate(z):
+        return math.abs2(np.fft.ifft(propagate(z)))
 
     def score(z):
         return -np.nansum(integrate(z) ** 6)

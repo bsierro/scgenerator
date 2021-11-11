@@ -5,7 +5,7 @@ from typing import Any, Callable, Optional, Union
 
 import numpy as np
 
-from . import math, operators, utils, solver
+from . import math, operators, utils
 from .const import MANDATORY_PARAMETERS
 from .errors import EvaluatorError, NoDefaultError
 from .physics import fiber, materials, pulse, units
@@ -324,6 +324,7 @@ default_rules: list[Rule] = [
     Rule("L_D", pulse.L_D),
     Rule("L_NL", pulse.L_NL),
     Rule("L_sol", pulse.L_sol),
+    Rule("c_to_a_factor", lambda: 1.0, priorities=-1),
     # Fiber Dispersion
     Rule("w_for_disp", units.m, ["wl_for_disp"]),
     Rule("hr_w", fiber.delayed_raman_w),
@@ -377,7 +378,6 @@ default_rules: list[Rule] = [
     Rule("loss_op", operators.NoLoss, priorities=-1),
     Rule("plasma_op", operators.NoPlasma, priorities=-1),
     Rule("conserved_quantity", operators.NoConservedQuantity, priorities=-1),
-    Rule("integrator", solver.ERK54),
 ]
 
 envelope_rules = default_rules + [
@@ -387,6 +387,7 @@ envelope_rules = default_rules + [
     Rule("pre_field_0", pulse.initial_field_envelope, priorities=1),
     Rule("spec_0", np.fft.fft, ["field_0"]),
     Rule("field_0", np.fft.ifft, ["spec_0"]),
+    Rule("c_to_a_factor", pulse.c_to_a_factor),
     # Dispersion
     Rule(["wl_for_disp", "dispersion_ind"], fiber.lambda_for_envelope_dispersion),
     Rule("beta2_coefficients", fiber.dispersion_coefficients),
@@ -418,7 +419,6 @@ envelope_rules = default_rules + [
     Rule("dispersion_op", operators.DirectDispersion),
     Rule("linear_operator", operators.EnvelopeLinearOperator),
     Rule("conserved_quantity", operators.conserved_quantity),
-    Rule("integrator", solver.ConservedQuantityIntegrator),
 ]
 
 full_field_rules = default_rules + [
@@ -442,6 +442,4 @@ full_field_rules = default_rules + [
         operators.FullFieldLinearOperator,
     ),
     Rule("nonlinear_operator", operators.FullFieldNonLinearOperator),
-    # Integration
-    Rule("integrator", solver.LocalErrorIntegrator),
 ]

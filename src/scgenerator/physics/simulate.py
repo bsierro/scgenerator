@@ -85,12 +85,6 @@ class RK4IP:
         self.z_targets.sort()
         self.store_num = len(self.z_targets)
 
-        # Setup initial values for every physical quantity that we want to track
-        if self.params.A_eff_arr is not None:
-            C_to_A_factor = (self.params.A_eff_arr / self.params.A_eff_arr[0]) ** (1 / 4)
-        else:
-            C_to_A_factor = 1.0
-
         # Initial step size
         if self.params.adapt_step_size:
             initial_h = (self.z_targets[1] - self.z_targets[0]) / 2
@@ -100,11 +94,10 @@ class RK4IP:
             length=self.params.length,
             z=self.z_targets.pop(0),
             current_step_size=initial_h,
-            previous_step_size=0.0,
-            step=1,
-            C_to_A_factor=C_to_A_factor,
+            step=0,
+            C_to_A_factor=self.params.c_to_a_factor,
             converter=self.params.ifft,
-            solution=self.params.spec_0.copy() / C_to_A_factor,
+            solution=self.params.spec_0.copy() / self.params.c_to_a_factor,
         )
         self.stored_spectra = self.params.recovery_last_stored * [None] + [
             self.init_state.solution.spectrum.copy()
@@ -170,12 +163,18 @@ class RK4IP:
         store = False
         state = self.init_state.copy()
         yield len(self.stored_spectra) - 1, state
-        integrator = solver.RK4IPSD(
-            state,
-            self.params.linear_operator,
-            self.params.nonlinear_operator,
-            self.params.tolerated_error,
-        )
+        if self.params.adapt_step_size:
+            integrator = solver.ConservedQuantityIntegrator(
+                self.init_state,
+                self.params.linear_operator,
+                self.params.nonlinear_operator,
+                self.params.tolerated_error,
+                self.params.conserved_quantity,
+            )
+        else:
+            integrator = solver.ConstantStepIntegrator(
+                self.init_state, self.params.linear_operator, self.params.nonlinear_operator
+            )
         for state in integrator:
 
             new_tracked_values = integrator.all_values()

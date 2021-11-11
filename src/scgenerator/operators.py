@@ -52,6 +52,24 @@ class SpectrumDescriptor:
             self.__field2 = math.abs2(self.field)
         return self.__field2
 
+    def force_values(self, spec2: np.ndarray, field: np.ndarray, field2: np.ndarray):
+        """force these values instead of recomputing them
+
+        Parameters
+        ----------
+        spectrum : np.ndarray
+            spectrum
+        spec2 : np.ndarray
+            |spectrum|^2
+        field : np.ndarray
+            field = converter(spectrum)
+        field2 : np.ndarray
+            |field|^2
+        """
+        self.__spec2 = spec2
+        self.__field = field
+        self.__field2 = field2
+
     def __delete__(self, instance):
         raise AttributeError("Cannot delete Spectrum field")
 
@@ -64,7 +82,6 @@ class CurrentState:
     length: float
     z: float
     current_step_size: float
-    previous_step_size: float
     step: int
     C_to_A_factor: np.ndarray
     converter: Callable[[np.ndarray], np.ndarray] = np.fft.ifft
@@ -74,19 +91,33 @@ class CurrentState:
     def z_ratio(self) -> float:
         return self.z / self.length
 
-    def replace(self, new_spectrum: np.ndarray, **new_params) -> CurrentState:
+    def replace(self, new_spectrum: np.ndarray) -> CurrentState:
         """returns a new state with new attributes"""
-        params = dict(
-            solution=new_spectrum,
+        return CurrentState(
+            self.length,
+            self.z,
+            self.current_step_size,
+            self.step,
+            self.C_to_A_factor,
+            self.converter,
+            new_spectrum,
+        )
+
+    def with_params(self, **params) -> CurrentState:
+        """returns a new CurrentState with modified params, except for the solution"""
+        my_params = dict(
             length=self.length,
             z=self.z,
             current_step_size=self.current_step_size,
-            previous_step_size=self.previous_step_size,
             step=self.step,
             C_to_A_factor=self.C_to_A_factor,
             converter=self.converter,
         )
-        return CurrentState(**(params | new_params))
+        new_state = CurrentState(solution=self.solution.spectrum, **(my_params | params))
+        new_state.solution.force_values(
+            self.solution.spec2, self.solution.field, self.solution.field2
+        )
+        return new_state
 
     def copy(self) -> CurrentState:
         return replace(self, solution=self.solution.spectrum)

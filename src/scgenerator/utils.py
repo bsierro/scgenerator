@@ -315,7 +315,7 @@ def ensure_folder(path: Path, prevent_overwrite: bool = True, mkdir=True) -> Pat
 
 
 def branch_id(branch: Path) -> tuple[int, int]:
-    sim_match = branch.parent.name.split()[0]
+    sim_match = branch.resolve().parent.name.split()[0]
     if sim_match.isdigit():
         s_int = int(sim_match)
     else:

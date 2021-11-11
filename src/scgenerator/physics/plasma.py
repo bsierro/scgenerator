@@ -64,8 +64,7 @@ class Plasma:
         field_abs = np.abs(field)
         delta = 1e-14 * field_abs.max()
         rate = self.rate(field_abs)
-        exp_int = expm1_int(rate, self.dt)
-        electron_density = N0 * exp_int
+        electron_density = free_electron_density(rate, self.dt, N0)
         dn_dt = (N0 - electron_density) * rate
         out = self.dt * cumulative_simpson(
             dn_dt * self.Ip / (field + delta)
@@ -79,7 +78,5 @@ def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:
     return w * np.sqrt(2 * me * I) / (e * np.abs(field))
 
 
-def free_electron_density(
-    field: np.ndarray, dt: float, N0: float, rate: IonizationRate
-) -> np.ndarray:
-    return N0 * (1 - np.exp(-dt * cumulative_simpson(rate(field))))
+def free_electron_density(rate: np.ndarray, dt: float, N0: float) -> np.ndarray:
+    return N0 * expm1_int(rate, dt)

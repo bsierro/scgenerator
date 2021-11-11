@@ -6,7 +6,7 @@ import os
 import time
 from copy import copy
 from dataclasses import dataclass, field, fields
-from functools import lru_cache
+from functools import lru_cache, wraps
 from math import isnan
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Iterable, Iterator, Set, Type, TypeVar, Union
@@ -19,7 +19,7 @@ from .errors import EvaluatorError
 from .evaluator import Evaluator
 from .logger import get_logger
 from .operators import AbstractConservedQuantity, LinearOperator, NonLinearOperator
-from .solver import Integrator, StepTaker
+from .solver import Integrator
 from .utils import fiber_folder, update_path_name
 from .variationer import VariationDescriptor, Variationer
 
@@ -37,6 +37,7 @@ def type_checker(*types):
             def validator(*args):
                 pass
 
+        @wraps(validator)
         def _type_checker_wrapped(name, n):
             if not isinstance(n, types):
                 raise TypeError(
@@ -377,7 +378,6 @@ class Parameters:
     # computed
     linear_operator: LinearOperator = Parameter(type_checker(LinearOperator))
     nonlinear_operator: NonLinearOperator = Parameter(type_checker(NonLinearOperator))
-    step_taker: StepTaker = Parameter(type_checker(StepTaker))
     integrator: Integrator = Parameter(type_checker(Integrator))
     conserved_quantity: AbstractConservedQuantity = Parameter(
         type_checker(AbstractConservedQuantity)
@@ -391,6 +391,7 @@ class Parameters:
     alpha: float = Parameter(non_negative(float, int))
     gamma_arr: np.ndarray = Parameter(type_checker(np.ndarray))
     A_eff_arr: np.ndarray = Parameter(type_checker(np.ndarray))
+    c_to_a_factor: np.ndarray = Parameter(type_checker(float, np.ndarray))
     w: np.ndarray = Parameter(type_checker(np.ndarray))
     l: np.ndarray = Parameter(type_checker(np.ndarray))
     w_c: np.ndarray = Parameter(type_checker(np.ndarray))

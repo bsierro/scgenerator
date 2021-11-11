@@ -1127,3 +1127,7 @@ def capillary_loss(wl: np.ndarray, he_mode: tuple[int, int], core_radius: float)
 
 def extinction_distance(loss: T, ratio=1 / e) -> T:
     return np.log(ratio) / -loss
+
+
+def L_eff(loss: T, length: float) -> T:
+    return -np.expm1(-loss * length) / loss

@@ -1,5 +1,8 @@
+from __future__ import annotations
+
+import logging
 from abc import abstractmethod
-from typing import Iterator
+from typing import Iterator, Type
 
 import numpy as np
 
@@ -13,106 +16,6 @@ from .operators import (
     ValueTracker,
 )
 
-##################################################
-################### STEP-TAKER ###################
-##################################################
-
-
-class StepTaker(ValueTracker):
-    linear_operator: LinearOperator
-    nonlinear_operator: NonLinearOperator
-    _tracked_values: dict[str, float]
-
-    def __init__(self, linear_operator: LinearOperator, nonlinear_operator: NonLinearOperator):
-        self.linear_operator = linear_operator
-        self.nonlinear_operator = nonlinear_operator
-        self._tracked_values = {}
-
-    @abstractmethod
-    def __call__(self, state: CurrentState, step_size: float) -> np.ndarray:
-        ...
-
-    def all_values(self) -> dict[str, float]:
-        """override ValueTracker.all_values to account for the fact that operators are called
-        multiple times per step, sometimes with different state, so we use value recorded
-        earlier. Please call self.recorde_tracked_values() one time only just after calling
-        the linear and nonlinear operators in your StepTaker.
-
-        Returns
-        -------
-        dict[str, float]
-            tracked values
-        """
-        return self.values() | self._tracked_values
-
-    def record_tracked_values(self):
-        self._tracked_values = super().all_values()
-
-
-class RK4IPStepTaker(StepTaker):
-    c2 = 1 / 2
-    c3 = 1 / 3
-    c6 = 1 / 6
-    _cached_values: tuple[np.ndarray, np.ndarray]
-    _cached_key: float
-    _cache_hits: int
-    _cache_misses: int
-
-    def __init__(self, linear_operator: LinearOperator, nonlinear_operator: NonLinearOperator):
-        super().__init__(linear_operator, nonlinear_operator)
-        self._cached_key = None
-        self._cached_values = None
-        self._cache_hits = 0
-        self._cache_misses = 0
-
-    def __call__(self, state: CurrentState, step_size: float) -> np.ndarray:
-        h = step_size
-        l0, nl0 = self.cached_values(state)
-        expD = np.exp(h * self.c2 * l0)
-
-        A_I = expD * state.solution
-        k1 = expD * (h * nl0)
-        k2 = h * self.nonlinear_operator(state.replace(A_I + k1 * self.c2))
-        k3 = h * self.nonlinear_operator(state.replace(A_I + k2 * self.c2))
-        k4 = h * self.nonlinear_operator(state.replace(expD * (A_I + k3)))
-
-        return expD * (A_I + k1 * self.c6 + k2 * self.c3 + k3 * self.c3) + k4 * self.c6
-
-    def cached_values(self, state: CurrentState) -> tuple[np.ndarray, np.ndarray]:
-        """the evaluation of the linear and nonlinear operators at the start of the step don't
-        depend on the step size, so we cache them in case we need them more than once (which
-        can happen depending on the adaptive step size controller)
-
-
-        Parameters
-        ----------
-        state : CurrentState
-            current state of the simulation. state.z is used as the key for the cache
-
-        Returns
-        -------
-        np.ndarray
-            result of the linear operator
-        np.ndarray
-            result of the nonlinear operator
-        """
-        if self._cached_key != state.z:
-            self._cache_misses += 1
-            self._cached_key = state.z
-            self._cached_values = self.linear_operator(state), self.nonlinear_operator(state)
-            self.record_tracked_values()
-        else:
-            self._cache_hits += 1
-        return self._cached_values
-
-    def values(self) -> dict[str, float]:
-        return dict(RK4IP_cache_hits=self._cache_hits, RK4IP_cache_misses=self._cache_misses)
-
-
-##################################################
-################### INTEGRATOR ###################
-##################################################
-
 
 class Integrator(ValueTracker):
     linear_operator: LinearOperator
@@ -120,6 +23,8 @@ class Integrator(ValueTracker):
     state: CurrentState
     tolerated_error: float
     _tracked_values: dict[str, float]
+    logger: logging.Logger
+    __registry: dict[str, Type[Integrator]] = {}
 
     def __init__(
         self,
@@ -133,11 +38,19 @@ class Integrator(ValueTracker):
         self.nonlinear_operator = nonlinear_operator
         self.tolerated_error = tolerated_error
         self._tracked_values = {}
+        self.logger = get_logger(self.__class__.__name__)
+
+    def __init_subclass__(cls):
+        cls.__registry[cls.__name__] = cls
+
+    @classmethod
+    def get(cls, integr: str) -> Type[Integrator]:
+        return cls.__registry[integr]
 
     @abstractmethod
     def __iter__(self) -> Iterator[CurrentState]:
         """propagate the state with a step size of state.current_step_size
-        and yield a new state with updated z and previous_step_size attributes"""
+        and yield a new state with updated z and step attributes"""
         ...
 
     def all_values(self) -> dict[str, float]:
@@ -151,7 +64,7 @@ class Integrator(ValueTracker):
         dict[str, float]
             tracked values
         """
-        return self.values() | self._tracked_values
+        return self.values() | self._tracked_values | dict(z=self.state.z, step=self.state.step)
 
     def record_tracked_values(self):
         self._tracked_values = super().all_values()
@@ -161,85 +74,104 @@ class Integrator(ValueTracker):
 
 
 class ConstantStepIntegrator(Integrator):
-    def __call__(self, state: CurrentState) -> CurrentState:
-        new_state = state.replace(self.step_taker(state, state.current_step_size))
-        new_state.z += new_state.current_step_size
-        new_state.previous_step_size = new_state.current_step_size
-        return new_state
+    def __init__(
+        self,
+        init_state: CurrentState,
+        linear_operator: LinearOperator,
+        nonlinear_operator: NonLinearOperator,
+    ):
+        super().__init__(init_state, linear_operator, nonlinear_operator, 0.0)
 
-    def values(self) -> dict[str, float]:
-        return dict(h=self.last_step)
+    def __iter__(self) -> Iterator[CurrentState]:
+        while True:
+            lin = self.linear_operator(self.state)
+            nonlin = self.nonlinear_operator(self.state)
+            self.record_tracked_values()
+            new_spec = RK4IP_step(
+                self.nonlinear_operator,
+                self.state,
+                self.state.solution.spectrum,
+                self.state.current_step_size,
+                lin,
+                nonlin,
+            )
+
+            self.state.z += self.state.current_step_size
+            self.state.step += 1
+            self.state.solution = new_spec
+            yield self.state
 
 
 class ConservedQuantityIntegrator(Integrator):
-    step_taker: StepTaker
+    last_qty: float
     conserved_quantity: AbstractConservedQuantity
-    last_quantity_value: float
-    tolerated_error: float
-    local_error: float = 0.0
+    current_error: float = 0.0
 
     def __init__(
         self,
-        step_taker: StepTaker,
-        conserved_quantity: AbstractConservedQuantity,
+        init_state: CurrentState,
+        linear_operator: LinearOperator,
+        nonlinear_operator: NonLinearOperator,
         tolerated_error: float,
+        conserved_quantity: AbstractConservedQuantity,
     ):
+        super().__init__(init_state, linear_operator, nonlinear_operator, tolerated_error)
         self.conserved_quantity = conserved_quantity
-        self.last_quantity_value = 0
-        self.tolerated_error = tolerated_error
-        self.logger = get_logger(self.__class__.__name__)
-        self.size_fac = 2.0 ** (1.0 / 5.0)
-        self.step_taker = step_taker
+        self.last_qty = self.conserved_quantity(self.state)
 
-    def __call__(self, state: CurrentState) -> CurrentState:
-        keep = False
-        h_next_step = state.current_step_size
-        while not keep:
-            h = h_next_step
+    def __iter__(self) -> Iterator[CurrentState]:
+        h_next_step = self.state.current_step_size
+        size_fac = 2.0 ** (1.0 / 5.0)
+        while True:
+            lin = self.linear_operator(self.state)
+            nonlin = self.nonlinear_operator(self.state)
+            self.record_tracked_values()
+            while True:
+                h = h_next_step
+                new_state = self.state.replace(
+                    RK4IP_step(
+                        self.nonlinear_operator,
+                        self.state,
+                        self.state.solution.spectrum,
+                        h,
+                        lin,
+                        nonlin,
+                    )
+                )
 
-            new_state = state.replace(self.step_taker(state, h))
+                new_qty = self.conserved_quantity(new_state)
+                self.current_error = np.abs(new_qty - self.last_qty) / self.last_qty
 
-            new_qty = self.conserved_quantity(new_state)
-            delta = np.abs(new_qty - self.last_quantity_value) / self.last_quantity_value
-
-            if delta > 2 * self.tolerated_error:
-                progress_str = f"step {state.step} rejected with h = {h:.4e}, doing over"
-                self.logger.info(progress_str)
-                keep = False
-                h_next_step = h * 0.5
-            elif self.tolerated_error < delta <= 2.0 * self.tolerated_error:
-                keep = True
-                h_next_step = h / self.size_fac
-            elif delta < 0.1 * self.tolerated_error:
-                keep = True
-                h_next_step = h * self.size_fac
-            else:
-                keep = True
-                h_next_step = h
-
-        self.local_error = delta
-        self.last_quantity_value = new_qty
-        new_state.current_step_size = h_next_step
-        new_state.previous_step_size = h
-        new_state.z += h
-        self.last_step = h
-        return new_state
+                if self.current_error > 2 * self.tolerated_error:
+                    h_next_step = h * 0.5
+                elif self.tolerated_error < self.current_error <= 2.0 * self.tolerated_error:
+                    h_next_step = h / size_fac
+                    break
+                elif self.current_error < 0.1 * self.tolerated_error:
+                    h_next_step = h * size_fac
+                    break
+                else:
+                    h_next_step = h
+                    break
+                self.logger.info(
+                    f"step {new_state.step} rejected : {h=}, {self.current_error=}, {h_next_step=}"
+                )
+            self.last_qty = new_qty
+            self.state = new_state
+            self.state.current_step_size = h_next_step
+            self.state.z += h
+            self.state.step += 1
+            yield self.state
 
     def values(self) -> dict[str, float]:
-        return dict(
-            cons_qty=self.last_quantity_value, h=self.last_step, relative_error=self.local_error
-        )
+        return dict(cons_qty=self.last_qty, relative_error=self.current_error)
 
 
 class RK4IPSD(Integrator):
     """Runge-Kutta 4 in Interaction Picture with step doubling"""
 
-    linear_operator: LinearOperator
-    nonlinear_operator: NonLinearOperator
-    tolerated_error: float
-    current_error: float
-    next_h_factor = 1.0
-    current_error = 0.0
+    next_h_factor: float = 1.0
+    current_error: float = 0.0
 
     def __iter__(self) -> Iterator[CurrentState]:
         h_next_step = self.state.current_step_size
@@ -274,7 +206,6 @@ class RK4IPSD(Integrator):
                     break
 
             self.state.current_step_size = h_next_step
-            self.state.previous_step_size = h
             self.state.z += h
             self.state.step += 1
             self.state.solution = new_fine
@@ -283,15 +214,7 @@ class RK4IPSD(Integrator):
     def take_step(
         self, h: float, spec: np.ndarray, lin: np.ndarray, nonlin: np.ndarray
     ) -> np.ndarray:
-        expD = np.exp(h * 0.5 * lin)
-        A_I = expD * spec
-
-        k1 = expD * nonlin
-        k2 = self.nl(A_I + k1 * 0.5 * h)
-        k3 = self.nl(A_I + k2 * 0.5 * h)
-        k4 = self.nl(expD * (A_I + h * k3))
-
-        return expD * (A_I + h / 6 * (k1 + 2 * k2 + 2 * k3)) + h / 6 * k4
+        return RK4IP_step(self.nonlinear_operator, self.state, spec, h, lin, nonlin)
 
     def compute_diff(self, coarse_spec: np.ndarray, fine_spec: np.ndarray) -> float:
         return np.sqrt(math.abs2(coarse_spec - fine_spec).sum() / math.abs2(fine_spec).sum())
@@ -358,8 +281,11 @@ class ERK43(Integrator):
                 h_next_step = self.next_h_factor * h
                 if self.current_error <= self.tolerated_error:
                     break
+                self.logger.info(
+                    f"step {self.state.step} rejected : {h=}, {self.current_error=}, {h_next_step=}"
+                )
+
             self.state.current_step_size = h_next_step
-            self.state.previous_step_size = h
             self.state.z += h
             self.state.step += 1
             self.state.solution = new_fine
@@ -377,7 +303,7 @@ class ERK43(Integrator):
 
 class ERK54(ERK43):
     def __iter__(self) -> Iterator[CurrentState]:
-        print("using ERK54")
+        self.logger.info("using ERK54")
         h_next_step = self.state.current_step_size
         k7 = self.nonlinear_operator(self.state)
         while True:
@@ -413,10 +339,51 @@ class ERK54(ERK43):
                 h_next_step = self.next_h_factor * h
                 if self.current_error <= self.tolerated_error:
                     break
+                self.logger.info(
+                    f"step {self.state.step} rejected : {h=}, {self.current_error=}, {h_next_step=}"
+                )
             self.state.current_step_size = h_next_step
-            self.state.previous_step_size = h
             self.state.z += h
             self.state.step += 1
             self.state.solution = new_fine
             k7 = tmp_k7
             yield self.state
+
+
+def RK4IP_step(
+    nonlinear_operator: NonLinearOperator,
+    init_state: CurrentState,
+    spectrum: np.ndarray,
+    h: float,
+    init_linear: np.ndarray,
+    init_nonlinear: np.ndarray,
+) -> np.ndarray:
+    """Take a normal RK4IP step
+
+    Parameters
+    ----------
+    nonlinear_operator : NonLinearOperator
+        non linear operator
+    init_state : CurrentState
+        state at the start of the step
+    h : float
+        step size
+    init_linear : np.ndarray
+        linear operator already applied on the initial state
+    init_nonlinear : np.ndarray
+        nonlinear operator already applied on the initial state
+
+    Returns
+    -------
+    np.ndarray
+        resutling spectrum
+    """
+    expD = np.exp(h * 0.5 * init_linear)
+    A_I = expD * spectrum
+
+    k1 = expD * init_nonlinear
+    k2 = nonlinear_operator(init_state.replace(A_I + k1 * 0.5 * h))
+    k3 = nonlinear_operator(init_state.replace(A_I + k2 * 0.5 * h))
+    k4 = nonlinear_operator(init_state.replace(expD * (A_I + h * k3)))
+
+    return expD * (A_I + h / 6 * (k1 + 2 * k2 + 2 * k3)) + h / 6 * k4

@@ -1,3 +1,4 @@
+import functools
 from typing import Any
 
 import numpy as np
@@ -110,15 +111,7 @@ def number_density_van_der_waals(
     return np.min(roots)
 
 
-def sellmeier_scalar(
-    wavelength: float,
-    material_dico: dict[str, Any],
-    pressure: float = None,
-    temperature: float = None,
-) -> float:
-    return float(sellmeier(np.array([wavelength]), material_dico, pressure, temperature)[0])
-
-
+@functools.singledispatch
 def sellmeier(
     wl_for_disp: np.ndarray,
     material_dico: dict[str, Any],
@@ -185,6 +178,17 @@ def sellmeier(
 
     logger.debug(f"computed chi between {np.min(chi):.2e} and {np.max(chi):.2e}")
     return chi
+
+
+@sellmeier.register
+def sellmeier_scalar(
+    wavelength: float,
+    material_dico: dict[str, Any],
+    pressure: float = None,
+    temperature: float = None,
+) -> float:
+    """n^2 - 1"""
+    return float(sellmeier(np.array([wavelength]), material_dico, pressure, temperature)[0])
 
 
 def delta_gas(w, material_dico):

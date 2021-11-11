@@ -215,6 +215,10 @@ def convert_field_units(envelope: np.ndarray, n: np.ndarray, A_eff: float) -> np
     return 2 * envelope.real / np.sqrt(2 * units.epsilon0 * units.c * n * A_eff)
 
 
+def c_to_a_factor(A_eff_arr: np.ndarray) -> np.ndarray:
+    return (A_eff_arr / A_eff_arr[0]) ** (1 / 4)
+
+
 def conform_pulse_params(
     shape: Literal["gaussian", "sech"],
     width: float = None,
