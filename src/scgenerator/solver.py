@@ -140,14 +140,15 @@ class ConservedQuantityIntegrator(Integrator):
                 )
 
                 new_qty = self.conserved_quantity(new_state)
-                self.current_error = np.abs(new_qty - self.last_qty) / self.last_qty
+                self.current_error = np.abs(new_qty - self.last_qty)
+                error_ok = self.last_qty * self.tolerated_error
 
-                if self.current_error > 2 * self.tolerated_error:
+                if self.current_error > 2 * error_ok:
                     h_next_step = h * 0.5
-                elif self.tolerated_error < self.current_error <= 2.0 * self.tolerated_error:
+                elif error_ok < self.current_error <= 2.0 * error_ok:
                     h_next_step = h / size_fac
                     break
-                elif self.current_error < 0.1 * self.tolerated_error:
+                elif self.current_error < 0.1 * error_ok:
                     h_next_step = h * size_fac
                     break
                 else:
@@ -381,9 +382,9 @@ def RK4IP_step(
     expD = np.exp(h * 0.5 * init_linear)
     A_I = expD * spectrum
 
-    k1 = expD * init_nonlinear
-    k2 = nonlinear_operator(init_state.replace(A_I + k1 * 0.5 * h))
-    k3 = nonlinear_operator(init_state.replace(A_I + k2 * 0.5 * h))
-    k4 = nonlinear_operator(init_state.replace(expD * (A_I + h * k3)))
+    k1 = h * expD * init_nonlinear
+    k2 = h * nonlinear_operator(init_state.replace(A_I + k1 * 0.5))
+    k3 = h * nonlinear_operator(init_state.replace(A_I + k2 * 0.5))
+    k4 = h * nonlinear_operator(init_state.replace(expD * (A_I + k3)))
 
-    return expD * (A_I + h / 6 * (k1 + 2 * k2 + 2 * k3)) + h / 6 * k4
+    return expD * (A_I + k1 / 6 + k2 / 3 + k3 / 3) + k4 / 6
