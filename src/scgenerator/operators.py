@@ -13,7 +13,6 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 from . import math
-from .errors import OperatorError
 from .logger import get_logger
 from .physics import fiber, materials, pulse, units
 from .utils import load_material_dico
@@ -415,21 +414,13 @@ class ConstantPolyDispersion(AbstractDispersion):
 
     def __init__(
         self,
-        w_for_disp: np.ndarray,
-        beta2_arr: np.ndarray,
-        w0: float,
+        beta2_coefficients: np.ndarray,
         w_c: np.ndarray,
-        interpolation_degree: int,
     ):
-        if interpolation_degree < 1:
-            raise OperatorError(
-                f"interpolation degree of degree {interpolation_degree} incompatible"
-            )
-        coefs = fiber.dispersion_coefficients(w_for_disp, beta2_arr, w0, interpolation_degree)
         w_power_fact = np.array(
-            [math.power_fact(w_c, k) for k in range(2, interpolation_degree + 3)]
+            [math.power_fact(w_c, k) for k in range(2, len(beta2_coefficients) + 2)]
         )
-        self.disp_arr = fiber.fast_poly_dispersion_op(w_c, coefs, w_power_fact)
+        self.disp_arr = fiber.fast_poly_dispersion_op(w_c, beta2_coefficients, w_power_fact)
 
     def __call__(self, state: CurrentState = None) -> np.ndarray:
         return self.disp_arr
