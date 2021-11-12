@@ -97,10 +97,10 @@ class RK4IP:
             step=0,
             C_to_A_factor=self.params.c_to_a_factor,
             converter=self.params.ifft,
-            solution=self.params.spec_0.copy() / self.params.c_to_a_factor,
+            spectrum=self.params.spec_0.copy() / self.params.c_to_a_factor,
         )
         self.stored_spectra = self.params.recovery_last_stored * [None] + [
-            self.init_state.solution.spectrum.copy()
+            self.init_state.spectrum.copy()
         ]
         self.tracked_values = TrackedValues()
 
@@ -165,7 +165,7 @@ class RK4IP:
         yield len(self.stored_spectra) - 1, state
         if self.params.adapt_step_size:
             integrator = solver.ConservedQuantityIntegrator(
-                self.init_state,
+                state,
                 self.params.linear_operator,
                 self.params.nonlinear_operator,
                 self.params.tolerated_error,
@@ -173,7 +173,7 @@ class RK4IP:
             )
         else:
             integrator = solver.ConstantStepIntegrator(
-                self.init_state, self.params.linear_operator, self.params.nonlinear_operator
+                state, self.params.linear_operator, self.params.nonlinear_operator
             )
         for state in integrator:
 

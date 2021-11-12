@@ -90,7 +90,7 @@ class ConstantStepIntegrator(Integrator):
             new_spec = rk4ip_step(
                 self.nonlinear_operator,
                 self.state,
-                self.state.solution.spectrum,
+                self.state.spectrum,
                 self.state.current_step_size,
                 lin,
                 nonlin,
@@ -98,7 +98,7 @@ class ConstantStepIntegrator(Integrator):
 
             self.state.z += self.state.current_step_size
             self.state.step += 1
-            self.state.solution = new_spec
+            self.state = new_spec
             yield self.state
 
 
@@ -128,27 +128,25 @@ class ConservedQuantityIntegrator(Integrator):
             self.record_tracked_values()
             while True:
                 h = h_next_step
-                new_state = self.state.replace(
-                    rk4ip_step(
-                        self.nonlinear_operator,
-                        self.state,
-                        self.state.solution.spectrum,
-                        h,
-                        lin,
-                        nonlin,
-                    )
+                new_spec = rk4ip_step(
+                    self.nonlinear_operator,
+                    self.state,
+                    self.state.spectrum,
+                    h,
+                    lin,
+                    nonlin,
                 )
+                new_state = self.state.replace(new_spec)
 
                 new_qty = self.conserved_quantity(new_state)
-                self.current_error = np.abs(new_qty - self.last_qty)
-                error_ok = self.last_qty * self.tolerated_error
+                self.current_error = np.abs(new_qty - self.last_qty) / self.last_qty
 
-                if self.current_error > 2 * error_ok:
+                if self.current_error > 2 * self.tolerated_error:
                     h_next_step = h * 0.5
-                elif error_ok < self.current_error <= 2.0 * error_ok:
+                elif self.tolerated_error < self.current_error <= 2.0 * self.tolerated_error:
                     h_next_step = h / size_fac
                     break
-                elif self.current_error < 0.1 * error_ok:
+                elif self.current_error < 0.1 * self.tolerated_error:
                     h_next_step = h * size_fac
                     break
                 else:
@@ -183,7 +181,7 @@ class RK4IPSD(Integrator):
             self.record_tracked_values()
             while True:
                 h = h_next_step
-                new_fine_inter = self.take_step(h / 2, self.state.solution.spectrum, lin, nonlin)
+                new_fine_inter = self.take_step(h / 2, self.state.spectrum, lin, nonlin)
                 new_fine_inter_state = self.state.replace(new_fine_inter)
                 new_fine = self.take_step(
                     h / 2,
@@ -191,7 +189,7 @@ class RK4IPSD(Integrator):
                     self.linear_operator(new_fine_inter_state),
                     self.nonlinear_operator(new_fine_inter_state),
                 )
-                new_coarse = self.take_step(h, self.state.solution.spectrum, lin, nonlin)
+                new_coarse = self.take_step(h, self.state.spectrum, lin, nonlin)
                 self.current_error = self.compute_diff(new_coarse, new_fine)
 
                 if self.current_error > 2 * self.tolerated_error:
@@ -209,7 +207,7 @@ class RK4IPSD(Integrator):
             self.state.current_step_size = h_next_step
             self.state.z += h
             self.state.step += 1
-            self.state.solution = new_fine
+            self.state = new_fine
             yield self.state
 
     def take_step(
@@ -262,7 +260,7 @@ class ERK43(Integrator):
             while True:
                 h = h_next_step
                 expD = np.exp(h * 0.5 * lin)
-                A_I = expD * self.state.solution.spectrum
+                A_I = expD * self.state.spectrum
                 k1 = expD * k5
                 k2 = self.nl(A_I + 0.5 * h * k1)
                 k3 = self.nl(A_I + 0.5 * h * k2)
@@ -289,7 +287,7 @@ class ERK43(Integrator):
             self.state.current_step_size = h_next_step
             self.state.z += h
             self.state.step += 1
-            self.state.solution = new_fine
+            self.state = new_fine
             k5 = tmp_k5
             yield self.state
 
@@ -316,7 +314,7 @@ class ERK54(ERK43):
                 expD4p = np.exp(h * 0.25 * lin)
                 expD4m = 1 / expD4p
 
-                A_I = expD2 * self.state.solution.spectrum
+                A_I = expD2 * self.state.spectrum
                 k1 = expD2 * k7
                 k2 = self.nl(A_I + 0.5 * h * k1)
                 k3 = expD4p * self.nl(expD4m * (A_I + h / 16 * (3 * k1 + k2)))
@@ -346,7 +344,7 @@ class ERK54(ERK43):
             self.state.current_step_size = h_next_step
             self.state.z += h
             self.state.step += 1
-            self.state.solution = new_fine
+            self.state = new_fine
             k7 = tmp_k7
             yield self.state
 
@@ -369,6 +367,8 @@ def rk4ip_step(
         state at the start of the step
     h : float
         step size
+    spectrum : np.ndarray
+        spectrum to propagate
     init_linear : np.ndarray
         linear operator already applied on the initial state
     init_nonlinear : np.ndarray
