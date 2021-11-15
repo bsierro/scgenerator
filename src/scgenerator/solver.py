@@ -4,9 +4,9 @@ import logging
 from abc import abstractmethod
 from typing import Iterator, Type
 
+import numba
 import numpy as np
 
-from . import math
 from .logger import get_logger
 from .operators import (
     AbstractConservedQuantity,
@@ -196,7 +196,7 @@ class RK4IPSD(Integrator):
                     self.nonlinear_operator(new_fine_inter_state),
                 )
                 new_coarse = self.take_step(h, self.state.spectrum, lin, nonlin)
-                self.current_error = self.compute_diff(new_coarse, new_fine)
+                self.current_error = compute_diff(new_coarse, new_fine)
 
                 if self.current_error > 2 * self.tolerated_error:
                     h_next_step = h * 0.5
@@ -218,42 +218,14 @@ class RK4IPSD(Integrator):
     ) -> np.ndarray:
         return rk4ip_step(self.nonlinear_operator, self.state, spec, h, lin, nonlin)
 
-    def compute_diff(self, coarse_spec: np.ndarray, fine_spec: np.ndarray) -> float:
-        return np.sqrt(math.abs2(coarse_spec - fine_spec).sum() / math.abs2(fine_spec).sum())
-
     def values(self) -> dict[str, float]:
         return dict(
-            step=self.state.step,
             z=self.state.z,
             local_error=self.current_error,
-            next_h_factor=self.next_h_factor,
         )
 
 
-class ERK43(Integrator):
-    state: CurrentState
-    linear_operator: LinearOperator
-    nonlinear_operator: NonLinearOperator
-    tolerated_error: float
-    dt: float
-    current_error: float
-    next_h_factor = 1.0
-
-    def __init__(
-        self,
-        init_state: CurrentState,
-        linear_operator: LinearOperator,
-        nonlinear_operator: NonLinearOperator,
-        tolerated_error: float,
-        dw: float,
-    ):
-        self.state = init_state
-        self.linear_operator = linear_operator
-        self.nonlinear_operator = nonlinear_operator
-        self.dw = dw
-        self.tolerated_error = tolerated_error
-        self.current_error = 0.0
-
+class ERK43(RK4IPSD):
     def __iter__(self) -> Iterator[CurrentState]:
         h_next_step = self.state.current_step_size
         k5 = self.nonlinear_operator(self.state)
@@ -276,13 +248,17 @@ class ERK43(Integrator):
 
                 new_coarse = r + h / 30 * (2 * k4 + 3 * tmp_k5)
 
-                self.current_error = np.sqrt(self.dw * math.abs2(new_fine - new_coarse).sum())
-                self.next_h_factor = max(
-                    0.5, min(2.0, (self.tolerated_error / self.current_error) ** 0.25)
-                )
-                h_next_step = self.next_h_factor * h
-                if self.current_error <= self.tolerated_error:
+                self.current_error = compute_diff(new_coarse, new_fine)
+                if self.current_error > 0.0:
+                    next_h_factor = max(
+                        0.5, min(2.0, (self.tolerated_error / self.current_error) ** 0.25)
+                    )
+                else:
+                    next_h_factor = 2.0
+                h_next_step = next_h_factor * h
+                if self.current_error <= 2 * self.tolerated_error:
                     break
+                h_next_step = min(0.9, next_h_factor) * h
                 self.logger.info(
                     f"step {self.state.step} rejected : {h=}, {self.current_error=}, {h_next_step=}"
                 )
@@ -291,16 +267,8 @@ class ERK43(Integrator):
             self.state.spectrum = new_fine
             yield self.accept_step(self.state, h, h_next_step)
 
-    def values(self) -> dict[str, float]:
-        return dict(
-            step=self.state.step,
-            z=self.state.z,
-            local_error=self.current_error,
-            next_h_factor=self.next_h_factor,
-        )
 
-
-class ERK54(ERK43):
+class ERK54(RK4IPSD):
     def __iter__(self) -> Iterator[CurrentState]:
         self.logger.info("using ERK54")
         h_next_step = self.state.current_step_size
@@ -315,29 +283,31 @@ class ERK54(ERK43):
                 expD4m = 1 / expD4p
 
                 A_I = expD2 * self.state.spectrum
-                k1 = expD2 * k7
-                k2 = self.nl(A_I + 0.5 * h * k1)
-                k3 = expD4p * self.nl(expD4m * (A_I + h / 16 * (3 * k1 + k2)))
-                k4 = self.nl(A_I + h / 4 * (k1 - k2 + 4 * k3))
-                k5 = expD4m * self.nl(expD4p * (A_I + 3 * h / 16 * (k1 + 3 * k4)))
-                k6 = self.nl(expD2 * (A_I + h / 7 * (-2 * k1 + k2 + 12 * k3 - 12 * k4 + 8 * k5)))
+                k1 = h * expD2 * k7
+                k2 = h * self.nl(A_I + 0.5 * k1)
+                k3 = h * expD4p * self.nl(expD4m * (A_I + 0.0625 * (3 * k1 + k2)))
+                k4 = h * self.nl(A_I + 0.25 * (k1 - k2 + 4 * k3))
+                k5 = h * expD4m * self.nl(expD4p * (A_I + 0.1875 * (k1 + 3 * k4)))
+                k6 = h * self.nl(
+                    expD2 * (A_I + 1 / 7 * (-2 * k1 + k2 + 12 * k3 - 12 * k4 + 8 * k5))
+                )
 
                 new_fine = (
-                    expD2 * (A_I + h / 90 * (7 * k1 + 32 * k3 + 12 * k4 + 32 * k5))
-                    + 7 * h / 90 * k6
+                    expD2 * (A_I + 1 / 90 * (7 * k1 + 32 * k3 + 12 * k4 + 32 * k5)) + 7 / 90 * k6
                 )
                 tmp_k7 = self.nl(new_fine)
                 new_coarse = (
-                    expD2 * (A_I + h / 42 * (3 * k1 + 16 * k3 + 4 * k4 + 16 * k5)) + h / 14 * k7
+                    expD2 * (A_I + 1 / 42 * (3 * k1 + 16 * k3 + 4 * k4 + 16 * k5)) + h / 14 * k7
                 )
 
-                self.current_error = np.sqrt(self.dw * math.abs2(new_fine - new_coarse).sum())
-                self.next_h_factor = max(
-                    0.5, min(2.0, (self.tolerated_error / self.current_error) ** 0.25)
+                self.current_error = compute_diff(new_coarse, new_fine)
+                next_h_factor = max(
+                    0.5, min(2.0, (self.tolerated_error / self.current_error) ** 0.2)
                 )
-                h_next_step = self.next_h_factor * h
-                if self.current_error <= self.tolerated_error:
+                h_next_step = next_h_factor * h
+                if self.current_error <= 2 * self.tolerated_error:
                     break
+                h_next_step = min(0.9, next_h_factor) * h
                 self.logger.info(
                     f"step {self.state.step} rejected : {h=}, {self.current_error=}, {h_next_step=}"
                 )
@@ -385,3 +355,10 @@ def rk4ip_step(
     k4 = h * nonlinear_operator(init_state.replace(expD * (A_I + k3)))
 
     return expD * (A_I + k1 / 6 + k2 / 3 + k3 / 3) + k4 / 6
+
+
+@numba.jit(nopython=True)
+def compute_diff(coarse_spec: np.ndarray, fine_spec: np.ndarray) -> float:
+    diff = coarse_spec - fine_spec
+    diff2 = diff.imag ** 2 + diff.real ** 2
+    return np.sqrt(diff2.sum() / (fine_spec.real ** 2 + fine_spec.imag ** 2).sum())

@@ -164,12 +164,11 @@ class RK4IP:
         state = self.init_state.copy()
         yield len(self.stored_spectra) - 1, state
         if self.params.adapt_step_size:
-            integrator = solver.ConservedQuantityIntegrator(
+            integrator = solver.RK4IPSD(
                 state,
                 self.params.linear_operator,
                 self.params.nonlinear_operator,
                 self.params.tolerated_error,
-                self.params.conserved_quantity,
             )
         else:
             integrator = solver.ConstantStepIntegrator(

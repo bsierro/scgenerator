@@ -422,6 +422,13 @@ class Parameters:
     def __repr_list__(self) -> Iterator[str]:
         yield from (f"{k}={v}" for k, v in self.dump_dict().items())
 
+    def __getstate__(self) -> dict[str, Any]:
+        return self.dump_dict(add_metadata=False)
+
+    def __setstate__(self, dumped_dict: dict[str, Any]):
+        self._param_dico = dumped_dict
+        self.__post_init__()
+
     def dump_dict(self, compute=True, add_metadata=True) -> dict[str, Any]:
         if compute:
             self.compute_in_place()

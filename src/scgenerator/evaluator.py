@@ -378,7 +378,6 @@ default_rules: list[Rule] = [
     Rule("n_op", operators.HasanRefractiveIndex),
     Rule("raman_op", operators.NoRaman, priorities=-1),
     Rule("loss_op", operators.NoLoss, priorities=-1),
-    Rule("plasma_op", operators.NoPlasma, priorities=-1),
     # solvers
     Rule("integrator", solver.ConstantStepIntegrator, conditions=dict(adapt_step_size=False)),
     Rule(
@@ -453,5 +452,7 @@ full_field_rules = default_rules + [
         "linear_operator",
         operators.FullFieldLinearOperator,
     ),
+    Rule("plasma_op", operators.Plasma, conditions=dict(photoionization=True)),
+    Rule("plasma_op", operators.NoPlasma, priorities=-1),
     Rule("nonlinear_operator", operators.FullFieldNonLinearOperator),
 ]

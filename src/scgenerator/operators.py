@@ -13,7 +13,7 @@ from scipy.interpolate import interp1d
 
 from . import math
 from .logger import get_logger
-from .physics import fiber, materials, pulse, units
+from .physics import fiber, materials, pulse, units, plasma
 from .utils import load_material_dico
 
 
@@ -198,6 +198,9 @@ class NoOpFreq(Operator):
 
 
 class AbstractGas(ABC):
+    gas_name: str
+    material_dico: dict[str, Any]
+
     @abstractmethod
     def pressure(self, state: CurrentState) -> float:
         """returns the pressure at the current
@@ -254,11 +257,12 @@ class ConstantGas(AbstractGas):
         ideal_gas: bool,
         wl_for_disp: np.ndarray,
     ):
-        gas_dico = load_material_dico(gas_name)
+        self.material_dico = load_material_dico(gas_name)
+        self.gas_name = gas_name
         self.pressure_const = pressure
         if ideal_gas:
             self.number_density_const = materials.number_density_van_der_waals(
-                pressure=pressure, temperature=temperature, material_dico=gas_dico
+                pressure=pressure, temperature=temperature, material_dico=self.material_dico
             )
         else:
             self.number_density_const = self.pressure_const / (units.kB * temperature)
@@ -277,11 +281,9 @@ class ConstantGas(AbstractGas):
 
 
 class PressureGradientGas(AbstractGas):
-    name: str
     p_in: float
     p_out: float
     temperature: float
-    gas_dico: dict[str, Any]
 
     def __init__(
         self,
@@ -292,10 +294,10 @@ class PressureGradientGas(AbstractGas):
         ideal_gas: bool,
         wl_for_disp: np.ndarray,
     ):
-        self.name = gas_name
+        self.gas_name = gas_name
         self.p_in = pressure_in
         self.p_out = pressure_out
-        self.gas_dico = load_material_dico(gas_name)
+        self.material_dico = load_material_dico(gas_name)
         self.temperature = temperature
         self.ideal_gas = ideal_gas
         self.wl_for_disp = wl_for_disp
@@ -310,12 +312,16 @@ class PressureGradientGas(AbstractGas):
             return materials.number_density_van_der_waals(
                 pressure=self.pressure(state),
                 temperature=self.temperature,
-                material_dico=self.gas_dico,
+                material_dico=self.material_dico,
             )
 
     def square_index(self, state: CurrentState) -> np.ndarray:
         return materials.fast_n_gas_2(
-            self.wl_for_disp, self.pressure(state), self.temperature, self.ideal_gas, self.gas_dico
+            self.wl_for_disp,
+            self.pressure(state),
+            self.temperature,
+            self.ideal_gas,
+            self.material_dico,
         )
 
 
@@ -793,7 +799,20 @@ class ConstantGamma(AbstractGamma):
 
 
 class Plasma(Operator):
-    pass
+    mat_plasma: plasma.Plasma
+    gas_op: AbstractGas
+
+    def __init__(self, dt: float, gas_op: AbstractGas):
+        self.gas_op = gas_op
+        self.mat_plasma = plasma.Plasma(
+            dt,
+            self.gas_op.material_dico["ionization_energy"],
+            self.gas_op.material_dico["atomic_number"],
+        )
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        N0 = self.gas_op.number_density(state)
+        return self.mat_plasma(state.field, N0)
 
 
 class NoPlasma(NoOpTime, Plasma):
