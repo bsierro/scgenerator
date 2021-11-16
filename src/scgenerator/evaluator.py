@@ -378,6 +378,7 @@ default_rules: list[Rule] = [
     Rule("raman_op", operators.NoRaman, priorities=-1),
     Rule("loss_op", operators.NoLoss, priorities=-1),
     Rule("conserved_quantity", operators.NoConservedQuantity, priorities=-1),
+    Rule("conserved_quantity", operators.conserved_quantity),
 ]
 
 envelope_rules = default_rules + [
@@ -418,7 +419,6 @@ envelope_rules = default_rules + [
     Rule("dispersion_op", operators.ConstantPolyDispersion),
     Rule("dispersion_op", operators.DirectDispersion),
     Rule("linear_operator", operators.EnvelopeLinearOperator),
-    Rule("conserved_quantity", operators.conserved_quantity),
 ]
 
 full_field_rules = default_rules + [

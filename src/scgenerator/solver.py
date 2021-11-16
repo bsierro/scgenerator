@@ -55,27 +55,28 @@ class Integrator(ValueTracker):
     linear_operator: LinearOperator
     nonlinear_operator: NonLinearOperator
     state: CurrentState
-    tolerated_error: float
+    target_error: float
     _tracked_values: dict[str, float]
     logger: logging.Logger
     __factory: IntegratorFactory = IntegratorFactory()
-    steps_rejected = 0
+    order = 4
 
     def __init__(
         self,
         init_state: CurrentState,
         linear_operator: LinearOperator,
         nonlinear_operator: NonLinearOperator,
-        tolerated_error: float,
     ):
         self.state = init_state
         self.linear_operator = linear_operator
         self.nonlinear_operator = nonlinear_operator
-        self.tolerated_error = tolerated_error
         self._tracked_values = {}
         self.logger = get_logger(self.__class__.__name__)
 
-    def __init_subclass__(cls, scheme=""):
+    def __init_subclass__(cls, scheme=None):
+        super().__init_subclass__()
+        if scheme is None:
+            return
         cls.__factory.register(scheme, cls)
 
     @classmethod
@@ -103,15 +104,10 @@ class Integrator(ValueTracker):
         dict[str, float]
             tracked values
         """
-        return (
-            self.values()
-            | self._tracked_values
-            | dict(z=self.state.z, step=self.state.step, steps_rejected=self.steps_rejected)
-        )
+        return self._tracked_values | dict(z=self.state.z, step=self.state.step)
 
     def record_tracked_values(self):
         self._tracked_values = super().all_values()
-        self.steps_rejected = 0
 
     def nl(self, spectrum: np.ndarray) -> np.ndarray:
         return self.nonlinear_operator(self.state.replace(spectrum))
@@ -156,7 +152,57 @@ class ConstantStepIntegrator(Integrator, scheme="constant"):
             )
 
 
-class ConservedQuantityIntegrator(Integrator, scheme="cqe"):
+class AdaptiveIntegrator(Integrator):
+    target_error: float
+    current_error: float = 0.0
+    steps_rejected: float = 0
+
+    def __init__(
+        self,
+        init_state: CurrentState,
+        linear_operator: LinearOperator,
+        nonlinear_operator: NonLinearOperator,
+        tolerated_error: float,
+    ):
+        self.target_error = tolerated_error
+        super().__init__(init_state, linear_operator, nonlinear_operator)
+
+    def decide_step(self, h: float) -> tuple[float, bool]:
+        """decides if the current step must be accepted and computes the next step
+        size regardless
+
+        Parameters
+        ----------
+        h : float
+            size of the step used to set the current self.current_error
+
+        Returns
+        -------
+        float
+            next step size
+        bool
+            True if the step must be accepted
+        """
+        if self.current_error > 0.0:
+            next_h_factor = max(
+                0.5, min(2.0, (self.target_error / self.current_error) ** (1 / self.order))
+            )
+        else:
+            next_h_factor = 2.0
+        h_next_step = h * next_h_factor
+        accepted = self.current_error <= 2 * self.target_error
+        if not accepted:
+            self.steps_rejected += 1
+            self.logger.info(
+                f"step {self.state.step} rejected : {h=}, {self.current_error=}, {h_next_step=}"
+            )
+        return h_next_step, accepted
+
+    def values(self) -> dict[str, float]:
+        return dict(step_rejected=self.steps_rejected)
+
+
+class ConservedQuantityIntegrator(AdaptiveIntegrator, scheme="cqe"):
     last_qty: float
     conserved_quantity: AbstractConservedQuantity
     current_error: float = 0.0
@@ -174,9 +220,8 @@ class ConservedQuantityIntegrator(Integrator, scheme="cqe"):
         self.last_qty = self.conserved_quantity(self.state)
 
     def __iter__(self) -> Iterator[CurrentState]:
-        h_next_step = self.state.current_step_size
-        size_fac = 2.0 ** (1.0 / 5.0)
         while True:
+            h_next_step = self.state.current_step_size
             lin = self.linear_operator(self.state)
             nonlin = self.nonlinear_operator(self.state)
             self.record_tracked_values()
@@ -194,38 +239,25 @@ class ConservedQuantityIntegrator(Integrator, scheme="cqe"):
 
                 new_qty = self.conserved_quantity(new_state)
                 self.current_error = np.abs(new_qty - self.last_qty) / self.last_qty
-
-                if self.current_error > 2 * self.tolerated_error:
-                    h_next_step = h * 0.5
-                elif self.tolerated_error < self.current_error <= 2.0 * self.tolerated_error:
-                    h_next_step = h / size_fac
+                h_next_step, accepted = self.decide_step(h)
+                if accepted:
                     break
-                elif self.current_error < 0.1 * self.tolerated_error:
-                    h_next_step = h * size_fac
-                    break
-                else:
-                    h_next_step = h
-                    break
-                self.logger.info(
-                    f"step {new_state.step} rejected : {h=}, {self.current_error=}, {h_next_step=}"
-                )
             self.last_qty = new_qty
             yield self.accept_step(new_state, h, h_next_step)
 
     def values(self) -> dict[str, float]:
-        return dict(cons_qty=self.last_qty, relative_error=self.current_error)
+        return super().values() | dict(cons_qty=self.last_qty, relative_error=self.current_error)
 
 
-class RK4IPSD(Integrator, scheme="sd"):
+class RK4IPSD(AdaptiveIntegrator, scheme="sd"):
     """Runge-Kutta 4 in Interaction Picture with step doubling"""
 
     next_h_factor: float = 1.0
     current_error: float = 0.0
 
     def __iter__(self) -> Iterator[CurrentState]:
-        h_next_step = self.state.current_step_size
-        size_fac = 2.0 ** (1.0 / 5.0)
         while True:
+            h_next_step = self.state.current_step_size
             lin = self.linear_operator(self.state)
             nonlin = self.nonlinear_operator(self.state)
             self.record_tracked_values()
@@ -241,26 +273,9 @@ class RK4IPSD(Integrator, scheme="sd"):
                 )
                 new_coarse = self.take_step(h, self.state.spectrum, lin, nonlin)
                 self.current_error = compute_diff(new_coarse, new_fine)
-                if self.current_error > 0.0:
-                    next_h_factor = max(
-                        0.5, min(2.0, (self.tolerated_error / self.current_error) ** 0.25)
-                    )
-                else:
-                    next_h_factor = 2.0
-                h_next_step = next_h_factor * h
-                if self.current_error <= 2 * self.tolerated_error:
+                h_next_step, accepted = self.decide_step(h)
+                if accepted:
                     break
-                # if self.current_error > 2 * self.tolerated_error:
-                #     h_next_step = h * 0.5
-                # elif self.tolerated_error <= self.current_error <= 2 * self.tolerated_error:
-                #     h_next_step = h / size_fac
-                #     break
-                # elif 0.5 * self.tolerated_error <= self.current_error < self.tolerated_error:
-                #     h_next_step = h
-                #     break
-                # else:
-                #     h_next_step = h * size_fac
-                #     break
 
             self.state.spectrum = new_fine
             yield self.accept_step(self.state, h, h_next_step)
@@ -271,7 +286,7 @@ class RK4IPSD(Integrator, scheme="sd"):
         return rk4ip_step(self.nonlinear_operator, self.state, spec, h, lin, nonlin)
 
     def values(self) -> dict[str, float]:
-        return dict(
+        return super().values() | dict(
             z=self.state.z,
             local_error=self.current_error,
         )
@@ -279,9 +294,9 @@ class RK4IPSD(Integrator, scheme="sd"):
 
 class ERK43(RK4IPSD, scheme="erk43"):
     def __iter__(self) -> Iterator[CurrentState]:
-        h_next_step = self.state.current_step_size
         k5 = self.nonlinear_operator(self.state)
         while True:
+            h_next_step = self.state.current_step_size
             lin = self.linear_operator(self.state)
             self.record_tracked_values()
             while True:
@@ -301,32 +316,22 @@ class ERK43(RK4IPSD, scheme="erk43"):
                 new_coarse = r + h / 30 * (2 * k4 + 3 * tmp_k5)
 
                 self.current_error = compute_diff(new_coarse, new_fine)
-                if self.current_error > 0.0:
-                    next_h_factor = max(
-                        0.5, min(2.0, (self.tolerated_error / self.current_error) ** 0.25)
-                    )
-                else:
-                    next_h_factor = 2.0
-                h_next_step = next_h_factor * h
-                if self.current_error <= 2 * self.tolerated_error:
+                h_next_step, accepted = self.decide_step(h)
+                if accepted:
                     break
-                h_next_step = min(0.9, next_h_factor) * h
-                self.steps_rejected += 1
-                self.logger.info(
-                    f"step {self.state.step} rejected : {h=}, {self.current_error=}, {h_next_step=}"
-                )
-
             k5 = tmp_k5
             self.state.spectrum = new_fine
             yield self.accept_step(self.state, h, h_next_step)
 
 
 class ERK54(RK4IPSD, scheme="erk54"):
+    order = 5
+
     def __iter__(self) -> Iterator[CurrentState]:
         self.logger.info("using ERK54")
-        h_next_step = self.state.current_step_size
         k7 = self.nonlinear_operator(self.state)
         while True:
+            h_next_step = self.state.current_step_size
             lin = self.linear_operator(self.state)
             self.record_tracked_values()
             while True:
@@ -354,16 +359,9 @@ class ERK54(RK4IPSD, scheme="erk54"):
                 )
 
                 self.current_error = compute_diff(new_coarse, new_fine)
-                next_h_factor = max(
-                    0.5, min(2.0, (self.tolerated_error / self.current_error) ** 0.2)
-                )
-                h_next_step = next_h_factor * h
-                if self.current_error <= 2 * self.tolerated_error:
+                h_next_step, accepted = self.decide_step(h)
+                if accepted:
                     break
-                h_next_step = min(0.9, next_h_factor) * h
-                self.logger.info(
-                    f"step {self.state.step} rejected : {h=}, {self.current_error=}, {h_next_step=}"
-                )
             k7 = tmp_k7
             self.state.spectrum = new_fine
             yield self.accept_step(self.state, h, h_next_step)

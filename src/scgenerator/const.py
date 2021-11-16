@@ -76,8 +76,10 @@ VALID_VARIABLE = {
     "interpolation_degree",
     "ideal_gas",
     "length",
+    "integration_scheme",
     "num",
 }
+
 
 MANDATORY_PARAMETERS = [
     "name",
