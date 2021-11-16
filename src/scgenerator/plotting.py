@@ -17,7 +17,8 @@ from .math import abs2, span
 from .parameter import Parameters
 from .physics import pulse, units
 from .physics.units import PlotRange, sort_axis
-from .utils import load_spectrum
+from .utils import load_spectrum, load_toml
+from .legacy import translate_parameters
 
 RangeType = tuple[float, float, Union[str, Callable]]
 NO_LIM = object()
@@ -1079,7 +1080,7 @@ def partial_plot(root: os.PathLike):
     spec_list = sorted(
         path.glob(SPEC1_FN.format("*")), key=lambda el: int(re.search("[0-9]+", el.name)[0])
     )
-    params = Parameters.load(path / "params.toml")
+    params = Parameters(**translate_parameters(load_toml(path / "params.toml")))
     params.z_targets = params.z_targets[: len(spec_list)]
     raw_values = np.array([load_spectrum(s) for s in spec_list])
 

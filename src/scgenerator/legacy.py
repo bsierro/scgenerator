@@ -111,12 +111,15 @@ def translate_parameters(d: dict[str, Any]) -> dict[str, Any]:
         beta="beta2_coefficients",
         interp_range="interpolation_range",
     )
+    to_delete = ["dynamic_dispersion"]
     wl_limits_old = ["lower_wavelength_interp_limit", "upper_wavelength_interp_limit"]
     defaults_to_add = dict(repeat=1)
     new = {}
     if len(set(wl_limits_old) & d.keys()) == 2:
         new["interpolation_range"] = (d[wl_limits_old[0]], d[wl_limits_old[1]])
     for k, v in d.items():
+        if k in to_delete:
+            continue
         if k == "error_ok":
             new["tolerated_error" if d.get("adapt_step_size", True) else "step_size"] = v
         elif k == "behaviors":

@@ -19,7 +19,8 @@ from .plotting import (
     single_position_plot,
     transform_2D_propagation,
 )
-from .utils import load_spectrum, simulations_list
+from .utils import load_spectrum, simulations_list, load_toml
+from .legacy import translate_parameters
 
 
 class Spectrum(np.ndarray):
@@ -133,7 +134,7 @@ class SimulationSeries:
             break
         else:
             raise FileNotFoundError(f"No simulation in {path}")
-        self.params = Parameters.load(self.path / PARAM_FN)
+        self.params = Parameters(**translate_parameters(load_toml(path / PARAM_FN)))
         self.t = self.params.t
         self.w = self.params.w
         if self.params.prev_data_dir is not None:
