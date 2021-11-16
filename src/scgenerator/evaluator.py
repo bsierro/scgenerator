@@ -5,7 +5,6 @@ from typing import Any, Callable, Optional, Union
 
 import numpy as np
 
-from scgenerator import solver
 
 from . import math, operators, utils
 from .const import MANDATORY_PARAMETERS
@@ -378,17 +377,7 @@ default_rules: list[Rule] = [
     Rule("n_op", operators.HasanRefractiveIndex),
     Rule("raman_op", operators.NoRaman, priorities=-1),
     Rule("loss_op", operators.NoLoss, priorities=-1),
-    # solvers
-    Rule("integrator", solver.ConstantStepIntegrator, conditions=dict(adapt_step_size=False)),
-    Rule(
-        "integrator",
-        solver.ConservedQuantityIntegrator,
-        conditions=dict(adapt_step_size=True),
-        priorities=1,
-    ),
-    Rule("integrator", solver.RK4IPSD, conditions=dict(adapt_step_size=True)),
-    Rule("integrator", solver.ERK43, conditions=dict(adapt_step_size=True)),
-    Rule("integrator", solver.ERK54, conditions=dict(adapt_step_size=True), priorities=1),
+    Rule("conserved_quantity", operators.NoConservedQuantity, priorities=-1),
 ]
 
 envelope_rules = default_rules + [

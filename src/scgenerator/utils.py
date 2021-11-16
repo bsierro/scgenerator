@@ -28,6 +28,11 @@ from .errors import DuplicateParameterError
 T_ = TypeVar("T_")
 
 
+class DebugDict(dict):
+    def __setitem__(self, k, v) -> None:
+        return super().__setitem__(k, v)
+
+
 class Paths:
     _data_files = [
         "materials.toml",

@@ -163,17 +163,14 @@ class RK4IP:
         store = False
         state = self.init_state.copy()
         yield len(self.stored_spectra) - 1, state
-        if self.params.adapt_step_size:
-            integrator = solver.RK4IPSD(
-                state,
-                self.params.linear_operator,
-                self.params.nonlinear_operator,
-                self.params.tolerated_error,
-            )
-        else:
-            integrator = solver.ConstantStepIntegrator(
-                state, self.params.linear_operator, self.params.nonlinear_operator
-            )
+
+        integrator_args = [
+            self.params.compute(a) for a in solver.Integrator.factory_args() if a != "init_state"
+        ]
+        integrator = solver.Integrator.create(
+            self.params.integration_scheme, state, *integrator_args
+        )
+
         for state in integrator:
 
             new_tracked_values = integrator.all_values()

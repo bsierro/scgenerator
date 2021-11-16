@@ -20,7 +20,7 @@ from .evaluator import Evaluator
 from .logger import get_logger
 from .operators import AbstractConservedQuantity, LinearOperator, NonLinearOperator
 from .solver import Integrator
-from .utils import fiber_folder, update_path_name
+from .utils import DebugDict, fiber_folder, update_path_name
 from .variationer import VariationDescriptor, Variationer
 
 T = TypeVar("T")
@@ -287,7 +287,7 @@ class Parameters:
     """
 
     # internal machinery
-    _param_dico: dict[str, Any] = field(init=False, default_factory=dict, repr=False)
+    _param_dico: dict[str, Any] = field(init=False, default_factory=DebugDict, repr=False)
     _evaluator: Evaluator = field(init=False, repr=False)
     _p_names: ClassVar[Set[str]] = set()
 
@@ -346,7 +346,6 @@ class Parameters:
     mean_power: float = Parameter(positive(float, int), display_info=(1e3, "mW"))
     energy: float = Parameter(positive(float, int), display_info=(1e6, "μJ"))
     soliton_num: float = Parameter(non_negative(float, int))
-    quantum_noise: bool = Parameter(boolean, default=False)
     additional_noise_factor: float = Parameter(positive(float, int), default=1)
     shape: str = Parameter(literal("gaussian", "sech"), default="gaussian")
     wavelength: float = Parameter(in_range_incl(100e-9, 3000e-9), display_info=(1e9, "nm"))
@@ -355,12 +354,19 @@ class Parameters:
     width: float = Parameter(in_range_excl(0, 1e-9), display_info=(1e15, "fs"))
     t0: float = Parameter(in_range_excl(0, 1e-9), display_info=(1e15, "fs"))
 
+    # Behaviors to include
+    quantum_noise: bool = Parameter(boolean, default=False)
+    self_steepening: bool = Parameter(boolean, default=True)
+    ideal_gas: bool = Parameter(boolean, default=False)
+    photoionization: bool = Parameter(boolean, default=False)
+
     # simulation
     full_field: bool = Parameter(boolean, default=False)
+    integration_scheme: str = Parameter(
+        literal("erk43", "erk54", "cqe", "sd", "constant"), converter=str.lower, default="erk43"
+    )
     raman_type: str = Parameter(literal("measured", "agrawal", "stolen"), converter=str.lower)
-    self_steepening: bool = Parameter(boolean, default=True)
     spm: bool = Parameter(boolean, default=True)
-    ideal_gas: bool = Parameter(boolean, default=False)
     repeat: int = Parameter(positive(int), default=1)
     t_num: int = Parameter(positive(int))
     z_num: int = Parameter(positive(int))

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import defaultdict
 
 import logging
 from abc import abstractmethod
@@ -15,6 +16,39 @@ from .operators import (
     NonLinearOperator,
     ValueTracker,
 )
+from .utils import get_arg_names
+import warnings
+
+warnings.filterwarnings("error")
+
+
+class IntegratorFactory:
+    arg_registry: dict[str, dict[str, int]]
+    cls_registry: dict[str, Type[Integrator]]
+    all_arg_names: list[str]
+
+    def __init__(self):
+        self.arg_registry = defaultdict(dict)
+        self.cls_registry = {}
+
+    def register(self, name: str, cls: Type[Integrator]):
+        self.cls_registry[name] = cls
+        arg_names = [a for a in get_arg_names(cls.__init__)[1:] if a not in {"init_state", "self"}]
+        for i, a_name in enumerate(arg_names):
+            self.arg_registry[a_name][name] = i
+        self.all_arg_names = list(self.arg_registry.keys())
+
+    def create(self, scheme: str, state: CurrentState, *args) -> Integrator:
+        cls = self.cls_registry[scheme]
+        kwargs = dict(
+            init_state=state,
+            **{
+                a: args[self.arg_registry[a][scheme]]
+                for a in self.all_arg_names
+                if scheme in self.arg_registry[a]
+            },
+        )
+        return cls(**kwargs)
 
 
 class Integrator(ValueTracker):
@@ -24,7 +58,8 @@ class Integrator(ValueTracker):
     tolerated_error: float
     _tracked_values: dict[str, float]
     logger: logging.Logger
-    __registry: dict[str, Type[Integrator]] = {}
+    __factory: IntegratorFactory = IntegratorFactory()
+    steps_rejected = 0
 
     def __init__(
         self,
@@ -40,12 +75,16 @@ class Integrator(ValueTracker):
         self._tracked_values = {}
         self.logger = get_logger(self.__class__.__name__)
 
-    def __init_subclass__(cls):
-        cls.__registry[cls.__name__] = cls
+    def __init_subclass__(cls, scheme=""):
+        cls.__factory.register(scheme, cls)
 
     @classmethod
-    def get(cls, integr: str) -> Type[Integrator]:
-        return cls.__registry[integr]
+    def create(cls, name: str, state: CurrentState, *args) -> Integrator:
+        return cls.__factory.create(name, state, *args)
+
+    @classmethod
+    def factory_args(cls) -> list[str]:
+        return cls.__factory.all_arg_names
 
     @abstractmethod
     def __iter__(self) -> Iterator[CurrentState]:
@@ -64,10 +103,15 @@ class Integrator(ValueTracker):
         dict[str, float]
             tracked values
         """
-        return self.values() | self._tracked_values | dict(z=self.state.z, step=self.state.step)
+        return (
+            self.values()
+            | self._tracked_values
+            | dict(z=self.state.z, step=self.state.step, steps_rejected=self.steps_rejected)
+        )
 
     def record_tracked_values(self):
         self._tracked_values = super().all_values()
+        self.steps_rejected = 0
 
     def nl(self, spectrum: np.ndarray) -> np.ndarray:
         return self.nonlinear_operator(self.state.replace(spectrum))
@@ -83,7 +127,7 @@ class Integrator(ValueTracker):
         return self.state
 
 
-class ConstantStepIntegrator(Integrator):
+class ConstantStepIntegrator(Integrator, scheme="constant"):
     def __init__(
         self,
         init_state: CurrentState,
@@ -112,7 +156,7 @@ class ConstantStepIntegrator(Integrator):
             )
 
 
-class ConservedQuantityIntegrator(Integrator):
+class ConservedQuantityIntegrator(Integrator, scheme="cqe"):
     last_qty: float
     conserved_quantity: AbstractConservedQuantity
     current_error: float = 0.0
@@ -172,7 +216,7 @@ class ConservedQuantityIntegrator(Integrator):
         return dict(cons_qty=self.last_qty, relative_error=self.current_error)
 
 
-class RK4IPSD(Integrator):
+class RK4IPSD(Integrator, scheme="sd"):
     """Runge-Kutta 4 in Interaction Picture with step doubling"""
 
     next_h_factor: float = 1.0
@@ -197,18 +241,26 @@ class RK4IPSD(Integrator):
                 )
                 new_coarse = self.take_step(h, self.state.spectrum, lin, nonlin)
                 self.current_error = compute_diff(new_coarse, new_fine)
-
-                if self.current_error > 2 * self.tolerated_error:
-                    h_next_step = h * 0.5
-                elif self.tolerated_error <= self.current_error <= 2 * self.tolerated_error:
-                    h_next_step = h / size_fac
-                    break
-                elif 0.5 * self.tolerated_error <= self.current_error < self.tolerated_error:
-                    h_next_step = h
-                    break
+                if self.current_error > 0.0:
+                    next_h_factor = max(
+                        0.5, min(2.0, (self.tolerated_error / self.current_error) ** 0.25)
+                    )
                 else:
-                    h_next_step = h * size_fac
+                    next_h_factor = 2.0
+                h_next_step = next_h_factor * h
+                if self.current_error <= 2 * self.tolerated_error:
                     break
+                # if self.current_error > 2 * self.tolerated_error:
+                #     h_next_step = h * 0.5
+                # elif self.tolerated_error <= self.current_error <= 2 * self.tolerated_error:
+                #     h_next_step = h / size_fac
+                #     break
+                # elif 0.5 * self.tolerated_error <= self.current_error < self.tolerated_error:
+                #     h_next_step = h
+                #     break
+                # else:
+                #     h_next_step = h * size_fac
+                #     break
 
             self.state.spectrum = new_fine
             yield self.accept_step(self.state, h, h_next_step)
@@ -225,7 +277,7 @@ class RK4IPSD(Integrator):
         )
 
 
-class ERK43(RK4IPSD):
+class ERK43(RK4IPSD, scheme="erk43"):
     def __iter__(self) -> Iterator[CurrentState]:
         h_next_step = self.state.current_step_size
         k5 = self.nonlinear_operator(self.state)
@@ -259,6 +311,7 @@ class ERK43(RK4IPSD):
                 if self.current_error <= 2 * self.tolerated_error:
                     break
                 h_next_step = min(0.9, next_h_factor) * h
+                self.steps_rejected += 1
                 self.logger.info(
                     f"step {self.state.step} rejected : {h=}, {self.current_error=}, {h_next_step=}"
                 )
@@ -268,7 +321,7 @@ class ERK43(RK4IPSD):
             yield self.accept_step(self.state, h, h_next_step)
 
 
-class ERK54(RK4IPSD):
+class ERK54(RK4IPSD, scheme="erk54"):
     def __iter__(self) -> Iterator[CurrentState]:
         self.logger.info("using ERK54")
         h_next_step = self.state.current_step_size
@@ -362,3 +415,7 @@ def compute_diff(coarse_spec: np.ndarray, fine_spec: np.ndarray) -> float:
     diff = coarse_spec - fine_spec
     diff2 = diff.imag ** 2 + diff.real ** 2
     return np.sqrt(diff2.sum() / (fine_spec.real ** 2 + fine_spec.imag ** 2).sum())
+
+
+def get_integrator(integration_scheme: str):
+    return Integrator.get(integration_scheme)()
