@@ -17,6 +17,7 @@ from .plotting import (
     mean_values_plot,
     propagation_plot,
     single_position_plot,
+    transform_1D_values,
     transform_2D_propagation,
 )
 from .utils import load_spectrum, simulations_list, load_toml
@@ -245,6 +246,19 @@ class SimulationSeries:
         plot_range = PlotRange(left, right, unit)
         vals = self.retrieve_plot_values(plot_range, z_pos, sim_ind)
         return single_position_plot(vals, plot_range, self.params, ax, **kwargs)
+
+    def plot_values_1D(
+        self,
+        left: float,
+        right: float,
+        unit: Union[Callable[[float], float], str],
+        z_pos: int,
+        sim_ind: int = 0,
+        **kwargs,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        plot_range = PlotRange(left, right, unit)
+        vals = self.retrieve_plot_values(plot_range, z_pos, sim_ind)
+        return transform_1D_values(vals, plot_range, self.params, **kwargs)
 
     def plot_mean(
         self,

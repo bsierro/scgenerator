@@ -801,6 +801,7 @@ class ConstantGamma(AbstractGamma):
 class Plasma(Operator):
     mat_plasma: plasma.Plasma
     gas_op: AbstractGas
+    ionization_fraction = 0.0
 
     def __init__(self, dt: float, gas_op: AbstractGas):
         self.gas_op = gas_op
@@ -812,7 +813,12 @@ class Plasma(Operator):
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         N0 = self.gas_op.number_density(state)
-        return self.mat_plasma(state.field, N0)
+        plasma_info = self.mat_plasma(state.field, N0)
+        self.ionization_fraction = plasma_info.electron_density[-1] / N0
+        return plasma_info.polarization
+
+    def values(self) -> dict[str, float]:
+        return dict(ionization_fraction=self.ionization_fraction)
 
 
 class NoPlasma(NoOpTime, Plasma):

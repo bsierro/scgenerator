@@ -9,10 +9,7 @@ from ..math import expm1_int, cumulative_simpson
 @dataclass
 class PlasmaInfo:
     electron_density: np.ndarray
-    dn_dt: np.ndarray
     polarization: np.ndarray
-    loss: np.ndarray
-    debug: np.ndarray
 
 
 class IonizationRate:
@@ -66,12 +63,11 @@ class Plasma:
         rate = self.rate(field_abs)
         electron_density = free_electron_density(rate, self.dt, N0)
         dn_dt = (N0 - electron_density) * rate
-        out = self.dt * cumulative_simpson(
-            dn_dt * self.Ip / (field + delta)
+        polarization = self.dt * cumulative_simpson(
+            dn_dt * self.Ip / np.where(field_abs < delta, 1e-14, field)
             + e ** 2 / me * self.dt * cumulative_simpson(electron_density * field)
         )
-        loss = cumulative_simpson(dn_dt * self.Ip / (field + delta)) * self.dt
-        return PlasmaInfo(electron_density, dn_dt, out, loss, loss)
+        return PlasmaInfo(electron_density, polarization)
 
 
 def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:

@@ -130,7 +130,7 @@ class ConstantStepIntegrator(Integrator, scheme="constant"):
         linear_operator: LinearOperator,
         nonlinear_operator: NonLinearOperator,
     ):
-        super().__init__(init_state, linear_operator, nonlinear_operator, 0.0)
+        super().__init__(init_state, linear_operator, nonlinear_operator)
 
     def __iter__(self) -> Iterator[CurrentState]:
         while True:
@@ -156,6 +156,7 @@ class AdaptiveIntegrator(Integrator):
     target_error: float
     current_error: float = 0.0
     steps_rejected: float = 0
+    min_step_size = 0.0
 
     def __init__(
         self,
@@ -190,7 +191,8 @@ class AdaptiveIntegrator(Integrator):
         else:
             next_h_factor = 2.0
         h_next_step = h * next_h_factor
-        accepted = self.current_error <= 2 * self.target_error
+        accepted = self.current_error <= 2 * self.target_error or h_next_step < self.min_step_size
+        h_next_step = max(h_next_step, self.min_step_size)
         if not accepted:
             self.steps_rejected += 1
             self.logger.info(

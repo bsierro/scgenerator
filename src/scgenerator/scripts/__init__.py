@@ -261,7 +261,7 @@ def finish_plot(fig: plt.Figure, legend_axes: plt.Axes, all_labels: list[str], p
 
 def plot_helper(config_path: Path) -> Iterable[tuple[dict, list[str], Parameters]]:
     cc = cycler(color=[f"C{i}" for i in range(10)]) * cycler(ls=["-", "--"])
-    for style, (descriptor, params) in zip(cc, Configuration(config_path)):
+    for style, (descriptor, params), _ in zip(cc, Configuration(config_path), range(20)):
         yield style, descriptor.branch.formatted_descriptor(), params
 
 

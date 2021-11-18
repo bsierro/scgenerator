@@ -78,6 +78,8 @@ source = "Wahlstrand, J. K., Cheng, Y. H., & Milchberg, H. M. (2012). High field
 [helium]
 a = 0.00346
 b = 2.38e-5
+ionization_energy = 3.9393356074281e-18
+atomic_number = 2
 
 [helium.sellmeier]
 B = [2.16463842e-5, 2.10561127e-7, 4.7509272e-5]
@@ -131,6 +133,8 @@ source = "Shelton, D. P., & Rice, J. E. (1994). Measurements and calculations of
 [neon]
 a = 0.02135
 b = 1.709e-5
+ionization_energy = 3.45501365359425e-18
+atomic_number = 10
 
 [neon.sellmeier]
 B = [1281450000.0, 22048600000.0]
@@ -148,6 +152,8 @@ source = "Wahlstrand, J. K., Cheng, Y. H., & Milchberg, H. M. (2012). High field
 [argon]
 a = 0.1355
 b = 3.201e-5
+ionization_energy = 2.5249661793774e-18
+atomic_number = 18
 
 [argon.sellmeier]
 B = [2501410000.0, 500283000.0, 52234300000.0]
@@ -203,6 +209,8 @@ source = "Wahlstrand, J. K., Cheng, Y. H., & Milchberg, H. M. (2012). High field
 [krypton]
 a = 0.2349
 b = 3.978e-5
+ionization_energy = 2.2429831039374e-18
+atomic_number = 36
 
 [krypton.sellmeier]
 B = [2536370000.0, 2736490000.0, 62080200000.0]
@@ -220,6 +228,8 @@ source = "Wahlstrand, J. K., Cheng, Y. H., & Milchberg, H. M. (2012). High field
 [xenon]
 a = 0.425
 b = 5.105e-5
+ionization_energy = 1.94342415157935
+atomic_number = 54
 
 [xenon.sellmeier]
 B = [3228690000.0, 3553930000.0, 60676400000.0]

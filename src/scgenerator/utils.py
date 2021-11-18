@@ -11,7 +11,7 @@ import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from functools import cache
+from functools import cache, lru_cache
 from pathlib import Path
 from string import printable as str_printable
 from typing import Any, Callable, MutableMapping, Sequence, TypeVar, Set, Union
@@ -21,7 +21,7 @@ import pkg_resources as pkg
 import tomli
 import tomli_w
 
-from .const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, Z_FN, ROOT_PARAMETERS
+from .const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, SPECN_FN1, Z_FN, ROOT_PARAMETERS
 from .logger import get_logger
 from .errors import DuplicateParameterError
 
@@ -134,7 +134,7 @@ def load_previous_spectrum(prev_data_dir: str) -> np.ndarray:
     return load_spectrum(prev_data_dir / SPEC1_FN.format(num))
 
 
-@cache
+@lru_cache(20000)
 def load_spectrum(file: os.PathLike) -> np.ndarray:
     return np.load(file)
 
@@ -535,7 +535,7 @@ def simulations_list(path: os.PathLike) -> list[Path]:
     """
     paths: list[Path] = []
     for pwd, _, files in os.walk(path):
-        if PARAM_FN in files:
+        if PARAM_FN in files and SPEC1_FN.format(0) in files:
             paths.append(Path(pwd))
     paths.sort(key=branch_id)
     return [p for p in paths if p.parent.name == paths[-1].parent.name]
