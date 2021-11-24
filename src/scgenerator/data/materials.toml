@@ -43,6 +43,7 @@ reference = ["CDGM Zemax catalog 2017-09 (obtained from http://www.cdgmgd.com)"]
 [air]
 a = 0.1358
 b = 3.64e-5
+atomic_mass = 4.809e-26
 
 [air.sellmeier]
 B = [57921050000.0, 1679170000.0]
@@ -60,6 +61,7 @@ source = "Pigeon, J. J., Tochitsky, S. Y., Welch, E. C., & Joshi, C. (2016). Mea
 [nitrogen]
 a = 0.137
 b = 1.709e-5
+atomic_mass = 2.3259e-26
 
 [nitrogen.sellmeier]
 B = [32431570000.0]
@@ -80,6 +82,7 @@ a = 0.00346
 b = 2.38e-5
 ionization_energy = 3.9393356074281e-18
 atomic_number = 2
+atomic_mass = 6.646477e-27
 
 [helium.sellmeier]
 B = [2.16463842e-5, 2.10561127e-7, 4.7509272e-5]
@@ -115,6 +118,7 @@ n2 = 3.1e-25
 [hydrogen]
 a = 0.02453
 b = 2.651e-5
+atomic_mass = 1.674e-27
 
 [hydrogen.sellmeier]
 B = [0.0148956, 0.0049037]
@@ -135,6 +139,7 @@ a = 0.02135
 b = 1.709e-5
 ionization_energy = 3.45501365359425e-18
 atomic_number = 10
+atomic_mass = 3.35092e-26
 
 [neon.sellmeier]
 B = [1281450000.0, 22048600000.0]
@@ -154,6 +159,7 @@ a = 0.1355
 b = 3.201e-5
 ionization_energy = 2.5249661793774e-18
 atomic_number = 18
+atomic_mass = 6.6338e-26
 
 [argon.sellmeier]
 B = [2501410000.0, 500283000.0, 52234300000.0]
@@ -211,6 +217,7 @@ a = 0.2349
 b = 3.978e-5
 ionization_energy = 2.2429831039374e-18
 atomic_number = 36
+atomic_mass = 1.3915e-25
 
 [krypton.sellmeier]
 B = [2536370000.0, 2736490000.0, 62080200000.0]
@@ -230,6 +237,7 @@ a = 0.425
 b = 5.105e-5
 ionization_energy = 1.94342415157935
 atomic_number = 54
+atomic_mass = 2.18017e-25
 
 [xenon.sellmeier]
 B = [3228690000.0, 3553930000.0, 60676400000.0]
@@ -247,6 +255,7 @@ source = "Wahlstrand, J. K., Cheng, Y. H., & Milchberg, H. M. (2012). High field
 [vacuum]
 a = 0
 b = 0
+atomic_mass = 0
 
 [vacuum.sellmeier]
 B = []

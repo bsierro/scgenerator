@@ -2,12 +2,83 @@ import functools
 from typing import Any
 
 import numpy as np
+from dataclasses import dataclass, field
 
 from .. import utils
 from ..cache import np_cache
 from ..logger import get_logger
 from . import units
 from .units import NA, c, kB, epsilon0
+
+
+@dataclass
+class Sellmeier:
+    B: list[float] = field(default_factory=list)
+    C: list[float] = field(default_factory=list)
+    pressure_ref: float = 101325
+    temperature_ref: float = 273.15
+    kind: int = 2
+    constant: float = 0
+
+    def chi(self, wl: np.ndarray, temperature=None, pressure=None) -> np.ndarray:
+        """n^2 - 1"""
+        chi = np.zeros_like(wl)  # = n^2 - 1
+        if self.kind == 1:
+            for b, c_ in zip(self.B, self.C):
+                chi += wl ** 2 * b / (wl ** 2 - c_)
+        elif self.kind == 2:  # gives n-1
+            for b, c_ in zip(self.B, self.C):
+                chi += b / (c_ - 1 / wl ** 2)
+            chi += self.constant
+            chi = (chi + 1) ** 2 - 1
+        elif self.kind == 3:  # Schott formula
+            for i, b in reversed(list(enumerate(self.B))):
+                chi += b * wl ** (-2 * (i - 1))
+            chi = chi - 1
+        else:
+            raise ValueError(f"kind {self.kind} is not recognized.")
+
+        if temperature is not None:
+            chi *= self.temperature_ref / temperature
+
+        if pressure is not None:
+            chi *= pressure / self.pressure_ref
+        return chi
+
+
+class GasInfo:
+    sellmeier: Sellmeier
+    n2: float
+    atomic_number: int
+    atomic_mass: float
+
+    def __init__(self, gas_name: str):
+        self.mat_dico = utils.load_material_dico(gas_name)
+        self.n2 = self.mat_dico["kerr"]["n2"]
+        self.atomic_mass = self.mat_dico["atomic_mass"]
+        self.atomic_number = self.mat_dico["atomic_number"]
+
+        s = self.mat_dico.get("sellmeier", {})
+        self.sellmeier = Sellmeier(
+            **{
+                newk: s.get(k, None)
+                for newk, k in zip(
+                    ["B", "C", "pressure_ref", "temperature_ref", "kind", "constant"],
+                    ["B", "C", "P0", "T0", "kind", "const"],
+                )
+                if k in s
+            }
+        )
+
+    def pressure_from_density(self, density: float, temperature: float = None) -> float:
+        temperature = temperature or self.sellmeier.temperature_ref
+        return kB * temperature * density / self.atomic_mass
+
+    def get(self, key, default=None):
+        return self.mat_dico.get(key, default)
+
+    def __getitem__(self, key):
+        return self.mat_dico[key]
 
 
 @np_cache
@@ -82,7 +153,7 @@ def number_density_van_der_waals(
         b = material_dico.get("b", 0) if b is None else b
         pressure = material_dico["sellmeier"].get("P0", 101325) if pressure is None else pressure
         temperature = (
-            material_dico["sellmeier"].get("t0", 273.15) if temperature is None else temperature
+            material_dico["sellmeier"].get("T0", 273.15) if temperature is None else temperature
         )
     else:
         a = 0 if a is None else a
