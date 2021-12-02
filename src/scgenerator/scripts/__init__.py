@@ -37,9 +37,17 @@ def plot_all(sim_dir: Path, limits: list[str], show=False, **opts):
     limits = [
         tuple(func(el) for func, el in zip([float, float, str], lim.split(","))) for lim in limits
     ]
-    with tqdm(total=len(dir_list) * len(limits)) as bar:
+    with tqdm(total=len(dir_list) * max(1, len(limits))) as bar:
         for p in dir_list:
             pulse = SimulationSeries(p)
+            if not limits:
+                limits = [
+                    (
+                        pulse.params.interpolation_range[0] * 1e9,
+                        pulse.params.interpolation_range[1] * 1e9,
+                        "nm",
+                    )
+                ]
             for left, right, unit in limits:
                 path, fig, ax = plot_setup(
                     pulse.path.parent
@@ -179,6 +187,7 @@ def plot_1_dispersion(
     D = fiber.beta2_to_D(beta_arr, wl) * 1e6
 
     zdw = math.all_zeros(wl, beta_arr)
+    zdw = zdw[(zdw >= params.interpolation_range[0]) & (zdw <= params.interpolation_range[1])]
     if len(zdw) > 0:
         zdw = zdw[np.argmin(abs(zdw - params.wavelength))]
         lbl += f" ZDW at {zdw*1e9:.1f}nm"

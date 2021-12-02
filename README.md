@@ -199,6 +199,9 @@ length: float, optional
 input_transmission : float, optional
     number between 0 and 1 indicating how much light enters the fiber, useful when chaining many fibers together, default : 1
 
+zero_dispersion_wavelength : float, optional
+    target zero dispersion wavelength for hollow capillaries (Marcatili only)
+
 
 ## Gas parameters
 this section is completely optional and ignored if the fiber model is "pcf"

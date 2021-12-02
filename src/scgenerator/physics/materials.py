@@ -1,14 +1,14 @@
 import functools
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-from dataclasses import dataclass, field
 
 from .. import utils
 from ..cache import np_cache
 from ..logger import get_logger
-from . import units
-from .units import NA, c, kB, epsilon0
+from . import math, units
+from .units import NA, c, epsilon0, kB
 
 
 @dataclass
@@ -20,7 +20,7 @@ class Sellmeier:
     kind: int = 2
     constant: float = 0
 
-    def chi(self, wl: np.ndarray, temperature=None, pressure=None) -> np.ndarray:
+    def chi(self, wl: np.ndarray) -> np.ndarray:
         """n^2 - 1"""
         chi = np.zeros_like(wl)  # = n^2 - 1
         if self.kind == 1:
@@ -38,25 +38,32 @@ class Sellmeier:
         else:
             raise ValueError(f"kind {self.kind} is not recognized.")
 
-        if temperature is not None:
-            chi *= self.temperature_ref / temperature
+        # if temperature is not None:
+        #     chi *= self.temperature_ref / temperature
 
-        if pressure is not None:
-            chi *= pressure / self.pressure_ref
+        # if pressure is not None:
+        #     chi *= pressure / self.pressure_ref
         return chi
+
+    def n_gas_2(self, wl: np.ndarray) -> np.ndarray:
+        return self.chi(wl) + 1
 
 
 class GasInfo:
+    name: str
     sellmeier: Sellmeier
     n2: float
     atomic_number: int
     atomic_mass: float
+    ionization_energy: float
 
     def __init__(self, gas_name: str):
+        self.name = gas_name
         self.mat_dico = utils.load_material_dico(gas_name)
         self.n2 = self.mat_dico["kerr"]["n2"]
         self.atomic_mass = self.mat_dico["atomic_mass"]
         self.atomic_number = self.mat_dico["atomic_number"]
+        self.ionization_energy = self.mat_dico.get("ionization_energy")
 
         s = self.mat_dico.get("sellmeier", {})
         self.sellmeier = Sellmeier(
@@ -70,15 +77,56 @@ class GasInfo:
             }
         )
 
-    def pressure_from_density(self, density: float, temperature: float = None) -> float:
+    def pressure_from_relative_density(self, density: float, temperature: float = None) -> float:
         temperature = temperature or self.sellmeier.temperature_ref
-        return kB * temperature * density / self.atomic_mass
+        return self.sellmeier.temperature_ref / temperature * density * self.sellmeier.pressure_ref
+
+    def density_factor(self, temperature: float, pressure: float, ideal_gas: bool) -> float:
+        """returns the number density relative to reference values
+
+        Parameters
+        ----------
+        temperature : float
+            target temperature in K
+        pressure : float
+            target pressure in Pa
+        ideal_gas : bool
+            whether to use ideal gas law
+
+        Returns
+        -------
+        float
+            N / N_0
+        """
+        if ideal_gas:
+            return (
+                pressure
+                / self.sellmeier.pressure_ref
+                * self.sellmeier.temperature_ref
+                / temperature
+            )
+        else:
+            return number_density_van_der_waals(
+                self.get("a"), self.get("b"), pressure, temperature
+            ) / number_density_van_der_waals(
+                self.get("a"),
+                self.get("b"),
+                self.sellmeier.pressure_ref,
+                self.sellmeier.temperature_ref,
+            )
+
+    @property
+    def ionic_charge(self):
+        return self.atomic_number - 1
 
     def get(self, key, default=None):
         return self.mat_dico.get(key, default)
 
     def __getitem__(self, key):
         return self.mat_dico[key]
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.name!r})"
 
 
 @np_cache

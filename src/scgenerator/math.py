@@ -1,8 +1,11 @@
+from dataclasses import dataclass
 from typing import Union
 
-import numpy as np
-from scipy.special import jn_zeros
 import numba
+import numpy as np
+from scipy.interpolate import interp1d, lagrange
+from scipy.special import jn_zeros
+from functools import cache
 
 from .cache import np_cache
 
@@ -399,6 +402,104 @@ def envelope_ind(
         ]
 
     return local_min, local_max
+
+
+@dataclass(frozen=True)
+class LobeProps:
+    left_pos: float
+    left_fwhm: float
+    center: float
+    right_fwhm: float
+    right_pos: float
+    interp: interp1d
+
+    @property
+    @cache
+    def x(self) -> np.ndarray:
+        return np.array(
+            [self.left_pos, self.left_fwhm, self.center, self.right_fwhm, self.right_pos]
+        )
+
+    @property
+    @cache
+    def y(self) -> np.ndarray:
+        return self.interp(self.x)
+
+    @property
+    @cache
+    def fwhm(self) -> float:
+        return abs(self.right_fwhm - self.left_fwhm)
+
+    @property
+    @cache
+    def width(self) -> float:
+        return abs(self.right_pos - self.left_pos)
+
+
+def measure_lobe(x_in, y_in, /, lobe_pos: int = None, thr_rel: float = 1 / 50) -> LobeProps:
+    """given a fairly smooth signal, finds the highest lobe and returns its position as well
+    as its fwhm points
+
+    Parameters
+    ----------
+    x_in : np.ndarray, shape (n,)
+        x values
+    y_in : np.ndarray, shape (n,)
+        y values
+    lobe_pos : int, optional
+        index of the desired lobe, by default None (take highest peak)
+    thr_rel : float, optional
+
+
+    Returns
+    -------
+    np.ndarray
+        (left limit, left half maximum, maximum position, right half maximum, right limit)
+    """
+    interp = interp1d(x_in, y_in)
+    lobe_pos = lobe_pos or np.argmax(y_in)
+    maxi = y_in[lobe_pos]
+    maxi2 = maxi / 2
+    thr_abs = maxi * thr_rel
+    half_max_left = all_zeros(x_in[:lobe_pos], y_in[:lobe_pos] - maxi2)[-1]
+    half_max_right = all_zeros(x_in[lobe_pos:], y_in[lobe_pos:] - maxi2)[0]
+
+    poly = lagrange((half_max_left, x_in[lobe_pos], half_max_right), (maxi2, maxi2 * 2, maxi2))
+    parabola_left, parabola_right = sorted(poly.roots)
+
+    r_cand = x_in > half_max_right
+    x_right = x_in[r_cand]
+    y_right = y_in[r_cand]
+
+    l_cand = x_in < half_max_left
+    x_left = x_in[l_cand][::-1]
+    y_left = y_in[l_cand][::-1]
+
+    d = {}
+    for x, y, central_parabola_root, sign in [
+        (x_left, y_left, parabola_left, 1),
+        (x_right, y_right, parabola_right, -1),
+    ]:
+        candidates = []
+        slope = sign * np.gradient(y, x)
+
+        for y_test, num_to_take in [
+            (sign * np.gradient(slope, x), 2),
+            (y - thr_abs, 1),
+            (slope, 3),
+        ]:
+            candidates.extend(all_zeros(x, y_test)[:num_to_take])
+        candidates = np.array(sorted(candidates))
+
+        side_parabola_root = x[0] - 2 * y[0] / (sign * slope[0])
+        weights = (
+            np.abs(candidates - side_parabola_root)
+            + np.abs(candidates - central_parabola_root)
+            + interp(candidates) / thr_abs
+        )
+        d[sign] = candidates[np.argmin(weights)]
+
+    return LobeProps(d[1], half_max_left, x_in[lobe_pos], half_max_right, d[-1], interp)
 
 
 @numba.jit(nopython=True)

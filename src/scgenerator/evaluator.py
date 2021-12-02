@@ -36,10 +36,14 @@ class Rule:
         self.conditions = conditions or {}
 
     def __repr__(self) -> str:
-        return f"Rule(targets={self.targets!r}, func={self.func!r}, args={self.args!r})"
+        return f"Rule(targets={self.targets!r}, func={self.func_name}, args={self.args!r})"
 
     def __str__(self) -> str:
         return f"[{', '.join(self.args)}] -- {self.func.__module__}.{self.func.__name__} --> [{', '.join(self.targets)}]"
+
+    @property
+    def func_name(self) -> str:
+        return f"{self.func.__module__}.{self.func.__name__}"
 
     @classmethod
     def deduce(
@@ -329,6 +333,8 @@ default_rules: list[Rule] = [
     # Fiber Dispersion
     Rule("w_for_disp", units.m, ["wl_for_disp"]),
     Rule("hr_w", fiber.delayed_raman_w),
+    Rule("gas_info", materials.GasInfo),
+    Rule("chi_gas", lambda gas_info, wl_for_disp: gas_info.sellmeier.chi(wl_for_disp)),
     Rule("n_gas_2", materials.n_gas_2),
     Rule("n_eff", fiber.n_eff_hasan, conditions=dict(model="hasan")),
     Rule("n_eff", fiber.n_eff_marcatili, conditions=dict(model="marcatili")),
@@ -346,6 +352,10 @@ default_rules: list[Rule] = [
     Rule("beta_arr", fiber.beta),
     Rule("beta1_arr", fiber.beta1),
     Rule("beta2_arr", fiber.beta2),
+    Rule(
+        "zero_dispersion_wavelength",
+        lambda beta2_arr, wl_for_disp: wl_for_disp[math.argclosest(beta2_arr, 0)],
+    ),
     # Fiber nonlinearity
     Rule("A_eff", fiber.A_eff_from_V),
     Rule("A_eff", fiber.A_eff_from_diam),

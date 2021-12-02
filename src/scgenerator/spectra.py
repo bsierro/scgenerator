@@ -135,7 +135,7 @@ class SimulationSeries:
             break
         else:
             raise FileNotFoundError(f"No simulation in {path}")
-        self.params = Parameters(**translate_parameters(load_toml(path / PARAM_FN)))
+        self.params = Parameters(**translate_parameters(load_toml(self.path / PARAM_FN)))
         self.t = self.params.t
         self.w = self.params.w
         if self.params.prev_data_dir is not None:
@@ -233,6 +233,18 @@ class SimulationSeries:
         vals = self.retrieve_plot_values(plot_range, None, sim_ind)
         return propagation_plot(vals, plot_range, self.params, ax, **kwargs)
 
+    def plot_values_2D(
+        self,
+        left: float,
+        right: float,
+        unit: Union[Callable[[float], float], str],
+        sim_ind: int = 0,
+        **kwargs,
+    ):
+        plot_range = PlotRange(left, right, unit)
+        vals = self.retrieve_plot_values(plot_range, None, sim_ind)
+        return transform_2D_propagation(vals, plot_range, self.params, **kwargs)
+
     def plot_1D(
         self,
         left: float,
@@ -256,6 +268,28 @@ class SimulationSeries:
         sim_ind: int = 0,
         **kwargs,
     ) -> tuple[np.ndarray, np.ndarray]:
+        """gives the desired values already tranformes according to the give range
+
+        Parameters
+        ----------
+        left : float
+            leftmost limit in unit
+        right : float
+            rightmost limit in unit
+        unit : Union[Callable[[float], float], str]
+            unit
+        z_pos : Union[int, float]
+            position either as an index (int) or a real position (float)
+        sim_ind : Optional[int]
+            which simulation to take when more than one are present
+
+        Returns
+        -------
+        np.ndarray
+            x axis
+        np.ndarray
+            y values
+        """
         plot_range = PlotRange(left, right, unit)
         vals = self.retrieve_plot_values(plot_range, z_pos, sim_ind)
         return transform_1D_values(vals, plot_range, self.params, **kwargs)
@@ -276,7 +310,6 @@ class SimulationSeries:
     def retrieve_plot_values(
         self, plot_range: PlotRange, z_pos: Optional[Union[int, float]], sim_ind: Optional[int]
     ):
-
         if plot_range.unit.type == "TIME":
             return self.fields(z_pos, sim_ind)
         else:

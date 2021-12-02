@@ -297,7 +297,7 @@ class Parameters:
     recovery_data_dir: str = Parameter(string)
     output_path: Path = Parameter(type_checker(Path), default=Path("sc_data"), converter=Path)
 
-    # # fiber
+    # fiber
     input_transmission: float = Parameter(in_range_incl(0, 1), default=1.0)
     gamma: float = Parameter(non_negative(float, int))
     n2: float = Parameter(non_negative(float, int))
@@ -318,6 +318,9 @@ class Parameters:
     model: str = Parameter(
         literal("pcf", "marcatili", "marcatili_adjusted", "hasan", "custom"), default="custom"
     )
+    zero_dispersion_wavelength: float = Parameter(
+        in_range_incl(100e-9, 5000e-9), display_info=(1e9, "nm")
+    )
     length: float = Parameter(non_negative(float, int), display_info=(1e2, "cm"))
     capillary_num: int = Parameter(positive(int))
     capillary_radius: float = Parameter(in_range_excl(0, 1e-3), display_info=(1e6, "μm"))
@@ -332,7 +335,7 @@ class Parameters:
     # gas
     gas_name: str = Parameter(string, converter=str.lower, default="vacuum")
     pressure: Union[float, Iterable[float]] = Parameter(
-        validator_or(non_negative(float, int), num_list), display_info=(1e-5, "bar"), default=1e5
+        validator_or(non_negative(float, int), num_list), display_info=(1e-5, "bar")
     )
     temperature: float = Parameter(positive(float, int), display_info=(1, "K"), default=300)
     plasma_density: float = Parameter(non_negative(float, int), default=0)
@@ -374,8 +377,10 @@ class Parameters:
     dt: float = Parameter(in_range_excl(0, 5e-15))
     tolerated_error: float = Parameter(in_range_excl(1e-15, 1e-3), default=1e-11)
     step_size: float = Parameter(non_negative(float, int), default=0)
-    interpolation_range: tuple[float, float] = Parameter(float_pair)
-    interpolation_degree: int = Parameter(non_negative(int))
+    interpolation_range: tuple[float, float] = Parameter(
+        validator_and(float_pair, validator_list(in_range_incl(100e-9, 5000e-9)))
+    )
+    interpolation_degree: int = Parameter(validator_and(type_checker(int), in_range_incl(2, 18)))
     prev_sim_dir: str = Parameter(string)
     recovery_last_stored: int = Parameter(non_negative(int), default=0)
     parallel: bool = Parameter(boolean, default=True)
@@ -453,11 +458,20 @@ class Parameters:
     def compute(self, key: str) -> Any:
         return self._evaluator.compute(key)
 
-    def pretty_str(self) -> str:
+    def pretty_str(self, params: Iterable[str] = None, exclude=None) -> str:
         """return a pretty formatted string describing the parameters"""
-        return "\n".join(
-            f"{k} = {VariationDescriptor.format_value(k, v)}" for k, v in self.dump_dict().items()
-        )
+        params = params or self.dump_dict().keys()
+        exclude = exclude or []
+        if isinstance(exclude, str):
+            exclude = [exclude]
+        p_pairs = [
+            (k, VariationDescriptor.format_value(k, getattr(self, k)))
+            for k in params
+            if k not in exclude
+        ]
+        max_left = max(len(el[0]) for el in p_pairs)
+        max_right = max(len(el[1]) for el in p_pairs)
+        return "\n".join("{:>{l}} = {:{r}}".format(*p, l=max_left, r=max_right) for p in p_pairs)
 
     @classmethod
     def all_parameters(cls) -> list[str]:

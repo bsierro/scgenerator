@@ -195,6 +195,17 @@ def load_toml(descr: os.PathLike) -> dict[str, Any]:
             return tomli.load(file)
 
 
+def load_flat(descr: os.PathLike) -> dict[str, Any]:
+    with open(descr, "rb") as file:
+        d = tomli.load(file)
+    if "Fiber" in d:
+        for fib in d["Fiber"]:
+            for k, v in fib.items():
+                d[k] = v
+            break
+    return d
+
+
 def save_toml(path: os.PathLike, dico):
     """saves a dictionary into a toml file"""
     path = conform_toml_path(path)
