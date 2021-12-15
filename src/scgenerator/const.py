@@ -72,6 +72,7 @@ VALID_VARIABLE = {
     "soliton_num",
     "raman_type",
     "tolerated_error",
+    "photoionization",
     "step_size",
     "interpolation_degree",
     "ideal_gas",

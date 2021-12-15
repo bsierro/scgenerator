@@ -12,7 +12,6 @@ from .. import const, env, scripts
 from ..logger import get_logger
 from ..physics.fiber import dispersion_coefficients
 from ..physics.simulate import SequencialSimulations, run_simulation
-from ..plotting import partial_plot
 
 try:
     import ray
@@ -131,6 +130,12 @@ def create_parser():
     preview_parser.add_argument(
         "path", help=f"path to the directory containing {const.SPEC1_FN.format(plc_hld)!r}"
     )
+    preview_parser.add_argument(
+        "spectrum_limits",
+        nargs=argparse.REMAINDER,
+        help="comma-separated list of left limit, right limit and unit. "
+        "One plot is made for each limit set provided. Example : 600,1200,nm or -2,2,ps",
+    )
     preview_parser.set_defaults(func=preview)
 
     return parser
@@ -176,9 +181,11 @@ def merge(args):
 
 def preview(args):
     for path in utils.simulations_list(args.path):
-        partial_plot(path)
-        plt.show()
-        plt.close()
+        lims = args.spectrum_limits or [None, "-10,10,ps"]
+        for lim in lims:
+            scripts.partial_plot(path, lim)
+            plt.show()
+            plt.close()
 
 
 def prep_ray():

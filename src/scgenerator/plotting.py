@@ -1,5 +1,4 @@
 import os
-import re
 from pathlib import Path
 from typing import Any, Callable, Literal, Optional, Union
 
@@ -11,14 +10,12 @@ from scipy.interpolate import UnivariateSpline
 from scipy.interpolate.interpolate import interp1d
 
 from . import math
-from .const import PARAM_SEPARATOR, SPEC1_FN
+from .const import PARAM_SEPARATOR
 from .defaults import default_plotting as defaults
 from .math import abs2, span
 from .parameter import Parameters
 from .physics import pulse, units
 from .physics.units import PlotRange, sort_axis
-from .utils import load_spectrum, load_toml
-from .legacy import translate_parameters
 
 RangeType = tuple[float, float, Union[str, Callable]]
 NO_LIM = object()
@@ -455,8 +452,11 @@ def transform_2D_propagation(
     if values.ndim != 2:
         raise ValueError(f"shape was {values.shape}. Can only plot 2D array")
     is_complex, x_axis, plt_range = prep_plot_axis(values, plt_range, params)
-    if is_complex:
+    if is_complex or any(values.ravel() < 0):
+        print("squared")
         values = abs2(values)
+    # if params.full_field and plt_range.unit.type == "TIME":
+    #     values = envelope_2d(x_axis, values)
     if y_axis is None:
         y_axis = params.z_targets
 
@@ -1071,45 +1071,3 @@ def annotate_fwhm(
         arrowprops=arrow_dict,
         va="center",
     )
-
-
-def partial_plot(root: os.PathLike):
-    path = Path(root)
-    fig, (left, right) = plt.subplots(1, 2, figsize=(12, 8))
-    fig.suptitle(path.name)
-    spec_list = sorted(
-        path.glob(SPEC1_FN.format("*")), key=lambda el: int(re.search("[0-9]+", el.name)[0])
-    )
-    params = Parameters(**translate_parameters(load_toml(path / "params.toml")))
-    params.z_targets = params.z_targets[: len(spec_list)]
-    raw_values = np.array([load_spectrum(s) for s in spec_list])
-
-    wl, z, values = transform_2D_propagation(
-        raw_values,
-        PlotRange(
-            0.5 * params.interpolation_range[0] * 1e9,
-            1.1 * params.interpolation_range[1] * 1e9,
-            "nm",
-        ),
-        params,
-        log="2D",
-    )
-    left.imshow(
-        values,
-        origin="lower",
-        aspect="auto",
-        vmin=-60,
-        interpolation="nearest",
-        extent=get_extent(wl, z),
-    )
-
-    t, z, values = transform_2D_propagation(
-        params.ifft(raw_values),
-        PlotRange(-10, 10, "ps"),
-        params,
-        log=False,
-    )
-    right.imshow(
-        values, origin="lower", aspect="auto", interpolation="nearest", extent=get_extent(t, z)
-    )
-    return left, right

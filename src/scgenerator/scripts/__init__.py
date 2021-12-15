@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -8,13 +9,13 @@ from cycler import cycler
 from tqdm import tqdm
 
 from .. import env, math
-from ..const import PARAM_FN, PARAM_SEPARATOR
+from ..const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN
+from ..legacy import translate_parameters
 from ..parameter import Configuration, Parameters
 from ..physics import fiber, units
-from ..plotting import plot_setup
+from ..plotting import plot_setup, transform_2D_propagation, get_extent
 from ..spectra import SimulationSeries
-from ..utils import _open_config, auto_crop, save_toml, simulations_list
-from ..legacy import translate_parameters
+from ..utils import _open_config, auto_crop, save_toml, simulations_list, load_toml, load_spectrum
 
 
 def fingerprint(params: Parameters):
@@ -287,3 +288,49 @@ def convert_params(params_file: os.PathLike):
         for pp in p.glob("fiber*"):
             if pp.is_dir():
                 convert_params(pp)
+
+
+def partial_plot(root: os.PathLike, lim: str = None):
+    path = Path(root)
+    fig, ax = plt.subplots(figsize=(12, 8))
+    fig.suptitle(path.name)
+    spec_list = sorted(
+        path.glob(SPEC1_FN.format("*")), key=lambda el: int(re.search("[0-9]+", el.name)[0])
+    )
+    params = Parameters(**translate_parameters(load_toml(path / "params.toml")))
+    params.z_targets = params.z_targets[: len(spec_list)]
+    raw_values = np.array([load_spectrum(s) for s in spec_list])
+    if lim is None:
+        plot_range = units.PlotRange(
+            0.5 * params.interpolation_range[0] * 1e9,
+            1.1 * params.interpolation_range[1] * 1e9,
+            "nm",
+        )
+    else:
+        left_u, right_u, unit = lim.split(",")
+        plot_range = units.PlotRange(float(left_u), float(right_u), unit)
+    if plot_range.unit.type == "TIME":
+        values = params.ifft(raw_values)
+        log = False
+        vmin = None
+    else:
+        values = raw_values
+        log = "2D"
+        vmin = -60
+
+    x, y, values = transform_2D_propagation(
+        values,
+        plot_range,
+        params,
+        log=log,
+    )
+    ax.imshow(
+        values,
+        origin="lower",
+        aspect="auto",
+        vmin=vmin,
+        interpolation="nearest",
+        extent=get_extent(x, y),
+    )
+
+    return ax

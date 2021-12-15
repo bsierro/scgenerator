@@ -181,6 +181,7 @@ class NoOpTime(Operator):
         self.arr_const = np.zeros(t_num)
 
     def __call__(self, state: CurrentState) -> np.ndarray:
+        """returns 0"""
         return self.arr_const
 
 
@@ -808,7 +809,7 @@ class Plasma(Operator):
         self.mat_plasma = plasma.Plasma(
             dt,
             self.gas_op.material_dico["ionization_energy"],
-            self.gas_op.material_dico["atomic_number"],
+            plasma.IonizationRateADK(self.gas_op.material_dico["ionization_energy"]),
         )
 
     def __call__(self, state: CurrentState) -> np.ndarray:

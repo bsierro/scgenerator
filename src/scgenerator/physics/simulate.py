@@ -6,6 +6,7 @@ from datetime import datetime
 from logging import Logger
 from pathlib import Path
 from typing import Any, Generator, Iterator, Optional, Type, Union
+import warnings
 
 import numpy as np
 
@@ -177,36 +178,37 @@ class RK4IP:
             integrator = solver.ConstantStepIntegrator(
                 state, self.params.linear_operator, self.params.nonlinear_operator
             )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("error", category=RuntimeWarning)
+            for state in integrator:
 
-        for state in integrator:
+                new_tracked_values = integrator.all_values()
+                self.logger.debug(f"tracked values at z={state.z} : {new_tracked_values}")
+                self.tracked_values.append(new_tracked_values)
 
-            new_tracked_values = integrator.all_values()
-            self.logger.debug(f"tracked values at z={state.z} : {new_tracked_values}")
-            self.tracked_values.append(new_tracked_values)
+                # Whether the current spectrum has to be stored depends on previous step
+                if store:
+                    current_spec = state.actual_spectrum
+                    self.stored_spectra.append(current_spec)
 
-            # Whether the current spectrum has to be stored depends on previous step
-            if store:
-                current_spec = state.actual_spectrum
-                self.stored_spectra.append(current_spec)
+                    yield len(self.stored_spectra) - 1, state.copy()
 
-                yield len(self.stored_spectra) - 1, state.copy()
+                    self.z_stored.append(state.z)
+                    del self.z_targets[0]
 
-                self.z_stored.append(state.z)
-                del self.z_targets[0]
+                    # reset the constant step size after a spectrum is stored
+                    if not self.params.adapt_step_size:
+                        integrator.state.current_step_size = self.error_ok
 
-                # reset the constant step size after a spectrum is stored
-                if not self.params.adapt_step_size:
-                    integrator.state.current_step_size = self.error_ok
+                    if len(self.z_targets) == 0:
+                        break
+                    store = False
 
-                if len(self.z_targets) == 0:
-                    break
-                store = False
-
-            # if the next step goes over a position at which we want to store
-            # a spectrum, we shorten the step to reach this position exactly
-            if state.z + integrator.state.current_step_size >= self.z_targets[0]:
-                store = True
-                integrator.state.current_step_size = self.z_targets[0] - state.z
+                # if the next step goes over a position at which we want to store
+                # a spectrum, we shorten the step to reach this position exactly
+                if state.z + integrator.state.current_step_size >= self.z_targets[0]:
+                    store = True
+                    integrator.state.current_step_size = self.z_targets[0] - state.z
 
     def step_saved(self, state: CurrentState):
         pass

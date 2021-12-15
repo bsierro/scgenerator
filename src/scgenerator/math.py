@@ -404,6 +404,29 @@ def envelope_ind(
     return local_min, local_max
 
 
+def envelope_2d(x: np.ndarray, values: np.ndarray) -> np.ndarray:
+    """returns the envelope of a 2d propagation-like array
+
+    Parameters
+    ----------
+    x : np.ndarray, shape (nt,)
+        x axis
+    values : np.ndarray, shape (nz, nt)
+        values of which to find the envelope
+
+    Returns
+    -------
+    np.ndarray, shape (nz, nt)
+        interpolated values
+    """
+    return np.array([envelope_1d(x, y) for y in values])
+
+
+def envelope_1d(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    _, hi = envelope_ind(y)
+    return interp1d(x[hi], y[hi], kind="cubic", fill_value=0, bounds_error=False)(x)
+
+
 @dataclass(frozen=True)
 class LobeProps:
     left_pos: float

@@ -2,7 +2,7 @@
 from . import math, operators
 from .evaluator import Evaluator
 from .legacy import convert_sim_folder
-from .math import abs2, argclosest, normalized, span
+from .math import abs2, argclosest, normalized, span, tspace, wspace
 from .parameter import Configuration, Parameters
 from .physics import fiber, materials, pulse, simulate, units, plasma
 from .physics.simulate import RK4IP, parallel_RK4IP, run_simulation

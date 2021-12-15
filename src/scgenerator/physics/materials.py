@@ -1,14 +1,16 @@
 import functools
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 import numpy as np
 
 from .. import utils
 from ..cache import np_cache
 from ..logger import get_logger
-from . import math, units
+from . import units
 from .units import NA, c, epsilon0, kB
+
+T = TypeVar("T", np.floating, np.ndarray)
 
 
 @dataclass
@@ -20,9 +22,12 @@ class Sellmeier:
     kind: int = 2
     constant: float = 0
 
-    def chi(self, wl: np.ndarray) -> np.ndarray:
+    def chi(self, wl: T) -> T:
         """n^2 - 1"""
-        chi = np.zeros_like(wl)  # = n^2 - 1
+        if isinstance(wl, np.ndarray):
+            chi = np.zeros_like(wl)  # = n^2 - 1
+        else:
+            chi = 0
         if self.kind == 1:
             for b, c_ in zip(self.B, self.C):
                 chi += wl ** 2 * b / (wl ** 2 - c_)
@@ -45,8 +50,11 @@ class Sellmeier:
         #     chi *= pressure / self.pressure_ref
         return chi
 
-    def n_gas_2(self, wl: np.ndarray) -> np.ndarray:
+    def n_gas_2(self, wl: T) -> T:
         return self.chi(wl) + 1
+
+    def n(self, wl: T) -> T:
+        return np.sqrt(self.n_gas_2(wl))
 
 
 class GasInfo:
@@ -114,6 +122,30 @@ class GasInfo:
                 self.sellmeier.pressure_ref,
                 self.sellmeier.temperature_ref,
             )
+
+    def number_density(
+        self, temperature: float = None, pressure: float = None, ideal_gas: bool = False
+    ) -> float:
+        """returns the number density in 1/m^3 using van der Waals equation
+
+        Parameters
+        ----------
+        temperature : float, optional
+            temperature in K, by default None
+        pressure : float, optional
+            pressure in Pa, by default None
+
+        Returns
+        -------
+        float
+            number density in 1/m^3
+        """
+        pressure = pressure or self.sellmeier.pressure_ref
+        temperature = temperature or self.sellmeier.temperature_ref
+        if ideal_gas:
+            return pressure / temperature / kB
+        else:
+            return number_density_van_der_waals(self.get("a"), self.get("b"), pressure, temperature)
 
     @property
     def ionic_charge(self):

@@ -19,7 +19,7 @@ from .operators import (
 from .utils import get_arg_names
 import warnings
 
-warnings.filterwarnings("error")
+# warnings.filterwarnings("error")
 
 
 class IntegratorFactory:
@@ -200,8 +200,45 @@ class AdaptiveIntegrator(Integrator):
             )
         return h_next_step, accepted
 
+    def decide_step_alt(self, h: float) -> tuple[float, bool]:
+        """decides if the current step must be accepted and computes the next step
+        size regardless
+
+        Parameters
+        ----------
+        h : float
+            size of the step used to set the current self.current_error
+
+        Returns
+        -------
+        float
+            next step size
+        bool
+            True if the step must be accepted
+        """
+        error = self.current_error / self.target_error
+        if error > 2:
+            accepted = False
+            next_h_factor = 0.5
+        elif 1 < error <= 2:
+            accepted = True
+            next_h_factor = 2 ** (-1 / self.order)
+        elif 0.1 < error <= 1:
+            accepted = True
+            next_h_factor = 1.0
+        else:
+            accepted = True
+            next_h_factor = 2 ** (1 / self.order)
+        h_next_step = h * next_h_factor
+        if not accepted:
+            self.steps_rejected += 1
+            self.logger.info(
+                f"step {self.state.step} rejected : {h=}, {self.current_error=}, {h_next_step=}"
+            )
+        return h_next_step, accepted
+
     def values(self) -> dict[str, float]:
-        return dict(step_rejected=self.steps_rejected)
+        return dict(step_rejected=self.steps_rejected, energy=self.state.field2.sum())
 
 
 class ConservedQuantityIntegrator(AdaptiveIntegrator, scheme="cqe"):
