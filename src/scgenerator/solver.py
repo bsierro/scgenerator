@@ -19,6 +19,11 @@ from .operators import (
 from .utils import get_arg_names
 import warnings
 
+
+class IntegratorError(Exception):
+    pass
+
+
 # warnings.filterwarnings("error")
 
 

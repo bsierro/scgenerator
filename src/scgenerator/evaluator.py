@@ -386,7 +386,6 @@ default_rules: list[Rule] = [
     Rule("n_op", operators.MarcatiliAdjustedRefractiveIndex),
     Rule("n_op", operators.HasanRefractiveIndex),
     Rule("gas_op", operators.ConstantGas),
-    Rule("raman_op", operators.NoRaman, priorities=-1),
     Rule("loss_op", operators.NoLoss, priorities=-1),
     Rule("conserved_quantity", operators.NoConservedQuantity, priorities=-1),
 ]
@@ -422,6 +421,7 @@ envelope_rules = default_rules + [
     Rule("spm_op", operators.NoEnvelopeSPM, priorities=-1),
     Rule("spm_op", operators.EnvelopeSPM),
     Rule("raman_op", operators.EnvelopeRaman),
+    Rule("raman_op", operators.NoEnvelopeRaman, priorities=-1),
     Rule("nonlinear_operator", operators.EnvelopeNonLinearOperator),
     Rule("loss_op", operators.CustomLoss, priorities=3),
     Rule("loss_op", operators.CapillaryLoss, priorities=2, conditions=dict(loss="capillary")),
@@ -454,5 +454,6 @@ full_field_rules = default_rules + [
     ),
     Rule("plasma_op", operators.Plasma, conditions=dict(photoionization=True)),
     Rule("plasma_op", operators.NoPlasma, priorities=-1),
+    Rule("raman_op", operators.NoFullFieldRaman, priorities=-1),
     Rule("nonlinear_operator", operators.FullFieldNonLinearOperator),
 ]

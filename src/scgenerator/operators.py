@@ -630,7 +630,7 @@ class CustomLoss(ConstantLoss):
 
 
 class AbstractRaman(Operator):
-    f_r: float = 0.0
+    fraction: float = 0.0
 
     @abstractmethod
     def __call__(self, state: CurrentState) -> np.ndarray:
@@ -647,27 +647,34 @@ class AbstractRaman(Operator):
         """
 
 
-class NoRaman(NoOpTime, AbstractRaman):
+class NoEnvelopeRaman(NoOpTime, AbstractRaman):
+    pass
+
+
+class NoFullFieldRaman(NoOpFreq, AbstractRaman):
     pass
 
 
 class EnvelopeRaman(AbstractRaman):
     def __init__(self, raman_type: str, t: np.ndarray):
         self.hr_w = fiber.delayed_raman_w(t, raman_type)
-        self.f_r = 0.245 if raman_type == "agrawal" else 0.18
+        self.fraction = 0.245 if raman_type == "agrawal" else 0.18
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.f_r * np.fft.ifft(self.hr_w * np.fft.fft(state.field2))
+        return self.fraction * np.fft.ifft(self.hr_w * np.fft.fft(state.field2))
 
 
 class FullFieldRaman(AbstractRaman):
-    def __init__(self, raman_type: str, t: np.ndarray, chi3: float):
+    def __init__(self, raman_type: str, t: np.ndarray, w: np.ndarray, chi3: float):
         self.hr_w = fiber.delayed_raman_w(t, raman_type)
-        self.f_r = 0.245 if raman_type == "agrawal" else 0.18
-        self.multiplier = units.epsilon0 * chi3 * self.f_r
+        self.fraction = 0.245 if raman_type == "agrawal" else 0.18
+        self.factor_in = units.epsilon0 * chi3 * self.fraction
+        self.factor_out = 1j * w ** 2 / (2.0 * units.c ** 2 * units.epsilon0)
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.multiplier * np.fft.ifft(np.fft.fft(state.field2) * self.hr_w)
+        return self.factor_out * np.fft.rfft(
+            self.factor_in * state.field * np.fft.irfft(self.hr_w * np.fft.rfft(state.field2))
+        )
 
 
 ##################################################
@@ -703,19 +710,20 @@ class NoFullFieldSPM(NoOpTime, AbstractSPM):
 
 class EnvelopeSPM(AbstractSPM):
     def __init__(self, raman_op: AbstractRaman):
-        self.fraction = 1 - raman_op.f_r
+        self.fraction = 1 - raman_op.fraction
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         return self.fraction * state.field2
 
 
 class FullFieldSPM(AbstractSPM):
-    def __init__(self, raman_op: AbstractRaman, chi3: float):
-        self.fraction = 1 - raman_op.f_r
-        self.factor = self.fraction * chi3 * units.epsilon0
+    def __init__(self, raman_op: AbstractRaman, w: np.ndarray, chi3: float):
+        self.fraction = 1 - raman_op.fraction
+        self.factor_out = 1j * w ** 2 / (2.0 * units.c ** 2 * units.epsilon0)
+        self.factor_in = self.fraction * chi3 * units.epsilon0
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.factor * state.field2 * state.field
+        return self.factor_out * np.fft.rfft(self.factor_in * state.field2 * state.field)
 
 
 ##################################################
@@ -804,19 +812,20 @@ class Plasma(Operator):
     gas_op: AbstractGas
     ionization_fraction = 0.0
 
-    def __init__(self, dt: float, gas_op: AbstractGas):
+    def __init__(self, dt: float, w: np.ndarray, gas_op: AbstractGas):
         self.gas_op = gas_op
         self.mat_plasma = plasma.Plasma(
             dt,
             self.gas_op.material_dico["ionization_energy"],
             plasma.IonizationRateADK(self.gas_op.material_dico["ionization_energy"]),
         )
+        self.factor_out = -w / (2.0 * units.c ** 2 * units.epsilon0)
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         N0 = self.gas_op.number_density(state)
         plasma_info = self.mat_plasma(state.field, N0)
         self.ionization_fraction = plasma_info.electron_density[-1] / N0
-        return plasma_info.polarization
+        return self.factor_out * np.fft.rfft(plasma_info.dp_dt)
 
     def values(self) -> dict[str, float]:
         return dict(ionization_fraction=self.ionization_fraction)
@@ -902,7 +911,7 @@ def conserved_quantity(
     if not adapt_step_size:
         return NoConservedQuantity()
     logger = get_logger(__name__)
-    raman = not isinstance(raman_op, NoRaman)
+    raman = not isinstance(raman_op, NoEnvelopeRaman)
     loss = not isinstance(loss_op, NoLoss)
     if raman and loss:
         logger.debug("Conserved quantity : photon number with loss")
@@ -1023,4 +1032,4 @@ class FullFieldNonLinearOperator(NonLinearOperator):
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         total_nonlinear = self.spm_op(state) + self.raman_op(state) + self.plasma_op(state)
-        return self.factor / self.beta_op(state) * np.fft.rfft(total_nonlinear)
+        return total_nonlinear / self.beta_op(state)

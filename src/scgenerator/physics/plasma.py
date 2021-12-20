@@ -12,7 +12,7 @@ T_a = TypeVar("T_a", np.floating, np.ndarray)
 @dataclass
 class PlasmaInfo:
     electron_density: np.ndarray
-    polarization: np.ndarray
+    dp_dt: np.ndarray
     rate: np.ndarray
     dn_dt: np.ndarray
     debug: np.ndarray
@@ -79,18 +79,15 @@ class Plasma:
         rate = self.rate(field_abs)
         electron_density = free_electron_density(rate, self.dt, N0)
         dn_dt: np.ndarray = (N0 - electron_density) * rate
-        integrand = np.zeros_like(field)
-        integrand[nzi] = dn_dt[nzi] * self.ionization_energy / field[nzi]
 
-        energy_loss = self.dt * cumulative_simpson(integrand)
-        added_phase = (
-            self.dt ** 2
-            * e ** 2
-            / me
-            * cumulative_simpson(cumulative_simpson(electron_density * field))
-        )
-        polarization = energy_loss + added_phase
-        return PlasmaInfo(electron_density, polarization, rate, dn_dt, (energy_loss, added_phase))
+        loss_term = np.zeros_like(field)
+        loss_term[nzi] = dn_dt[nzi] * self.ionization_energy / field[nzi]
+
+        phase_term = self.dt * e ** 2 / me * cumulative_simpson(electron_density * field)
+
+        # polarization = -loss_integrated + phase_integrated
+        dp_dt = loss_term
+        return PlasmaInfo(electron_density, dp_dt, rate, dn_dt, phase_term)
 
 
 def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:
