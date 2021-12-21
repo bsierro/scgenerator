@@ -831,7 +831,7 @@ class Plasma(Operator):
         return dict(ionization_fraction=self.ionization_fraction)
 
 
-class NoPlasma(NoOpTime, Plasma):
+class NoPlasma(NoOpFreq, Plasma):
     pass
 
 

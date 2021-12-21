@@ -453,7 +453,6 @@ def transform_2D_propagation(
         raise ValueError(f"shape was {values.shape}. Can only plot 2D array")
     is_complex, x_axis, plt_range = prep_plot_axis(values, plt_range, params)
     if is_complex or any(values.ravel() < 0):
-        print("squared")
         values = abs2(values)
     # if params.full_field and plt_range.unit.type == "TIME":
     #     values = envelope_2d(x_axis, values)

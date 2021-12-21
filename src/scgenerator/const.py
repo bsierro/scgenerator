@@ -81,6 +81,8 @@ VALID_VARIABLE = {
     "num",
 }
 
+INVALID_VARIABLE = {"repeat"}
+
 
 MANDATORY_PARAMETERS = [
     "name",
