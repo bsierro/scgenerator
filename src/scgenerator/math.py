@@ -422,7 +422,9 @@ def envelope_2d(x: np.ndarray, values: np.ndarray) -> np.ndarray:
     return np.array([envelope_1d(x, y) for y in values])
 
 
-def envelope_1d(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+def envelope_1d(y: np.ndarray, x: np.ndarray = None) -> np.ndarray:
+    if x is None:
+        x = np.arange(len(y))
     _, hi = envelope_ind(y)
     return interp1d(x[hi], y[hi], kind="cubic", fill_value=0, bounds_error=False)(x)
 

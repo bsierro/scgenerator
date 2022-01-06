@@ -1,12 +1,14 @@
 from dataclasses import dataclass
 from typing import TypeVar
+
 import numpy as np
 import scipy.special
+from numpy.core.numeric import zeros_like
 
+from ..math import cumulative_simpson, expm1_int
 from .units import e, hbar, me
-from ..math import expm1_int, cumulative_simpson
 
-T_a = TypeVar("T_a", np.floating, np.ndarray)
+T_a = TypeVar("T_a", np.floating, np.ndarray, float)
 
 
 @dataclass
@@ -21,32 +23,44 @@ class PlasmaInfo:
 class IonizationRate:
     ionization_energy: float
 
-    def __call__(self, field: np.ndarray) -> np.ndarray:
+    def __init__(self, ionization_energy: float):
+        self.Z = 1
+        self.ionization_energy = ionization_energy
+        self.nstar = self.Z * np.sqrt(2.1787e-18 / ionization_energy)
+
+    def __call__(self, field_abs: T_a) -> T_a:
         ...
 
 
 class IonizationRateADK(IonizationRate):
     def __init__(self, ionization_energy: float):
-        self.Z = 1
-        self.ionization_energy = ionization_energy
+        super().__init__(ionization_energy)
         self.omega_p = ionization_energy / hbar
 
-        self.nstar = self.Z * np.sqrt(2.1787e-18 / ionization_energy)
         Cnstar = 2 ** (2 * self.nstar) / (scipy.special.gamma(self.nstar + 1) ** 2)
         self.omega_pC = self.omega_p * Cnstar
 
-    def omega_t(self, field: T_a) -> T_a:
-        return e * np.abs(field) / np.sqrt(2 * me * self.ionization_energy)
+    def omega_t(self, field_abs: T_a) -> T_a:
+        return e * field_abs / np.sqrt(2 * me * self.ionization_energy)
 
-    def __call__(self, field: T_a) -> T_a:
-        ot = self.omega_t(field)
-        opt4 = 4 * self.omega_p / (ot + 1e-14 * ot.max())
+    def __call__(self, field_abs: T_a) -> T_a:
+        ot = self.omega_t(field_abs)
+        opt4 = 4 * self.omega_p / ot
         return self.omega_pC * opt4 ** (2 * self.nstar - 1) * np.exp(-opt4 / 3)
 
 
 class IonizationRatePPT(IonizationRate):
     def __init__(self, ionization_energy: float) -> None:
         self.ionization_energy = ionization_energy
+        self.numerator = 2 * (2 * self.ionization_energy) ** 1.5
+
+    def __call__(self, field_abs: T_a) -> T_a:
+
+        return (
+            self.factor
+            * (self.numerator / field_abs) ** (2 * self.nstart - 1)
+            * np.exp(-self.numerator / (3 * field_abs))
+        )
 
 
 class Plasma:
@@ -76,7 +90,8 @@ class Plasma:
         """
         field_abs: np.ndarray = np.abs(field)
         nzi = field != 0
-        rate = self.rate(field_abs)
+        rate = zeros_like(field_abs)
+        rate[nzi] = self.rate(field_abs[nzi])
         electron_density = free_electron_density(rate, self.dt, N0)
         dn_dt: np.ndarray = (N0 - electron_density) * rate
 

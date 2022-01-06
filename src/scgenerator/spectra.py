@@ -60,7 +60,7 @@ class Spectrum(np.ndarray):
 
     @property
     def time_int(self):
-        return math.abs2(np.fft.ifft(self))
+        return math.abs2(self.params.ifft(self))
 
     def amplitude(self, unit):
         if unit.type in ["WL", "FREQ", "AFREQ"]:
