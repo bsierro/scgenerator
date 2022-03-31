@@ -165,7 +165,7 @@ class ValueTracker(ABC):
         return self.__class__.__name__ + "(" + ", ".join(value_pair_str_list) + ")"
 
     def __value_repr(self, k: str, v) -> str:
-        if k.endswith("_const"):
+        if k.endswith("_const") and isinstance(v, (list, np.ndarray, tuple)):
             return repr(v[0])
         return repr(v)
 
@@ -198,9 +198,12 @@ class NoOpFreq(Operator):
 ##################################################
 
 
-class AbstractGas(ABC):
+class AbstractGas(Operator):
     gas_name: str
     material_dico: dict[str, Any]
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        return self.square_index(state)
 
     @abstractmethod
     def pressure(self, state: CurrentState) -> float:
@@ -307,7 +310,7 @@ class PressureGradientGas(AbstractGas):
         return materials.pressure_from_gradient(state.z_ratio, self.p_in, self.p_out)
 
     def number_density(self, state: CurrentState) -> float:
-        if self.ideal:
+        if self.ideal_gas:
             return self.pressure(state) / (units.kB * self.temperature)
         else:
             return materials.number_density_van_der_waals(
@@ -505,7 +508,7 @@ class DirectDispersion(AbstractDispersion):
         self.w_for_disp = w_for_disp
         self.disp_ind = dispersion_ind
         self.n_op = n_op
-        self.disp_arr = np.zeros(t_num)
+        self.disp_arr = np.zeros(t_num, dtype=complex)
         self.w0 = w0
         self.w0_ind = math.argclosest(w_for_disp, w0)
 
@@ -782,7 +785,7 @@ class AbstractGamma(Operator):
 
 
 class ConstantScalarGamma(AbstractGamma):
-    def __init__(self, gamma: np.ndarray, t_num: int):
+    def __init__(self, gamma: float, t_num: int):
         self.arr_const = gamma * np.ones(t_num)
 
     def __call__(self, state: CurrentState) -> np.ndarray:
@@ -800,6 +803,23 @@ class ConstantGamma(AbstractGamma):
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         return self.arr
+
+
+class VariableScalarGamma(AbstractGamma):
+    def __init__(
+        self, gas_op: AbstractGas, temperature: float, w0: float, A_eff: float, t_num: int
+    ):
+        self.gas_op = gas_op
+        self.temperature = temperature
+        self.w0 = w0
+        self.A_eff = A_eff
+        self.arr = np.ones(t_num)
+
+    def __call__(self, state: CurrentState) -> np.ndarray:
+        n2 = materials.non_linear_refractive_index(
+            self.gas_op.material_dico, self.gas_op.pressure(state), self.temperature
+        )
+        return self.arr * fiber.gamma_parameter(n2, self.w0, self.A_eff)
 
 
 ##################################################

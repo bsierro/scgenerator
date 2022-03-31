@@ -334,9 +334,9 @@ class Parameters:
 
     # gas
     gas_name: str = Parameter(string, converter=str.lower, default="vacuum")
-    pressure: Union[float, Iterable[float]] = Parameter(
-        validator_or(non_negative(float, int), num_list), display_info=(1e-5, "bar")
-    )
+    pressure: float = Parameter(non_negative(float, int), display_info=(1e-5, "bar"))
+    pressure_in: float = Parameter(non_negative(float, int), display_info=(1e-5, "bar"))
+    pressure_out: float = Parameter(non_negative(float, int), display_info=(1e-5, "bar"))
     temperature: float = Parameter(positive(float, int), display_info=(1, "K"), default=300)
     plasma_density: float = Parameter(non_negative(float, int), default=0)
 

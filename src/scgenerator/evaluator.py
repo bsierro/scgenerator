@@ -386,6 +386,7 @@ default_rules: list[Rule] = [
     Rule("n_op", operators.MarcatiliAdjustedRefractiveIndex),
     Rule("n_op", operators.HasanRefractiveIndex),
     Rule("gas_op", operators.ConstantGas),
+    Rule("gas_op", operators.PressureGradientGas),
     Rule("loss_op", operators.NoLoss, priorities=-1),
     Rule("conserved_quantity", operators.NoConservedQuantity, priorities=-1),
 ]
@@ -416,6 +417,7 @@ envelope_rules = default_rules + [
     Rule("gamma_op", operators.ConstantGamma, priorities=1),
     Rule("gamma_op", operators.ConstantScalarGamma),
     Rule("gamma_op", operators.NoGamma, priorities=-1),
+    Rule("gamma_op", operators.VariableScalarGamma, priorities=2),
     Rule("ss_op", operators.SelfSteepening),
     Rule("ss_op", operators.NoSelfSteepening, priorities=-1),
     Rule("spm_op", operators.NoEnvelopeSPM, priorities=-1),
