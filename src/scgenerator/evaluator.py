@@ -98,6 +98,7 @@ class Rule:
 @dataclass
 class EvalStat:
     priority: float = np.inf
+    rule: Rule = None
 
 
 class Evaluator:
@@ -238,7 +239,7 @@ class Evaluator:
                                 + success_str
                                 + f"using {rule.func.__name__} from {rule.func.__module__}"
                             )
-                            self.set_value(param_name, returned_value, param_priority)
+                            self.set_value(param_name, returned_value, param_priority, rule)
                         if param_name == target:
                             value = returned_value
                     break
@@ -262,7 +263,7 @@ class Evaluator:
                 else:
                     value = default
                     self.logger.info(prefix + f"using default value of {value} for {target}")
-                    self.set_value(target, value, 0)
+                    self.set_value(target, value, 0, None)
             last_target = self.__curent_lookup.pop()
             assert target == last_target
             self.__failed_rules[target] = []
@@ -275,9 +276,10 @@ class Evaluator:
     def __getitem__(self, key: str) -> Any:
         return self.params[key]
 
-    def set_value(self, key: str, value: Any, priority: int):
+    def set_value(self, key: str, value: Any, priority: int, rule: Rule):
         self.params[key] = value
         self.eval_stats[key].priority = priority
+        self.eval_stats[key].rule = rule
 
     def validate_condition(self, rule: Rule) -> bool:
         try:

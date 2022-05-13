@@ -24,10 +24,23 @@ class CurrentState:
     step: int
     C_to_A_factor: np.ndarray
     converter: Callable[[np.ndarray], np.ndarray]
-    __spectrum: np.ndarray = None
-    __spec2: np.ndarray = None
-    __field: np.ndarray = None
-    __field2: np.ndarray = None
+    __spectrum: np.ndarray
+    __spec2: np.ndarray
+    __field: np.ndarray
+    __field2: np.ndarray
+
+    __slots__ = [
+        "length",
+        "z",
+        "current_step_size",
+        "step",
+        "C_to_A_factor",
+        "converter",
+        "_CurrentState__spectrum",
+        "_CurrentState__spec2",
+        "_CurrentState__field",
+        "_CurrentState__field2",
+    ]
 
     def __init__(
         self,
@@ -45,7 +58,7 @@ class CurrentState:
         self.step = step
         self.C_to_A_factor = C_to_A_factor
         self.converter = converter
-        self.__spectrum = spectrum
+        self.spectrum = spectrum
 
     @property
     def z_ratio(self) -> float:
