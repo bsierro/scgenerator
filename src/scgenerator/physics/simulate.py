@@ -134,7 +134,7 @@ class RK4IP:
         for num, state in self.irun():
             if self.save_data:
                 self._save_current_spectrum(state.actual_spectrum, num)
-                self.step_saved(state)
+            self.step_saved(state)
 
         self.logger.info(
             "propagation finished in {} steps ({} seconds)".format(
@@ -224,10 +224,10 @@ class SequentialRK4IP(RK4IP):
     def __init__(
         self,
         params: Parameters,
-        pbars: PBars,
+        pbars: PBars = None,
         save_data=False,
     ):
-        self.pbars = pbars
+        self.pbars = pbars or PBars(params.z_num, f"Simulating {params.name}", 1)
         super().__init__(
             params,
             save_data=save_data,
