@@ -13,7 +13,7 @@ import numpy as np
 from .. import solver, utils
 from ..logger import get_logger
 from ..operators import CurrentState
-from ..parameter import Configuration, Parameters
+from ..parameter import FileConfiguration, Parameters
 from ..pbar import PBars, ProgressBarActor, progress_worker
 
 try:
@@ -310,7 +310,7 @@ class Simulations:
 
     @classmethod
     def new(
-        cls, configuration: Configuration, method: Union[str, Type["Simulations"]] = None
+        cls, configuration: FileConfiguration, method: Union[str, Type["Simulations"]] = None
     ) -> "Simulations":
         """Prefered method to create a new simulations object
 
@@ -323,12 +323,12 @@ class Simulations:
             if isinstance(method, str):
                 method = Simulations.simulation_methods_dict[method]
             return method(configuration)
-        elif configuration.num_sim > 1 and configuration.parallel:
+        elif configuration.num_sim > 1 and configuration.worker_num > 1:
             return Simulations.get_best_method()(configuration)
         else:
             return SequencialSimulations(configuration)
 
-    def __init__(self, configuration: Configuration):
+    def __init__(self, configuration: FileConfiguration):
         """
         Parameters
         ----------
@@ -397,7 +397,7 @@ class SequencialSimulations(Simulations, priority=0):
     def is_available(cls):
         return True
 
-    def __init__(self, configuration: Configuration):
+    def __init__(self, configuration: FileConfiguration):
         super().__init__(configuration)
         self.pbars = PBars(
             self.configuration.total_num_steps,
@@ -422,7 +422,7 @@ class MultiProcSimulations(Simulations, priority=1):
     def is_available(cls):
         return True
 
-    def __init__(self, configuration: Configuration):
+    def __init__(self, configuration: FileConfiguration):
         super().__init__(configuration)
         if configuration.worker_num is not None:
             self.sim_jobs_per_node = configuration.worker_num
@@ -502,7 +502,7 @@ class RaySimulations(Simulations, priority=2):
 
     def __init__(
         self,
-        configuration: Configuration,
+        configuration: FileConfiguration,
     ):
         super().__init__(configuration)
 
@@ -578,7 +578,7 @@ def run_simulation(
     config_file: os.PathLike,
     method: Union[str, Type[Simulations]] = None,
 ):
-    config = Configuration(config_file, wait=True)
+    config = FileConfiguration(config_file, wait=True)
 
     sim = new_simulation(config, method)
     sim.run()
@@ -588,7 +588,7 @@ def run_simulation(
 
 
 def new_simulation(
-    configuration: Configuration,
+    configuration: FileConfiguration,
     method: Union[str, Type[Simulations]] = None,
 ) -> Simulations:
     logger = get_logger(__name__)
@@ -618,7 +618,7 @@ def parallel_RK4IP(
     tuple[tuple[list[tuple[str, Any]], Parameters, int, int, np.ndarray], ...], None, None
 ]:
     logger = get_logger(__name__)
-    params = list(Configuration(config))
+    params = list(FileConfiguration(config))
     n = len(params)
     z_num = params[0][1].z_num
 

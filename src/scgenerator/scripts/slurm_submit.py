@@ -10,7 +10,7 @@ from typing import Tuple
 import numpy as np
 
 from ..utils import Paths
-from ..parameter import Configuration
+from ..parameter import FileConfiguration
 
 
 def primes(n):
@@ -126,7 +126,7 @@ def main():
             "time format must be an integer number of minute or must match the pattern hh:mm:ss"
         )
 
-    config = Configuration(args.config)
+    config = FileConfiguration(args.config)
     final_name = config.final_path
     sim_num = config.num_sim
 

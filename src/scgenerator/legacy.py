@@ -9,7 +9,7 @@ import tomli
 import tomli_w
 
 from .const import SPEC1_FN, SPEC1_FN_N, SPECN_FN1
-from .parameter import Configuration, Parameters
+from .parameter import FileConfiguration, Parameters
 from .pbar import PBars
 from .utils import save_parameters
 from .variationer import VariationDescriptor
@@ -43,7 +43,7 @@ def convert_sim_folder(path: os.PathLike):
     master_config = dict(name=path.name, Fiber=configs)
     with open(new_root / "initial_config.toml", "wb") as f:
         tomli_w.dump(Parameters.strip_params_dict(master_config), f)
-    configuration = Configuration(path, final_output_path=new_root)
+    configuration = FileConfiguration(path, final_output_path=new_root)
     pbar = PBars(configuration.total_num_steps, "Converting")
 
     new_paths: dict[VariationDescriptor, Parameters] = dict(configuration)

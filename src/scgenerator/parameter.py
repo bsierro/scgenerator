@@ -437,7 +437,9 @@ class Parameters:
         return self.dump_dict(add_metadata=False)
 
     def __setstate__(self, dumped_dict: dict[str, Any]):
-        self._param_dico = dumped_dict
+        self._param_dico = DebugDict()
+        for k, v in dumped_dict.items():
+            setattr(self, k, v)
         self.__post_init__()
 
     def dump_dict(self, compute=True, add_metadata=True) -> dict[str, Any]:
@@ -539,7 +541,21 @@ class Parameters:
         return None
 
 
-class Configuration:
+class AbstractConfiguration:
+    fiber_paths: list[Path]
+    num_sim: int
+    total_num_steps: int
+    worker_num: int
+    final_path: Path
+
+    def __iter__(self) -> Iterator[tuple[VariationDescriptor, Parameters]]:
+        raise NotImplementedError()
+
+    def save_parameters(self):
+        raise NotImplementedError()
+
+
+class FileConfiguration(AbstractConfiguration):
     """
     Primary role is to load the final config file of the simulation and deduce every
     simulatin that has to happen. Iterating through the Configuration obj yields a list of
@@ -548,19 +564,12 @@ class Configuration:
     """
 
     fiber_configs: list[utils.SubConfig]
-    vary_dicts: list[dict[str, list]]
     master_config_dict: dict[str, Any]
-    fiber_paths: list[Path]
-    num_sim: int
     num_fibers: int
     repeat: int
     z_num: int
-    total_num_steps: int
-    worker_num: int
-    parallel: bool
     overwrite: bool
-    final_path: Path
-    all_configs: dict[tuple[tuple[int, ...], ...], "Configuration.__SimConfig"]
+    all_configs: dict[tuple[tuple[int, ...], ...], "FileConfiguration.__SimConfig"]
 
     @dataclass(frozen=True)
     class __SimConfig:
@@ -643,7 +652,6 @@ class Configuration:
             config.fixed["z_num"] * self.variationer.var_num(i)
             for i, config in enumerate(self.fiber_configs)
         )
-        self.parallel = self.master_config_dict.get("parallel", Parameters.parallel.default)
 
     def __validate_variable(self, vary_dict_list: list[dict[str, list]]):
         for vary_dict in vary_dict_list:
@@ -675,7 +683,7 @@ class Configuration:
         """
         if index < 0:
             index = self.num_fibers + index
-        sim_dict: dict[Path, Configuration.__SimConfig] = {}
+        sim_dict: dict[Path, FileConfiguration.__SimConfig] = {}
         for descriptor in self.variationer.iterate(index):
             cfg = descriptor.update_config(self.fiber_configs[index].fixed)
             if index > 0:
@@ -711,8 +719,8 @@ class Configuration:
                 time.sleep(1)
 
     def __decide(
-        self, sim_config: "Configuration.__SimConfig"
-    ) -> tuple["Configuration.Action", dict[str, Any]]:
+        self, sim_config: "FileConfiguration.__SimConfig"
+    ) -> tuple["FileConfiguration.Action", dict[str, Any]]:
         """decide what to to with a particular simulation
 
         Parameters
@@ -746,7 +754,7 @@ class Configuration:
 
     def sim_status(
         self, data_dir: Path, config_dict: dict[str, Any] = None
-    ) -> tuple["Configuration.State", int]:
+    ) -> tuple["FileConfiguration.State", int]:
         """returns the status of a simulation
 
         Parameters

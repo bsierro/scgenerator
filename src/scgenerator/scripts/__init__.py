@@ -11,7 +11,7 @@ from tqdm import tqdm
 from .. import env, math
 from ..const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN
 from ..legacy import translate_parameters
-from ..parameter import Configuration, Parameters
+from ..parameter import FileConfiguration, Parameters
 from ..physics import fiber, units
 from ..plotting import plot_setup, transform_2D_propagation, get_extent
 from ..spectra import SimulationSeries
@@ -271,7 +271,7 @@ def finish_plot(fig: plt.Figure, legend_axes: plt.Axes, all_labels: list[str], p
 
 def plot_helper(config_path: Path) -> Iterable[tuple[dict, list[str], Parameters]]:
     cc = cycler(color=[f"C{i}" for i in range(10)]) * cycler(ls=["-", "--"])
-    for style, (descriptor, params), _ in zip(cc, Configuration(config_path), range(20)):
+    for style, (descriptor, params), _ in zip(cc, FileConfiguration(config_path), range(20)):
         yield style, descriptor.branch.formatted_descriptor(), params
 
 
