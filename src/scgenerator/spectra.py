@@ -158,6 +158,9 @@ class SimulationSeries:
             raise FileNotFoundError(f"No simulation in {path}")
         self.fibers = [SimulatedFiber(self.path)]
         while (p := self.fibers[-1].params.prev_data_dir) is not None:
+            p = Path(p)
+            if not p.is_absolute():
+                p = Path(self.fibers[-1].params.output_path) / p
             self.fibers.append(SimulatedFiber(p))
         self.fibers = self.fibers[::-1]
 
@@ -353,6 +356,7 @@ class SimulatedFiber:
     def __init__(self, path: os.PathLike):
         self.path = Path(path)
         self.params = Parameters(**translate_parameters(load_toml(self.path / PARAM_FN)))
+        self.params.output_path = str(self.path.resolve())
         self.t = self.params.t
         self.w = self.params.w
         self.z = self.params.z_targets

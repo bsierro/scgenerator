@@ -21,7 +21,7 @@ import pkg_resources as pkg
 import tomli
 import tomli_w
 
-from .const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, SPECN_FN1, Z_FN, ROOT_PARAMETERS
+from .const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, Z_FN, ROOT_PARAMETERS
 from .logger import get_logger
 from .errors import DuplicateParameterError
 
@@ -489,7 +489,7 @@ def update_params(new_path: Path, file: Path):
     params = load_toml(file)
     if (p := params.get("prev_data_dir")) is not None:
         p = Path(p)
-        params["prev_data_dir"] = str(p.parent / update_path_name(p.name))
+        params["prev_data_dir"] = str(Path("../..") / p.parent.name / update_path_name(p.name))
     params["output_path"] = str(new_path)
     save_toml(new_path / PARAM_FN, params)
     file.unlink()
