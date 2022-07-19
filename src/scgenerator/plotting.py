@@ -887,6 +887,7 @@ def uniform_axis(
     """
     if new_axis_spec is None:
         new_axis_spec = "unity"
+
     if isinstance(new_axis_spec, str) or callable(new_axis_spec):
         unit = units.get_unit(new_axis_spec)
         plt_range = PlotRange(unit.inv(axis.min()), unit.inv(axis.max()), new_axis_spec)
@@ -896,6 +897,7 @@ def uniform_axis(
         plt_range = new_axis_spec
     else:
         raise TypeError(f"Don't know how to interpret {new_axis_spec}")
+        
     tmp_axis, ind, ext = sort_axis(axis, plt_range)
     values = np.atleast_2d(values)
     if np.allclose((diff := np.diff(tmp_axis))[0], diff):
