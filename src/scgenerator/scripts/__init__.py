@@ -136,7 +136,7 @@ def plot_init(
         lbl = plot_1_dispersion(lim_disp, tl, tr, style, lbl, params, loss_ax)
         lbl = plot_1_init_spec_field(lim_field, lim_spec, bl, br, style, lbl, params)
         all_labels.append(lbl)
-        print(params.pretty_str())
+        print(params.pretty_str(exclude="beta2_coefficients"))
     finish_plot(fig, tr, all_labels, params)
 
 
