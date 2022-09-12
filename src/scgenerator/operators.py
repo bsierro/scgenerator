@@ -847,18 +847,14 @@ class Plasma(Operator):
 
     def __init__(self, dt: float, w: np.ndarray, gas_op: AbstractGas):
         self.gas_op = gas_op
-        self.mat_plasma = plasma.Plasma(
-            dt,
-            self.gas_op.material_dico["ionization_energy"],
-            plasma.IonizationRateADK(self.gas_op.material_dico["ionization_energy"]),
-        )
+        self.mat_plasma = plasma.Plasma(dt, self.gas_op.material_dico["ionization_energy"])
         self.factor_out = -w / (2.0 * units.c ** 2 * units.epsilon0)
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         N0 = self.gas_op.number_density(state)
         plasma_info = self.mat_plasma(state.field, N0)
         self.ionization_fraction = plasma_info.electron_density[-1] / N0
-        return self.factor_out * np.fft.rfft(plasma_info.dp_dt)
+        return self.factor_out * np.fft.rfft(plasma_info.polarization)
 
     def values(self) -> dict[str, float]:
         return dict(ionization_fraction=self.ionization_fraction)

@@ -1,77 +1,78 @@
-from dataclasses import dataclass
-from typing import TypeVar
+from typing import Any, Callable, NamedTuple, TypeVar
 
 import numpy as np
 import scipy.special
+from scipy.interpolate import interp1d
 from numpy.core.numeric import zeros_like
 
 from ..math import cumulative_simpson, expm1_int
 from .units import e, hbar, me
 
-T_a = TypeVar("T_a", np.floating, np.ndarray, float)
 
-
-@dataclass
-class PlasmaInfo:
+class PlasmaInfo(NamedTuple):
+    polarization: np.ndarray
     electron_density: np.ndarray
-    dp_dt: np.ndarray
     rate: np.ndarray
-    dn_dt: np.ndarray
-    debug: np.ndarray
+    debug: Any = None
 
 
-class IonizationRate:
-    ionization_energy: float
+def ion_rate_adk(
+    field_abs: np.ndarray, ion_energy: float, Z: float
+) -> Callable[[np.ndarray], np.ndarray]:
 
-    def __init__(self, ionization_energy: float):
-        self.Z = 1
-        self.ionization_energy = ionization_energy
-        self.nstar = self.Z * np.sqrt(2.1787e-18 / ionization_energy)
-
-    def __call__(self, field_abs: T_a) -> T_a:
-        ...
-
-
-class IonizationRateADK(IonizationRate):
-    def __init__(self, ionization_energy: float):
-        super().__init__(ionization_energy)
-        self.omega_p = ionization_energy / hbar
-
-        Cnstar = 2 ** (2 * self.nstar) / (scipy.special.gamma(self.nstar + 1) ** 2)
-        self.omega_pC = self.omega_p * Cnstar
-
-    def omega_t(self, field_abs: T_a) -> T_a:
-        return e * field_abs / np.sqrt(2 * me * self.ionization_energy)
-
-    def __call__(self, field_abs: T_a) -> T_a:
-        ot = self.omega_t(field_abs)
-        opt4 = 4 * self.omega_p / ot
-        return self.omega_pC * opt4 ** (2 * self.nstar - 1) * np.exp(-opt4 / 3)
+    nstar = Z * np.sqrt(2.1787e-18 / ion_energy)
+    omega_p = ion_energy / hbar
+    Cnstar = 2 ** (2 * nstar) / (scipy.special.gamma(nstar + 1) ** 2)
+    omega_pC = omega_p * Cnstar
+    omega_t = e * field_abs / np.sqrt(2 * me * ion_energy)
+    opt4 = 4 * omega_p / omega_t
+    return omega_pC * opt4 ** (2 * nstar - 1) * np.exp(-opt4 / 3)
 
 
-class IonizationRatePPT(IonizationRate):
-    def __init__(self, ionization_energy: float) -> None:
-        self.ionization_energy = ionization_energy
-        self.numerator = 2 * (2 * self.ionization_energy) ** 1.5
+def cache_ion_rate(
+    ion_energy, rate_func: Callable[[np.ndarray, float, float], np.ndarray]
+) -> Callable[[np.ndarray], np.ndarray]:
+    Z = 1
+    E_max = barrier_suppression(ion_energy, Z) * 2
+    E_min = E_max / 5000
+    field = np.linspace(E_min, E_max, 4096)
+    interp = interp1d(
+        field,
+        rate_func(field, ion_energy, Z),
+        "cubic",
+        assume_sorted=True,
+        fill_value=0,
+        bounds_error=False,
+    )
 
-    def __call__(self, field_abs: T_a) -> T_a:
+    def compute(field_abs: np.ndarray) -> np.ndarray:
+        if field_abs.max() > E_max or field_abs.min() < -E_max:
+            raise ValueError("E field is out of bounds")
+        return interp(field_abs)
 
-        return (
-            self.factor
-            * (self.numerator / field_abs) ** (2 * self.nstart - 1)
-            * np.exp(-self.numerator / (3 * field_abs))
-        )
+    return compute
+
+
+def create_ion_rate_func(
+    ionization_energy: float, model="ADK"
+) -> Callable[[np.ndarray], np.ndarray]:
+    if model == "ADK":
+        func = ion_rate_adk
+    else:
+        raise ValueError(f"Ionization model {model!r} unrecognized")
+
+    return cache_ion_rate(ionization_energy, func)
 
 
 class Plasma:
     dt: float
     ionization_energy: float
-    rate: IonizationRate
+    rate: Callable[[np.ndarray], np.ndarray]
 
-    def __init__(self, dt: float, ionization_energy: float, rate: IonizationRate):
+    def __init__(self, dt: float, ionization_energy: float):
         self.dt = dt
         self.ionization_energy = ionization_energy
-        self.rate = rate
+        self.rate = create_ion_rate_func(self.ionization_energy)
 
     def __call__(self, field: np.ndarray, N0: float) -> PlasmaInfo:
         """returns the number density of free electrons as function of time
@@ -100,9 +101,9 @@ class Plasma:
 
         phase_term = self.dt * e ** 2 / me * cumulative_simpson(electron_density * field)
 
-        # polarization = -loss_integrated + phase_integrated
-        dp_dt = loss_term
-        return PlasmaInfo(electron_density, dp_dt, rate, dn_dt, phase_term)
+        dp_dt = loss_term + phase_term
+        polarization = self.dt * cumulative_simpson(dp_dt)
+        return PlasmaInfo(polarization, electron_density, rate)
 
 
 def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:
@@ -111,3 +112,9 @@ def adiabadicity(w: np.ndarray, I: float, field: np.ndarray) -> np.ndarray:
 
 def free_electron_density(rate: np.ndarray, dt: float, N0: float) -> np.ndarray:
     return N0 * expm1_int(rate, dt)
+
+
+def barrier_suppression(ionpot, Z):
+    Ip_au = ionpot / 4.359744650021498e-18
+    ns = Z / np.sqrt(2 * Ip_au)
+    return Z ** 3 / (16 * ns ** 4) * 5.14220670712125e11
