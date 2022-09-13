@@ -897,7 +897,7 @@ def uniform_axis(
         plt_range = new_axis_spec
     else:
         raise TypeError(f"Don't know how to interpret {new_axis_spec}")
-        
+
     tmp_axis, ind, ext = sort_axis(axis, plt_range)
     values = np.atleast_2d(values)
     if np.allclose((diff := np.diff(tmp_axis))[0], diff):

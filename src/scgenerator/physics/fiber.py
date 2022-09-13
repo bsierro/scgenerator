@@ -627,6 +627,7 @@ def beta2(w_for_disp: np.ndarray, n_eff: np.ndarray) -> np.ndarray:
     return np.gradient(np.gradient(beta(w_for_disp, n_eff), w_for_disp), w_for_disp)
 
 
+
 def frame_velocity(beta1_arr: np.ndarray, w0_ind: int) -> float:
     return 1.0 / beta1_arr[w0_ind]
 

@@ -131,6 +131,7 @@ class RK4IP:
     def run(self) -> list[np.ndarray]:
         time_start = datetime.today()
         state = self.init_state
+        self.logger.info(f"integration scheme : {self.params.integration_scheme}")
         for num, state in self.irun():
             if self.save_data:
                 self._save_current_spectrum(state.actual_spectrum, num)

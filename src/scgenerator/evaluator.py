@@ -234,7 +234,7 @@ class Evaluator:
                             else:
                                 v_str = format(returned_value).replace("\n", "")
                                 success_str = f"computed {param_name}={v_str} "
-                            self.logger.info(
+                            self.logger.debug(
                                 prefix
                                 + success_str
                                 + f"using {rule.func.__name__} from {rule.func.__module__}"
@@ -382,6 +382,9 @@ default_rules: list[Rule] = [
     ),
     Rule("n2", materials.gas_n2),
     Rule("n2", lambda: 2.2e-20, priorities=-1),
+    Rule("gamma", lambda gamma_arr: gamma_arr[0], priorities=-1),
+    Rule("gamma", fiber.gamma_parameter),
+    Rule("gamma_arr", fiber.gamma_parameter, ["n2", "w0", "A_eff_arr"]),
     # operators
     Rule("n_op", operators.ConstantRefractiveIndex),
     Rule("n_op", operators.MarcatiliRefractiveIndex),
@@ -411,10 +414,6 @@ envelope_rules = default_rules + [
         fiber.load_custom_dispersion,
         priorities=[2, 2, 2],
     ),
-    # Nonlinearity
-    Rule("gamma", lambda gamma_arr: gamma_arr[0], priorities=-1),
-    Rule("gamma", fiber.gamma_parameter),
-    Rule("gamma_arr", fiber.gamma_parameter, ["n2", "w0", "A_eff_arr"]),
     # Operators
     Rule("gamma_op", operators.ConstantGamma, priorities=1),
     Rule("gamma_op", operators.ConstantScalarGamma),
@@ -446,6 +445,7 @@ full_field_rules = default_rules + [
     # Dispersion
     Rule(["wl_for_disp", "dispersion_ind"], fiber.lambda_for_full_field_dispersion),
     Rule("frame_velocity", fiber.frame_velocity),
+    Rule("beta2", lambda beta2_arr, w0_ind: beta2_arr[w0_ind]),
     # Nonlinearity
     Rule("chi3", materials.gas_chi3),
     # Operators

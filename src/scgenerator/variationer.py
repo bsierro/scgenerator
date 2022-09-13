@@ -23,7 +23,8 @@ class Variationer:
 
     Example
     -------
-    `>> var = Variationer([dict(a=[1, 2]), [dict(b=["000", "111"], c=["a", "-1"])]])
+    ```
+    >> var = Variationer([dict(a=[1, 2]), [dict(b=["000", "111"], c=["a", "-1"])]])
     list(v.raw_descr for v in var.iterate())
 
     [
@@ -31,8 +32,8 @@ class Variationer:
         ((("a", 1),), (("b", "111"), ("c", "-1"))),
         ((("a", 2),), (("b", "000"), ("c", "a"))),
         ((("a", 2),), (("b", "111"), ("c", "-1"))),
-    ]`
-
+    ]
+    ```
     """
 
     all_indices: list[list[int]]
