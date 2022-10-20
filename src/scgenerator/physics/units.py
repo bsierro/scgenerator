@@ -47,6 +47,7 @@ class UnitMap(dict):
         def chained_function(x: _T) -> _T:
             return c2.inv(c1(x))
 
+        chained_function.name = f"{name_1}_to_{name_2}"
         chained_function.__name__ = f"{name_1}_to_{name_2}"
         chained_function.__doc__ = f"converts x from {name_1} to {name_2}"
 
@@ -124,17 +125,17 @@ class unit:
         return func
 
 
-@unit("WL", r"Wavelength $\lambda$ (m)")
+@unit("WL", r"Wavelength λ (m)")
 def m(l: _T) -> _T:
     return 2 * pi * c / l
 
 
-@unit("WL", r"Wavelength $\lambda$ (nm)")
+@unit("WL", r"Wavelength λ (nm)")
 def nm(l: _T) -> _T:
     return 2 * pi * c / (l * 1e-9)
 
 
-@unit("WL", r"Wavelength $\lambda$ (μm)")
+@unit("WL", r"Wavelength λ (μm)")
 def um(l: _T) -> _T:
     return 2 * pi * c / (l * 1e-6)
 
@@ -418,6 +419,10 @@ class PlotRange(tuple):
     conserved_quantity: bool = property(itemgetter(3))
     __slots__ = []
 
+    @property
+    def must_correct_wl(self) -> bool:
+        return self.unit.type == "WL" and self.conserved_quantity
+
     def __new__(cls, left, right, unit, conserved_quantity=True):
         return tuple.__new__(cls, (left, right, get_unit(unit), conserved_quantity))
 
@@ -461,8 +466,8 @@ def sort_axis(
     rw = (-4, 4, s)
     rt = (-2, 6, s)
 
-    w, cw = sort_axis(w, rw)
-    t, ct = sort_axis(t, rt)
+    w, cw, _ = sort_axis(w, rw)
+    t, ct, _ = sort_axis(t, rt)
 
     # slice y according to the given ranges
     y = y[ct][:, cw]

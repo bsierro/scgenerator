@@ -374,7 +374,7 @@ class Parameters:
     t_num: int = Parameter(positive(int))
     z_num: int = Parameter(positive(int))
     time_window: float = Parameter(positive(float, int))
-    dt: float = Parameter(in_range_excl(0, 5e-15))
+    dt: float = Parameter(in_range_excl(0, 10e-15))
     tolerated_error: float = Parameter(in_range_excl(1e-15, 1e-3), default=1e-11)
     step_size: float = Parameter(non_negative(float, int), default=0)
     interpolation_range: tuple[float, float] = Parameter(

@@ -15,6 +15,7 @@ from dataclasses import astuple, dataclass
 from pathlib import Path
 from typing import Literal, Tuple, TypeVar
 
+import numba
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy import pi
@@ -570,7 +571,9 @@ def ideal_compressed_pulse(spectra):
     return math.abs2(fftshift(ifft(np.sqrt(np.mean(math.abs2(spectra), axis=0)))))
 
 
-def spectrogram(time, values, t_res=256, t_win=24e-12, gate_width=200e-15, shift=False):
+def spectrogram(
+    time, values, t_res=256, t_win=24e-12, gate_width=200e-15, shift=False, w_ind: np.ndarray = None
+):
     """
     returns the spectorgram of the field given in values
 
@@ -594,14 +597,62 @@ def spectrogram(time, values, t_res=256, t_win=24e-12, gate_width=200e-15, shift
         delays : 1D array of size t_res
             new time axis
     """
-    t_lim = t_win / 2
-    delays = np.linspace(-t_lim, t_lim, t_res)
-    spec = np.zeros((t_res, len(time)))
+    if isinstance(t_win, tuple):
+        left, right = t_win
+    else:
+        t_lim = t_win / 2
+        left, right = -t_lim, t_lim
+
+    delays = np.linspace(left, right, t_res)
+
+    spec = np.zeros((t_res, len(time) if w_ind is None else len(w_ind)))
     for i, delay in enumerate(delays):
         masked = values * np.exp(-(((time - delay) / gate_width) ** 2))
         spec[i] = math.abs2(fft(masked))
-        if shift:
-            spec[i] = fftshift(spec[i])
+
+    if shift:
+        spec = fftshift(spec, axes=1)
+    return spec, delays
+
+
+def spectrogram_interp(
+    time: np.ndarray,
+    delays: np.ndarray,
+    values: np.ndarray,
+    old_w: np.ndarray,
+    w_ind: np.ndarray,
+    new_w: np.ndarray,
+    gate_width=200e-15,
+):
+    """
+    returns the spectorgram of the field already interpolated along the frequency axis
+
+    Parameters
+    ----------
+        time : 1D array-like
+            time in the co-moving frame of reference
+        values : 1D array-like
+            field array that matches the time array
+        t_res : int, optional
+            how many "bins" the time array is subdivided into. Default : 256
+        t_win : float, optional
+            total time window (=length of time) over which the spectrogram is computed. Default : 24e-12
+        gate_width : float, optional
+            width of the gaussian gate function (=sqrt(2 log(2)) * FWHM). Default : 200e-15
+
+    Returns
+    ----------
+        spec : 2D array
+            real 2D spectrogram
+        delays : 1D array of size t_res
+            new time axis
+    """
+
+    spec = np.zeros((len(delays), len(new_w)))
+    for i, delay in enumerate(delays):
+        masked = values * np.exp(-(((time - delay) / gate_width) ** 2))
+        spec[i] = math.linear_interp_1d(old_w, math.abs2(fft(masked)[w_ind]), new_w)
+
     return spec, delays
 
 

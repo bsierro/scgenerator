@@ -180,6 +180,7 @@ class RK4IP:
                 state, self.params.linear_operator, self.params.nonlinear_operator
             )
         with warnings.catch_warnings():
+            # catch overflows as errors
             warnings.filterwarnings("error", category=RuntimeWarning)
             for state in integrator:
 

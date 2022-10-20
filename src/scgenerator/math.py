@@ -359,6 +359,32 @@ def _polynom_extrapolation_in_place(y: np.ndarray, left_ind: int, right_ind: int
     return y
 
 
+@numba.jit(nopython=True)
+def linear_interp_2d(old_x: np.ndarray, old_y: np.ndarray, new_x: np.ndarray):
+    new_vals = np.zeros((len(old_y), len(new_x)))
+    interpolable = (new_x > old_x[0]) & (new_x <= old_x[-1])
+    equal = new_x == old_x[0]
+    inds = np.searchsorted(old_x, new_x[interpolable])
+    for i, val in enumerate(old_y):
+        new_vals[i][interpolable] = val[inds - 1] + (new_x[interpolable] - old_x[inds - 1]) * (
+            val[inds] - val[inds - 1]
+        ) / (old_x[inds] - old_x[inds - 1])
+        new_vals[i][equal] = val[0]
+    return new_vals
+
+
+@numba.jit(nopython=True)
+def linear_interp_1d(old_x: np.ndarray, old_y: np.ndarray, new_x: np.ndarray):
+    new_vals = np.zeros(len(new_x))
+    interpolable = (new_x > old_x[0]) & (new_x <= old_x[-1])
+    inds = np.searchsorted(old_x, new_x[interpolable])
+    new_vals[interpolable] = old_y[inds - 1] + (new_x[interpolable] - old_x[inds - 1]) * (
+        old_y[inds] - old_y[inds - 1]
+    ) / (old_x[inds] - old_x[inds - 1])
+    new_vals[new_x == old_x[0]] = old_y[0]
+    return new_vals
+
+
 def envelope_ind(
     signal: np.ndarray, dmin: int = 1, dmax: int = 1, split: bool = False
 ) -> tuple[np.ndarray, np.ndarray]:
