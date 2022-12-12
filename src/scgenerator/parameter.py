@@ -342,6 +342,8 @@ class Parameters:
 
     # pulse
     field_file: str = Parameter(string)
+    input_time: np.ndarray = Parameter(type_checker(np.ndarray))
+    input_field: np.ndarray = Parameter(type_checker(np.ndarray))
     repetition_rate: float = Parameter(
         non_negative(float, int), display_info=(1e-3, "kHz"), default=40e6
     )

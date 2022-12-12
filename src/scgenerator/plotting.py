@@ -4,16 +4,17 @@ from typing import Any, Callable, Literal, Optional, Union
 
 import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
-import numba
 import numpy as np
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from matplotlib.colors import ListedColormap
-from scipy.interpolate import UnivariateSpline
-from scipy.interpolate.interpolate import interp1d
+from matplotlib.transforms import offset_copy
+from scipy.interpolate import UnivariateSpline, interp1d
 
 from . import math
 from .const import PARAM_SEPARATOR
 from .defaults import default_plotting as defaults
-from .math import abs2, span, linear_interp_2d
+from .math import abs2, linear_interp_2d, span
 from .parameter import Parameters
 from .physics import pulse, units
 from .physics.units import PlotRange, sort_axis
@@ -49,7 +50,7 @@ def plot_setup(
     file_type: str = "png",
     figsize: tuple[float, float] = defaults["figsize"],
     mode: Literal["default", "coherence", "coherence_T"] = "default",
-) -> tuple[Path, plt.Figure, Union[plt.Axes, tuple[plt.Axes]]]:
+) -> tuple[Path, Figure, Union[Axes, tuple[Axes]]]:
     out_path = defaults["name"] if out_path is None else out_path
     out_path = Path(out_path)
     plot_name = out_path.name.replace(f".{file_type}", "")
@@ -260,7 +261,7 @@ def propagation_plot(
     x_axis: np.ndarray = None,
     y_axis: np.ndarray = None,
     params: Parameters = None,
-    ax: Union[plt.Axes, tuple[plt.Axes, plt.Axes]] = None,
+    ax: Union[Axes, tuple[Axes, Axes]] = None,
     log: Union[int, float, bool, str] = "1D",
     renormalize: bool = False,
     vmin: float = None,
@@ -269,7 +270,7 @@ def propagation_plot(
     skip: int = 1,
     cbar_label: Optional[str] = "normalized intensity (dB)",
     cmap: str = None,
-) -> tuple[plt.Figure, plt.Axes, plt.Line2D, np.ndarray, np.ndarray]:
+) -> tuple[Figure, Axes, plt.Line2D, np.ndarray, np.ndarray]:
     """transforms and plots a 2D propagation
 
     Parameters
@@ -294,7 +295,7 @@ def propagation_plot(
         label of the colorbar. No colorbar is drawn if this is set to None, by default "normalized intensity (dB)"
     cmap : str, optional
         colormap, by default None
-    ax : plt.Axes, optional
+    ax : Axes, optional
         Axes obj on which to draw, by default None
 
     """
@@ -325,7 +326,7 @@ def plot_2D(
     values: np.ndarray,
     x_axis: np.ndarray,
     y_axis: np.ndarray,
-    ax: Union[plt.Axes, tuple[plt.Axes, plt.Axes]] = None,
+    ax: Union[Axes, tuple[Axes, Axes]] = None,
     x_label: str = None,
     y_label: str = None,
     vmin: float = None,
@@ -333,7 +334,7 @@ def plot_2D(
     transpose: bool = False,
     cmap: str = None,
     cbar_label: str = "",
-) -> Union[tuple[plt.Axes, plt.Axes], plt.Axes]:
+) -> Union[tuple[Axes, Axes], Axes]:
     """plots given 2D values in a standard
 
     Parameters
@@ -344,7 +345,7 @@ def plot_2D(
         x axis
     y_axis : np.ndarray, shape (m,)
         y axis
-    ax : Union[plt.Axes, tuple[plt.Axes, plt.Axes]]
+    ax : Union[Axes, tuple[Axes, Axes]]
         the ax on which to draw, or a tuple (ax, cbar_ax) where cbar_ax is the ax for the color bar
     x_label : str, optional
         x label
@@ -363,7 +364,7 @@ def plot_2D(
 
     Returns
     -------
-    Union[tuple[plt.Axes, plt.Axes], plt.Axes]
+    Union[tuple[Axes, Axes], Axes]
         ax if no color bar is drawn, a tuple (ax, cbar_ax) otherwise
     """
     # apply log transform if required
@@ -493,7 +494,7 @@ def mean_values_plot(
     values: np.ndarray,
     plt_range: Union[PlotRange, RangeType],
     params: Parameters,
-    ax: plt.Axes,
+    ax: Axes,
     log: Union[float, int, str, bool] = False,
     vmin: float = None,
     vmax: float = None,
@@ -598,7 +599,7 @@ def plot_mean(
     values: np.ndarray,
     mean_values: np.ndarray,
     x_axis: np.ndarray,
-    ax: plt.Axes,
+    ax: Axes,
     x_label: str = None,
     y_label: str = None,
     line_labels: tuple[str, str] = None,
@@ -618,7 +619,7 @@ def plot_mean(
         values to plot
     x_axis : np.ndarray, shape (n,)
         corresponding x axis
-    ax : plt.Axes
+    ax : Axes
         ax on which to plot
     x_label : str, optional
         x label, by default None
@@ -662,7 +663,7 @@ def single_position_plot(
     values: np.ndarray,
     plt_range: Union[PlotRange, RangeType],
     x_axis: np.ndarray = None,
-    ax: plt.Axes = None,
+    ax: Axes = None,
     params: Parameters = None,
     log: Union[str, int, float, bool] = False,
     vmin: float = None,
@@ -672,7 +673,7 @@ def single_position_plot(
     renormalize: bool = False,
     y_label: str = None,
     **line_kwargs,
-) -> tuple[plt.Figure, plt.Axes, plt.Line2D, np.ndarray, np.ndarray]:
+) -> tuple[Figure, Axes, plt.Line2D, np.ndarray, np.ndarray]:
     x_axis, values = transform_1D_values(values, plt_range, x_axis, params, log, spacing)
     if renormalize:
         values = values / values.max()
@@ -689,7 +690,7 @@ def single_position_plot(
 def plot_1D(
     values: np.ndarray,
     x_axis: np.ndarray,
-    ax: Optional[plt.Axes],
+    ax: Optional[Axes],
     x_label: str = None,
     y_label: str = None,
     vmin: float = None,
@@ -705,7 +706,7 @@ def plot_1D(
         values to plot
     x_axis : np.ndarray, shape (n,)
         corresponding x axis
-    ax : plt.Axes,
+    ax : Axes,
         ax on which to plot
     x_label : str, optional
         x label
@@ -810,7 +811,7 @@ def plot_spectrogram(
     vmax: float = 0,
     cbar_label: str = "normalized intensity (dB)",
     cmap: str = None,
-    ax: Union[plt.Axes, tuple[plt.Axes, plt.Axes]] = None,
+    ax: Union[Axes, tuple[Axes, Axes]] = None,
 ):
     """Plots a spectrogram given a complex field in the time domain
     Parameters
@@ -1050,7 +1051,7 @@ def arrowstyle(direction=1, color="white"):
 
 
 def measure_and_annotate_fwhm(
-    ax: plt.Axes,
+    ax: Axes,
     t: np.ndarray,
     field: np.ndarray,
     side: Literal["left", "right"] = "right",
@@ -1062,7 +1063,7 @@ def measure_and_annotate_fwhm(
 
     Parameters
     ----------
-    ax : plt.Axes
+    ax : Axes
         ax on which to plot
     t : np.ndarray, shape (n,)
         time in s
@@ -1093,25 +1094,46 @@ def measure_and_annotate_fwhm(
 
 
 def annotate_fwhm(
-    ax, left, right, arrow_label, v_max=1, side="right", arrow_length_pts=20.0, arrow_props=None
+    ax: Axes,
+    left,
+    right,
+    arrow_label,
+    v_max=1,
+    side="right",
+    arrow_length_pts=20.0,
+    arrow_props=None,
+    color=None,
+    **annotate_kwargs,
 ):
     arrow_dict = dict(arrowstyle="->")
+    if color:
+        arrow_dict |= dict(color=color)
+        annotate_kwargs |= dict(color=color)
+    text_kwargs = dict(ha="right" if side == "left" else "left", va="center") | annotate_kwargs
     if arrow_props is not None:
         arrow_dict |= arrow_props
-    ax.annotate(
-        "" if side == "right" else arrow_label,
+    txt = {}
+    txt["left"] = ax.annotate(
+        "",
         (left, v_max / 2),
         xytext=(-arrow_length_pts, 0),
-        ha="right",
-        va="center",
         textcoords="offset points",
         arrowprops=arrow_dict,
     )
-    ax.annotate(
-        "" if side == "left" else arrow_label,
+    txt["right"] = ax.annotate(
+        "",
         (right, v_max / 2),
         xytext=(arrow_length_pts, 0),
         textcoords="offset points",
         arrowprops=arrow_dict,
-        va="center",
     )
+    if side == "right":
+        offset = arrow_length_pts
+        x, y = (right, v_max / 2)
+    else:
+        offset = -arrow_length_pts
+        x, y = (left, v_max / 2)
+    trans = offset_copy(
+        ax.transData, ax.get_figure(), offset, 0, "points"
+    )
+    ax.text(x, y, arrow_label, transform=trans, **text_kwargs)

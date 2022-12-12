@@ -310,11 +310,12 @@ default_rules: list[Rule] = [
     Rule(["fft", "ifft"], utils.fft_functions, priorities=1),
     # Pulse
     Rule("field_0", pulse.finalize_pulse),
+    Rule(["input_time", "input_field"], pulse.load_custom_field),
     Rule("spec_0", utils.load_previous_spectrum, ["recovery_data_dir"], priorities=4),
     Rule("spec_0", utils.load_previous_spectrum, priorities=3),
     *Rule.deduce(
         ["pre_field_0", "peak_power", "energy", "width"],
-        pulse.load_and_adjust_field_file,
+        pulse.adjust_custom_field,
         ["energy", "peak_power"],
         1,
         priorities=[2, 1, 1, 1],

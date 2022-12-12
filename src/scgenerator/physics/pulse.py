@@ -160,13 +160,13 @@ def initial_field_envelope(t: np.ndarray, shape: str, t0: float, peak_power: flo
 
 def modify_field_ratio(
     t: np.ndarray,
-    field: np.ndarray,
-    target_power: float = None,
-    target_energy: float = None,
+    pre_field_0: np.ndarray,
+    peak_power: float = None,
+    energy: float = None,
     intensity_noise: float = None,
     noise_correlation: float = 0,
 ) -> float:
-    """multiply a field by this number to get the desired effects
+    """multiply a field by this number to get the desired specifications
 
     Parameters
     ----------
@@ -185,10 +185,10 @@ def modify_field_ratio(
         ratio (multiply field by this number)
     """
     ratio = 1
-    if target_energy is not None:
-        ratio *= np.sqrt(target_energy / np.trapz(math.abs2(field), t))
-    elif target_power is not None:
-        ratio *= np.sqrt(target_power / math.abs2(field).max())
+    if energy is not None:
+        ratio *= np.sqrt(energy / np.trapz(math.abs2(pre_field_0), t))
+    elif peak_power is not None:
+        ratio *= np.sqrt(peak_power / math.abs2(pre_field_0).max())
 
     if intensity_noise is not None:
         d_int, _ = technical_noise(intensity_noise, noise_correlation)
@@ -282,14 +282,14 @@ def conform_pulse_params(
             raise TypeError("gamma must be specified when soliton_num is")
 
         if width is not None:
-            peak_power = soliton_num ** 2 * abs(beta2) / (gamma * t0 ** 2)
+            peak_power = soliton_num**2 * abs(beta2) / (gamma * t0**2)
         elif peak_power is not None:
-            t0 = np.sqrt(soliton_num ** 2 * abs(beta2) / (peak_power * gamma))
+            t0 = np.sqrt(soliton_num**2 * abs(beta2) / (peak_power * gamma))
         elif energy is not None:
-            t0 = P0T0_to_E0_fac[shape] * soliton_num ** 2 * abs(beta2) / (energy * gamma)
+            t0 = P0T0_to_E0_fac[shape] * soliton_num**2 * abs(beta2) / (energy * gamma)
         elif t0 is not None:
             width = t0 / fwhm_to_T0_fac[shape]
-            peak_power = soliton_num ** 2 * abs(beta2) / (gamma * t0 ** 2)
+            peak_power = soliton_num**2 * abs(beta2) / (gamma * t0**2)
         else:
             raise TypeError("not enough parameters to determine pulse")
 
@@ -328,11 +328,11 @@ def energy_to_mean_power(energy: float, repetition_rate: float) -> float:
 
 
 def soliton_num_to_peak_power(soliton_num, beta2, gamma, t0):
-    return soliton_num ** 2 * abs(beta2) / (gamma * t0 ** 2)
+    return soliton_num**2 * abs(beta2) / (gamma * t0**2)
 
 
 def soliton_num_to_t0(soliton_num, beta2, gamma, peak_power):
-    return np.sqrt(soliton_num ** 2 * abs(beta2) / (peak_power * gamma))
+    return np.sqrt(soliton_num**2 * abs(beta2) / (peak_power * gamma))
 
 
 def soliton_num(L_D, L_NL):
@@ -340,7 +340,7 @@ def soliton_num(L_D, L_NL):
 
 
 def L_D(t0, beta2):
-    return t0 ** 2 / abs(beta2)
+    return t0**2 / abs(beta2)
 
 
 def L_NL(peak_power, gamma):
@@ -351,15 +351,16 @@ def L_sol(L_D):
     return pi / 2 * L_D
 
 
-def load_and_adjust_field_file(
-    field_file: str,
+def adjust_custom_field(
+    input_time: np.ndarray,
+    input_field: np.ndarray,
     t: np.ndarray,
     intensity_noise: float,
     noise_correlation: float,
     energy: float = None,
     peak_power: float = None,
 ) -> np.ndarray:
-    field_0 = load_field_file(field_file, t)
+    field_0 = interp_custom_field(input_time, input_field, t)
     if energy is not None:
         curr_energy = np.trapz(math.abs2(field_0), t)
         field_0 = field_0 * np.sqrt(energy / curr_energy)
@@ -367,7 +368,7 @@ def load_and_adjust_field_file(
         ratio = np.sqrt(peak_power / math.abs2(field_0).max())
         field_0 = field_0 * ratio
     else:
-        raise ValueError(f"Not enough parameters specified to load {field_file} correctly")
+        raise ValueError("Not enough parameters specified to load custom field correctly")
 
     field_0 = field_0 * modify_field_ratio(
         t, field_0, peak_power, energy, intensity_noise, noise_correlation
@@ -376,13 +377,17 @@ def load_and_adjust_field_file(
     return field_0, peak_power, energy, width
 
 
-def load_field_file(field_file: str, t: np.ndarray) -> np.ndarray:
-    field_data = np.load(field_file)
-    field_interp = interp1d(
-        field_data["time"], field_data["field"], bounds_error=False, fill_value=(0, 0)
-    )
+def interp_custom_field(
+    input_time: np.ndarray, input_field: np.ndarray, t: np.ndarray
+) -> np.ndarray:
+    field_interp = interp1d(input_time, input_field, bounds_error=False, fill_value=(0, 0))
     field_0 = field_interp(t)
     return field_0
+
+
+def load_custom_field(field_file: str) -> tuple[np.ndarray, np.ndarray]:
+    field_data = np.load(field_file)
+    return field_data["time"], field_data["field"]
 
 
 def correct_wavelength(init_wavelength: float, w_c: np.ndarray, field_0: np.ndarray) -> float:
@@ -1183,7 +1188,7 @@ def remove_2nd_order_dispersion(
     """
 
     def propagate(z):
-        return spectrum * np.exp(-0.5j * beta2 * w_c ** 2 * z)
+        return spectrum * np.exp(-0.5j * beta2 * w_c**2 * z)
 
     def score(z):
         return -np.max(math.abs2(np.fft.ifft(propagate(z))))
@@ -1211,7 +1216,7 @@ def remove_2nd_order_dispersion2(
     """
 
     def propagate(gdd):
-        return spectrum * np.exp(-0.5j * w_c ** 2 * 1e-30 * gdd)
+        return spectrum * np.exp(-0.5j * w_c**2 * 1e-30 * gdd)
 
     def integrate(gdd):
         return math.abs2(np.fft.ifft(propagate(gdd)))
@@ -1236,4 +1241,4 @@ def remove_2nd_order_dispersion2(
 
 
 def gdd(w: np.ndarray, gdd: float) -> np.ndarray:
-    return np.exp(0.5j * w ** 2 * gdd)
+    return np.exp(0.5j * w**2 * gdd)

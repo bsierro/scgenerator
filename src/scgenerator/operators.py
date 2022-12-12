@@ -685,7 +685,7 @@ class FullFieldRaman(AbstractRaman):
         self.hr_w = fiber.delayed_raman_w(t, raman_type)
         self.fraction = 0.245 if raman_type == "agrawal" else 0.18
         self.factor_in = units.epsilon0 * chi3 * self.fraction
-        self.factor_out = 1j * w ** 2 / (2.0 * units.c ** 2 * units.epsilon0)
+        self.factor_out = 1j * w**2 / (2.0 * units.c**2 * units.epsilon0)
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         return self.factor_out * np.fft.rfft(
@@ -735,7 +735,7 @@ class EnvelopeSPM(AbstractSPM):
 class FullFieldSPM(AbstractSPM):
     def __init__(self, raman_op: AbstractRaman, w: np.ndarray, chi3: float):
         self.fraction = 1 - raman_op.fraction
-        self.factor_out = 1j * w ** 2 / (2.0 * units.c ** 2 * units.epsilon0)
+        self.factor_out = 1j * w**2 / (2.0 * units.c**2 * units.epsilon0)
         self.factor_in = self.fraction * chi3 * units.epsilon0
 
     def __call__(self, state: CurrentState) -> np.ndarray:
@@ -848,7 +848,7 @@ class Plasma(Operator):
     def __init__(self, dt: float, w: np.ndarray, gas_op: AbstractGas):
         self.gas_op = gas_op
         self.mat_plasma = plasma.Plasma(dt, self.gas_op.material_dico["ionization_energy"])
-        self.factor_out = -w / (2.0 * units.c ** 2 * units.epsilon0)
+        self.factor_out = -w / (2.0 * units.c**2 * units.epsilon0)
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         N0 = self.gas_op.number_density(state)
@@ -1056,7 +1056,7 @@ class FullFieldNonLinearOperator(NonLinearOperator):
         self.raman_op = raman_op
         self.spm_op = spm_op
         self.plasma_op = plasma_op
-        self.factor = 1j * w ** 2 / (2.0 * units.c ** 2 * units.epsilon0)
+        self.factor = 1j * w**2 / (2.0 * units.c**2 * units.epsilon0)
         self.beta_op = beta_op
 
     def __call__(self, state: CurrentState) -> np.ndarray:
