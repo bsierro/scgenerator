@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 def main():
     capillary_thickness = 1.4e-6
     wl = np.linspace(200e-9, 2000e-9, 500)
-    n_gas_2 = sc.materials.n_gas_2(wl, "air", 3e5, 300, True)
+    n_gas_2 = sc.materials.n_gas_2(wl, "air", 3e5, 300)
     resonances = []
     for i in range(5):
         t = sc.fiber.resonance_thickness(wl, i, n_gas_2, 40e-6)

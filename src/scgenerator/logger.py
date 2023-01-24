@@ -1,6 +1,6 @@
 import logging
 
-from .env import log_file_level, log_print_level
+from scgenerator.env import log_file_level, log_print_level
 
 
 lvl_map: dict[str, int] = dict(

@@ -7,21 +7,21 @@ from typing import Callable, Iterator, Optional, Union
 import matplotlib.pyplot as plt
 import numpy as np
 
-from . import math
-from .const import PARAM_FN, SPEC1_FN, SPEC1_FN_N
-from .logger import get_logger
-from .parameter import Parameters
-from .physics import pulse, units
-from .physics.units import PlotRange
-from .plotting import (
+from scgenerator import math
+from scgenerator.const import PARAM_FN, SPEC1_FN, SPEC1_FN_N
+from scgenerator.legacy import translate_parameters
+from scgenerator.logger import get_logger
+from scgenerator.parameter import Parameters
+from scgenerator.physics import pulse, units
+from scgenerator.physics.units import PlotRange
+from scgenerator.plotting import (
     mean_values_plot,
     propagation_plot,
     single_position_plot,
     transform_1D_values,
     transform_2D_propagation,
 )
-from .utils import load_spectrum, simulations_list, load_toml
-from .legacy import translate_parameters
+from scgenerator.utils import load_spectrum, load_toml, simulations_list
 
 
 class Spectrum(np.ndarray):

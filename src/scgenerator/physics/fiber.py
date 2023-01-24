@@ -1,16 +1,17 @@
-from typing import Any, Iterable, Literal, TypeVar
+from typing import Iterable, TypeVar
 
 import numpy as np
 from numpy import e
 from numpy.fft import fft
 from numpy.polynomial.chebyshev import Chebyshev, cheb2poly
+from scipy.interpolate import interp1d
+
 from scgenerator import utils
 from scgenerator.cache import np_cache
 from scgenerator.math import argclosest, u_nm
 from scgenerator.physics import materials as mat
 from scgenerator.physics import units
 from scgenerator.physics.units import c, pi
-from scipy.interpolate import interp1d
 
 pipi = 2 * pi
 T = TypeVar("T")
@@ -255,7 +256,7 @@ def resonance_thickness(
     float
         thickness in m
     """
-    n_si_2 = mat.n_gas_2(wl_for_disp, "silica", None, None, True)
+    n_si_2 = mat.n_gas_2(wl_for_disp, "silica", None, None)
     return (
         wl_for_disp
         / (4 * np.sqrt(n_si_2))
@@ -268,7 +269,7 @@ def resonance_strength(
     wl_for_disp: np.ndarray, core_radius: float, capillary_thickness: float, order: int
 ) -> float:
     a = 1.83 + (2.3 * capillary_thickness / core_radius)
-    n_si = np.sqrt(mat.n_gas_2(wl_for_disp, "silica", None, None, True))
+    n_si = np.sqrt(mat.n_gas_2(wl_for_disp, "silica", None, None))
     return (
         capillary_thickness
         / (n_si * core_radius) ** (2.303 * a / n_si)
@@ -345,7 +346,7 @@ def n_eff_hasan(
 
     n_eff_2 = n_gas_2 - (u * wl_for_disp / (pipi * R_eff)) ** 2
 
-    chi_sil = mat.sellmeier(wl_for_disp, utils.load_material_dico("silica"))
+    chi_sil = mat.Sellmeier.load("silica").chi(wl_for_disp)
 
     with np.errstate(divide="ignore", invalid="ignore"):
         for m, strength in enumerate(capillary_resonance_strengths):
@@ -466,143 +467,6 @@ def A_eff_from_V(core_radius: float, V_eff: T) -> T:
     return out
 
 
-def HCPCF_find_with_given_ZDW(
-    variable: Literal["pressure", "temperature"],
-    target: float,
-    search_range: tuple[float, float],
-    material_dico: dict[str, Any],
-    model="marcatili",
-    model_params={},
-    pressure=None,
-    temperature=None,
-    ideal=False,
-):
-    """finds the parameters (pressure or temperature) to yield the target ZDW. assign the string value 'vary' to the parameter
-
-    Parameters
-    ----------
-    variable : str {"pressure", "temperature"}
-        which parameter to vary
-    target : float
-        the ZDW target, in m
-    search_range : array, shape (2,)
-        (min, max) of the search range
-    other parameters : see HCPCF_dispersion. Pressure or temperature is used as initial value if it is variable
-
-    Returns
-    -------
-    the parameter that satisfies the ZDW
-    """
-    from scipy import optimize
-
-    l_search = [120e-9, 6000e-9]
-    #
-    fixed = [material_dico, model, model_params, ideal]
-
-    if variable == "pressure":
-        fixed.append(temperature)
-        x0 = 1e5 if pressure is None else pressure
-
-        def zdw(x, *args):
-            current_ZDW = HCPF_ZDW(
-                l_search,
-                args[0],
-                model=args[1],
-                model_params=args[2],
-                pressure=x,
-                temperature=args[4],
-                ideal=args[3],
-            )
-            out = current_ZDW - target
-            return out
-
-    elif variable == "temperature":
-        fixed.append(pressure)
-        x0 = 273.15 if temperature is None else temperature
-
-        def zdw(x, *args):
-            current_ZDW = HCPF_ZDW(
-                l_search,
-                args[0],
-                model=args[1],
-                model_params=args[2],
-                pressure=args[4],
-                temperature=x,
-                ideal=args[3],
-            )
-            out = current_ZDW - target
-            return out
-
-    else:
-        raise AttributeError(f"'variable' arg must be 'pressure' or 'temperature', not {variable}")
-
-    optimized = optimize.root_scalar(
-        zdw, x0=x0, args=tuple(fixed), method="brentq", bracket=search_range
-    )
-
-    return optimized.root
-
-
-def HCPF_ZDW(
-    search_range,
-    material_dico,
-    model="marcatili",
-    model_params={},
-    pressure=None,
-    temperature=None,
-    ideal=False,
-    max_iter=10,
-    threshold=1e-36,
-):
-    """finds one Zero Dispersion Wavelength (ZDW) of a given HC-PCF fiber
-
-    Parameters
-    ----------
-    see HCPCF_dispersion for description of most arguments
-    max_iter : float
-        How many iterations are allowed at most to reach the threashold
-    threshold : float
-        upper bound of what counts as beta2 == 0 (in si units)
-
-    Returns
-    -------
-    float:
-        the ZDW in m
-    """
-    prev_find = np.inf
-    l = np.linspace(*search_range, 50)
-
-    core_radius = model_params["core_radius"]
-
-    zdw_ind = 0
-    for i in range(max_iter):
-        beta2 = HCPCF_dispersion(
-            l,
-            material_dico,
-            model=model,
-            model_params=model_params,
-            pressure=pressure,
-            temperature=temperature,
-            ideal=ideal,
-        )
-        zdw_ind = argclosest(beta2, 0)
-        if beta2[zdw_ind] < threshold:
-            break
-        elif beta2[zdw_ind] < prev_find:
-            l = np.linspace(
-                l[zdw_ind] - (100 / (i + 1)) * 1e-9, l[zdw_ind] + (100 / (i + 1)) * 1e-9, 50
-            )
-            prev_find = beta2[zdw_ind]
-        else:
-            raise RuntimeError(
-                f"Could not find a ZDW with parameters {1e6*core_radius} um, {1e-5 * pressure} bar, {temperature} K."
-            )
-    else:
-        print(f"Could not get to threshold in {max_iter} iterations")
-
-    return l[zdw_ind]
-
-
 def beta(w_for_disp: np.ndarray, n_eff: np.ndarray) -> np.ndarray:
     return n_eff * w_for_disp / c
 
@@ -634,12 +498,11 @@ def frame_velocity(beta1_arr: np.ndarray, w0_ind: int) -> float:
 
 def HCPCF_dispersion(
     wl_for_disp,
-    material_dico=None,
+    gas_name: str,
     model="marcatili",
-    model_params={},
     pressure=None,
     temperature=None,
-    ideal=False,
+    **model_params,
 ):
     """returns the dispersion profile (beta_2) of a hollow-core photonic crystal fiber.
 
@@ -647,8 +510,8 @@ def HCPCF_dispersion(
     ----------
     wl_for_disp : ndarray, shape (n, )
         wavelengths over which to calculate the dispersion
-    material_dico : dict
-        material dictionary respecting standard format explained in FIXME
+    gas_name : str
+        name of the filling gas in lower case
     model : string {"marcatili", "marcatili_adjusted", "hasan"}
         which model of effective refractive index to use
     model_params : tuple
@@ -666,17 +529,7 @@ def HCPCF_dispersion(
     """
 
     w = units.m(wl_for_disp)
-    if material_dico is None:
-        n_gas_2 = np.ones_like(wl_for_disp)
-    else:
-        if ideal:
-            n_gas_2 = mat.sellmeier(wl_for_disp, material_dico, pressure, temperature) + 1
-        else:
-            N_1 = mat.number_density_van_der_waals(
-                pressure=pressure, temperature=temperature, material_dico=material_dico
-            )
-            N_0 = mat.number_density_van_der_waals(material_dico=material_dico)
-            n_gas_2 = mat.sellmeier(wl_for_disp, material_dico) * N_1 / N_0 + 1
+    n_gas_2 = mat.Sellmeier.load(gas_name).n_gas_2(wl_for_disp, temperature, pressure)
 
     n_eff_func = dict(
         marcatili=n_eff_marcatili, marcatili_adjusted=n_eff_marcatili_adjusted, hasan=n_eff_hasan
@@ -684,81 +537,6 @@ def HCPCF_dispersion(
     n_eff = n_eff_func(wl_for_disp, n_gas_2, **model_params)
 
     return beta2(w, n_eff)
-
-
-def dynamic_HCPCF_dispersion(
-    wl_for_disp: np.ndarray,
-    pressure_values: list[float],
-    core_radius: float,
-    fiber_model: str,
-    model_params: dict[str, Any],
-    temperature: float,
-    ideal_gas: bool,
-    w0: float,
-    interp_range: tuple[float, float],
-    material_dico: dict[str, Any],
-    deg: int,
-):
-    """returns functions for beta2 coefficients and gamma instead of static values
-
-    Parameters
-    ----------
-    wl_for_disp : wavelength array
-    params : dict
-        flattened parameter dictionary
-    material_dico : dict
-        material dictionary (see README for details)
-
-    Returns
-    -------
-    beta2_coef : func(r), r is the relative position in the fiber
-        a function that returns an array of coefficients as function of the relative position in the fiber
-        to be used in disp_op
-    gamma : func(r), r is the relative position in the fiber
-        a function that returns a float corresponding to the nonlinear parameter at the relative position
-        in the fiber
-    """
-
-    A_eff = 1.5 * core_radius**2
-
-    # defining function instead of storing every possilble value
-    def pressure(r):
-        return mat.pressure_from_gradient(r, *pressure_values)
-
-    def beta2(r):
-        return HCPCF_dispersion(
-            wl_for_disp,
-            core_radius,
-            material_dico,
-            fiber_model,
-            model_params,
-            pressure(r),
-            temperature,
-            ideal_gas,
-        )
-
-    def n2(r):
-        return mat.non_linear_refractive_index(material_dico, pressure(r), temperature)
-
-    ratio_range = np.linspace(0, 1, 256)
-
-    gamma_grid = np.array([gamma_parameter(n2(r), w0, A_eff) for r in ratio_range])
-    gamma_interp = interp1d(ratio_range, gamma_grid)
-
-    beta2_grid = np.array(
-        [dispersion_coefficients(wl_for_disp, beta2(r), w0, interp_range, deg) for r in ratio_range]
-    )
-    beta2_interp = [
-        interp1d(ratio_range, beta2_grid[:, i], assume_sorted=True) for i in range(deg + 1)
-    ]
-
-    def beta2_func(r):
-        return [beta2_interp[i](r)[()] for i in range(deg + 1)]
-
-    def gamma_func(r):
-        return gamma_interp(r)[()]
-
-    return beta2_func, gamma_func
 
 
 def gamma_parameter(n2: float, w0: float, A_eff: T) -> T:
@@ -815,8 +593,7 @@ def n_eff_pcf(wl_for_disp: np.ndarray, pitch: float, pitch_ratio: float) -> np.n
     n_eff2 = (wl_for_disp * W / (pi2a)) ** 2 + n_FSM2
     n_eff = np.sqrt(n_eff2)
 
-    material_dico = utils.load_material_dico("silica")
-    chi_mat = mat.sellmeier(wl_for_disp, material_dico)
+    chi_mat = mat.Sellmeier.load("silica").chi(wl_for_disp)
     return n_eff + np.sqrt(chi_mat + 1)
 
 
@@ -1121,7 +898,7 @@ def capillary_loss(wl: np.ndarray, he_mode: tuple[int, int], core_radius: float)
     np.ndarray
         loss in 1/m
     """
-    chi_silica = abs(mat.sellmeier(wl, utils.load_material_dico("silica")))
+    chi_silica = abs(mat.Sellmeier.load("silica").chi(wl))
     nu_n = 0.5 * (chi_silica + 2) / np.sqrt(chi_silica)
     return nu_n * (u_nm(*he_mode) * wl / pipi) ** 2 * core_radius**-3
 

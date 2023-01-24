@@ -8,11 +8,11 @@ import numpy as np
 import tomli
 import tomli_w
 
-from .const import SPEC1_FN, SPEC1_FN_N, SPECN_FN1
-from .parameter import FileConfiguration, Parameters
-from .pbar import PBars
-from .utils import save_parameters
-from .variationer import VariationDescriptor
+from scgenerator.const import SPEC1_FN, SPEC1_FN_N, SPECN_FN1
+from scgenerator.parameter import FileConfiguration, Parameters
+from scgenerator.pbar import PBars
+from scgenerator.utils import save_parameters
+from scgenerator.variationer import VariationDescriptor
 
 
 def load_config(path: os.PathLike) -> dict[str, Any]:

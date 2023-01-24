@@ -6,15 +6,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
 from scipy.interpolate import interp1d
 
-from . import math
-from .logger import get_logger
-from .physics import fiber, materials, pulse, units, plasma
-from .utils import load_material_dico
+from scgenerator import math
+from scgenerator.logger import get_logger
+from scgenerator.physics import fiber, materials, plasma, pulse, units
 
 
 class CurrentState:
@@ -212,8 +211,7 @@ class NoOpFreq(Operator):
 
 
 class AbstractGas(Operator):
-    gas_name: str
-    material_dico: dict[str, Any]
+    gas: materials.Gas
 
     def __call__(self, state: CurrentState) -> np.ndarray:
         return self.square_index(state)
@@ -274,18 +272,10 @@ class ConstantGas(AbstractGas):
         ideal_gas: bool,
         wl_for_disp: np.ndarray,
     ):
-        self.material_dico = load_material_dico(gas_name)
-        self.gas_name = gas_name
+        self.gas = materials.Gas(gas_name)
         self.pressure_const = pressure
-        if ideal_gas:
-            self.number_density_const = materials.number_density_van_der_waals(
-                pressure=pressure, temperature=temperature, material_dico=self.material_dico
-            )
-        else:
-            self.number_density_const = self.pressure_const / (units.kB * temperature)
-        self.n_gas_2_const = materials.n_gas_2(
-            wl_for_disp, gas_name, self.pressure_const, temperature, ideal_gas
-        )
+        self.number_density_const = self.gas.number_density(temperature, pressure, ideal_gas)
+        self.n_gas_2_const = self.gas.sellmeier.n_gas_2(wl_for_disp, temperature, pressure)
 
     def pressure(self, state: CurrentState = None) -> float:
         return self.pressure_const
@@ -311,10 +301,9 @@ class PressureGradientGas(AbstractGas):
         ideal_gas: bool,
         wl_for_disp: np.ndarray,
     ):
-        self.gas_name = gas_name
         self.p_in = pressure_in
         self.p_out = pressure_out
-        self.material_dico = load_material_dico(gas_name)
+        self.gas = materials.Gas(gas_name)
         self.temperature = temperature
         self.ideal_gas = ideal_gas
         self.wl_for_disp = wl_for_disp
@@ -323,23 +312,10 @@ class PressureGradientGas(AbstractGas):
         return materials.pressure_from_gradient(state.z_ratio, self.p_in, self.p_out)
 
     def number_density(self, state: CurrentState) -> float:
-        if self.ideal_gas:
-            return self.pressure(state) / (units.kB * self.temperature)
-        else:
-            return materials.number_density_van_der_waals(
-                pressure=self.pressure(state),
-                temperature=self.temperature,
-                material_dico=self.material_dico,
-            )
+        return self.gas.number_density(self.temperature, self.pressure(state), self.ideal_gas)
 
     def square_index(self, state: CurrentState) -> np.ndarray:
-        return materials.fast_n_gas_2(
-            self.wl_for_disp,
-            self.pressure(state),
-            self.temperature,
-            self.ideal_gas,
-            self.material_dico,
-        )
+        return self.gas.sellmeier.n_gas_2(self.wl_for_disp, self.temperature, self.pressure(state))
 
 
 ##################################################
@@ -829,9 +805,7 @@ class VariableScalarGamma(AbstractGamma):
         self.arr = np.ones(t_num)
 
     def __call__(self, state: CurrentState) -> np.ndarray:
-        n2 = materials.non_linear_refractive_index(
-            self.gas_op.material_dico, self.gas_op.pressure(state), self.temperature
-        )
+        n2 = self.gas_op.gas.n2(self.temperature, self.gas_op.pressure(state))
         return self.arr * fiber.gamma_parameter(n2, self.w0, self.A_eff)
 
 
@@ -847,7 +821,7 @@ class Plasma(Operator):
 
     def __init__(self, dt: float, w: np.ndarray, gas_op: AbstractGas):
         self.gas_op = gas_op
-        self.mat_plasma = plasma.Plasma(dt, self.gas_op.material_dico["ionization_energy"])
+        self.mat_plasma = plasma.Plasma(dt, self.gas_op.gas["ionization_energy"])
         self.factor_out = -w / (2.0 * units.c**2 * units.epsilon0)
 
     def __call__(self, state: CurrentState) -> np.ndarray:

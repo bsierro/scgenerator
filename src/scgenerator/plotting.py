@@ -6,18 +6,18 @@ import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
-from matplotlib.figure import Figure
 from matplotlib.colors import ListedColormap
+from matplotlib.figure import Figure
 from matplotlib.transforms import offset_copy
-from scipy.interpolate import UnivariateSpline, interp1d
+from scipy.interpolate import UnivariateSpline
 
-from . import math
-from .const import PARAM_SEPARATOR
-from .defaults import default_plotting as defaults
-from .math import abs2, linear_interp_2d, span
-from .parameter import Parameters
-from .physics import pulse, units
-from .physics.units import PlotRange, sort_axis
+from scgenerator import math
+from scgenerator.const import PARAM_SEPARATOR
+from scgenerator.defaults import default_plotting as defaults
+from scgenerator.math import abs2, linear_interp_2d, span
+from scgenerator.parameter import Parameters
+from scgenerator.physics import pulse, units
+from scgenerator.physics.units import PlotRange, sort_axis
 
 RangeType = tuple[float, float, Union[str, Callable]]
 NO_LIM = object()
@@ -563,7 +563,6 @@ def transform_mean_values(
     np.ndarray, shape (m, n)
         all the values
     """
-    AAA
     if values.ndim != 2:
         print(f"Shape was {values.shape}. Can only plot 2D arrays")
         return
@@ -1133,7 +1132,5 @@ def annotate_fwhm(
     else:
         offset = -arrow_length_pts
         x, y = (left, v_max / 2)
-    trans = offset_copy(
-        ax.transData, ax.get_figure(), offset, 0, "points"
-    )
+    trans = offset_copy(ax.transData, ax.get_figure(), offset, 0, "points")
     ax.text(x, y, arrow_label, transform=trans, **text_kwargs)

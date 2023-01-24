@@ -9,19 +9,19 @@ from dataclasses import dataclass, field, fields
 from functools import lru_cache, wraps
 from math import isnan
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Iterable, Iterator, Set, Type, TypeVar, Union
+from typing import Any, Callable, ClassVar, Iterable, Iterator, Set, Type, TypeVar
 
 import numpy as np
 
-from . import env, legacy, utils
-from .const import MANDATORY_PARAMETERS, PARAM_FN, VALID_VARIABLE, __version__
-from .errors import EvaluatorError
-from .evaluator import Evaluator
-from .logger import get_logger
-from .operators import AbstractConservedQuantity, LinearOperator, NonLinearOperator
-from .solver import Integrator
-from .utils import DebugDict, fiber_folder, update_path_name
-from .variationer import VariationDescriptor, Variationer
+from scgenerator import env, legacy, utils
+from scgenerator.const import MANDATORY_PARAMETERS, PARAM_FN, VALID_VARIABLE, __version__
+from scgenerator.errors import EvaluatorError
+from scgenerator.evaluator import Evaluator
+from scgenerator.logger import get_logger
+from scgenerator.operators import AbstractConservedQuantity, LinearOperator, NonLinearOperator
+from scgenerator.solver import Integrator
+from scgenerator.utils import DebugDict, fiber_folder, update_path_name
+from scgenerator.variationer import VariationDescriptor, Variationer
 
 T = TypeVar("T")
 

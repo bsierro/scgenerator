@@ -1,12 +1,12 @@
-from typing import Any, Callable, NamedTuple, TypeVar
+from typing import Any, Callable, NamedTuple
 
 import numpy as np
 import scipy.special
-from scipy.interpolate import interp1d
 from numpy.core.numeric import zeros_like
+from scipy.interpolate import interp1d
 
-from ..math import cumulative_simpson, expm1_int
-from .units import e, hbar, me
+from scgenerator.math import cumulative_simpson, expm1_int
+from scgenerator.physics.units import e, hbar, me
 
 
 class PlasmaInfo(NamedTuple):
@@ -99,7 +99,7 @@ class Plasma:
         loss_term = np.zeros_like(field)
         loss_term[nzi] = dn_dt[nzi] * self.ionization_energy / field[nzi]
 
-        phase_term = self.dt * e ** 2 / me * cumulative_simpson(electron_density * field)
+        phase_term = self.dt * e**2 / me * cumulative_simpson(electron_density * field)
 
         dp_dt = loss_term + phase_term
         polarization = self.dt * cumulative_simpson(dp_dt)
@@ -117,4 +117,4 @@ def free_electron_density(rate: np.ndarray, dt: float, N0: float) -> np.ndarray:
 def barrier_suppression(ionpot, Z):
     Ip_au = ionpot / 4.359744650021498e-18
     ns = Z / np.sqrt(2 * Ip_au)
-    return Z ** 3 / (16 * ns ** 4) * 5.14220670712125e11
+    return Z**3 / (16 * ns**4) * 5.14220670712125e11

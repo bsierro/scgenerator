@@ -1,10 +1,11 @@
 # flake8: noqa
 from scgenerator import math, operators
 from scgenerator.evaluator import Evaluator
+from scgenerator.helpers import *
 from scgenerator.legacy import convert_sim_folder
 from scgenerator.math import abs2, argclosest, normalized, span, tspace, wspace
 from scgenerator.parameter import FileConfiguration, Parameters
-from scgenerator.physics import fiber, materials, pulse, simulate, units, plasma
+from scgenerator.physics import fiber, materials, plasma, pulse, simulate, units
 from scgenerator.physics.simulate import RK4IP, parallel_RK4IP, run_simulation
 from scgenerator.physics.units import PlotRange
 from scgenerator.plotting import (
@@ -25,4 +26,3 @@ from scgenerator.variationer import (
     Variationer,
     VariationSpecsError,
 )
-from scgenerator.helpers import *

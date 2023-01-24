@@ -1,6 +1,7 @@
 from collections import namedtuple
 from copy import copy
 from functools import wraps
+
 import numpy as np
 
 CacheInfo = namedtuple("CacheInfo", "hits misses size")

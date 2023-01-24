@@ -15,18 +15,17 @@ from dataclasses import astuple, dataclass
 from pathlib import Path
 from typing import Literal, Tuple, TypeVar
 
-import numba
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy import pi
 from numpy.fft import fft, fftshift, ifft
 from scipy.interpolate import UnivariateSpline, interp1d
 from scipy.optimize import minimize_scalar
-from scipy.optimize.optimize import OptimizeResult
+from scipy.optimize._optimize import OptimizeResult
 
-from ..defaults import default_plotting
-from .. import math
-from . import units
+from scgenerator import math
+from scgenerator.defaults import default_plotting
+from scgenerator.physics import units
 
 c = 299792458.0
 hbar = 1.05457148e-34

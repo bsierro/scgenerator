@@ -7,7 +7,7 @@ from scipy.interpolate import interp1d, lagrange
 from scipy.special import jn_zeros
 from functools import cache
 
-from .cache import np_cache
+from scgenerator.cache import np_cache
 
 pi = np.pi
 c = 299792458.0
@@ -83,7 +83,7 @@ def _power_fact_array(x, n):
 
 
 def abs2(z: np.ndarray) -> np.ndarray:
-    return z.real ** 2 + z.imag ** 2
+    return z.real**2 + z.imag**2
 
 
 def normalized(z: np.ndarray) -> np.ndarray:

@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional, Set
 
-
 ENVIRON_KEY_BASE = "SCGENERATOR_"
 TMP_FOLDER_KEY_BASE = ENVIRON_KEY_BASE + "SC_TMP_"
 PREFIX_KEY_BASE = ENVIRON_KEY_BASE + "PREFIX_"

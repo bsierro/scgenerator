@@ -1,6 +1,6 @@
-__version__ = "0.2.6dev"
-
 from typing import Any
+
+__version__ = "0.2.7dev"
 
 ONE_2 = 1 / 2
 ONE_3 = 1 / 3

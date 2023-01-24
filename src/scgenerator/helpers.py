@@ -5,7 +5,7 @@ series of helper functions
 import numpy as np
 
 from scgenerator.math import all_zeros
-from scgenerator.physics.fiber import beta2, n_eff_marcatili, n_eff_hasan
+from scgenerator.physics.fiber import beta2, n_eff_hasan, n_eff_marcatili
 from scgenerator.physics.materials import n_gas_2
 from scgenerator.physics.units import c
 
@@ -40,7 +40,7 @@ def capillary_dispersion(
         pressure = 101325
     if temperature is None:
         temperature = 293.15
-    n = n_eff_marcatili(wl, n_gas_2(wl, gas_name.lower(), pressure, temperature, False), radius)
+    n = n_eff_marcatili(wl, n_gas_2(wl, gas_name.lower(), pressure, temperature), radius)
     w = 2 * np.pi * c / wl
     return beta2(w, n)[2:-2]
 
@@ -117,7 +117,7 @@ def revolver_dispersion(
         temperature = 293.15
     n = n_eff_hasan(
         wl,
-        n_gas_2(wl, gas_name.lower(), pressure, temperature, False),
+        n_gas_2(wl, gas_name.lower(), pressure, temperature),
         core_radius,
         capillary_num,
         capillary_nested,

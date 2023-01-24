@@ -1,20 +1,20 @@
 import multiprocessing
 import multiprocessing.connection
 import os
+import warnings
 from collections import defaultdict
 from datetime import datetime
 from logging import Logger
 from pathlib import Path
 from typing import Any, Generator, Iterator, Optional, Type, Union
-import warnings
 
 import numpy as np
 
-from .. import solver, utils
-from ..logger import get_logger
-from ..operators import CurrentState
-from ..parameter import FileConfiguration, Parameters
-from ..pbar import PBars, ProgressBarActor, progress_worker
+from scgenerator import solver, utils
+from scgenerator.logger import get_logger
+from scgenerator.operators import CurrentState
+from scgenerator.parameter import FileConfiguration, Parameters
+from scgenerator.pbar import PBars, ProgressBarActor, progress_worker
 
 try:
     import ray

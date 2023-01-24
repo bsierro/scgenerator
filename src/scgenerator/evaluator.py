@@ -5,12 +5,11 @@ from typing import Any, Callable, Optional, Union
 
 import numpy as np
 
-
-from . import math, operators, utils
-from .const import MANDATORY_PARAMETERS
-from .errors import EvaluatorError, NoDefaultError
-from .physics import fiber, materials, pulse, units
-from .utils import _mock_function, func_rewrite, get_arg_names, get_logger
+from scgenerator import math, operators, utils
+from scgenerator.const import MANDATORY_PARAMETERS
+from scgenerator.errors import EvaluatorError, NoDefaultError
+from scgenerator.physics import fiber, materials, pulse, units
+from scgenerator.utils import _mock_function, func_rewrite, get_arg_names, get_logger
 
 
 class Rule:
@@ -336,7 +335,7 @@ default_rules: list[Rule] = [
     # Fiber Dispersion
     Rule("w_for_disp", units.m, ["wl_for_disp"]),
     Rule("hr_w", fiber.delayed_raman_w),
-    Rule("gas_info", materials.GasInfo),
+    Rule("gas_info", materials.Gas),
     Rule("chi_gas", lambda gas_info, wl_for_disp: gas_info.sellmeier.chi(wl_for_disp)),
     Rule("n_gas_2", materials.n_gas_2),
     Rule("n_eff", fiber.n_eff_hasan, conditions=dict(model="hasan")),

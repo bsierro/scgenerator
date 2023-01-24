@@ -1,23 +1,22 @@
 from __future__ import annotations
-from collections import defaultdict
 
 import logging
 from abc import abstractmethod
+from collections import defaultdict
 from typing import Iterator, Type
 
 import numba
 import numpy as np
 
-from .logger import get_logger
-from .operators import (
+from scgenerator.logger import get_logger
+from scgenerator.operators import (
     AbstractConservedQuantity,
     CurrentState,
     LinearOperator,
     NonLinearOperator,
     ValueTracker,
 )
-from .utils import get_arg_names
-import warnings
+from scgenerator.utils import get_arg_names
 
 
 class IntegratorError(Exception):
@@ -455,8 +454,8 @@ def rk4ip_step(
 @numba.jit(nopython=True)
 def compute_diff(coarse_spec: np.ndarray, fine_spec: np.ndarray) -> float:
     diff = coarse_spec - fine_spec
-    diff2 = diff.imag ** 2 + diff.real ** 2
-    return np.sqrt(diff2.sum() / (fine_spec.real ** 2 + fine_spec.imag ** 2).sum())
+    diff2 = diff.imag**2 + diff.real**2
+    return np.sqrt(diff2.sum() / (fine_spec.real**2 + fine_spec.imag**2).sum())
 
 
 def get_integrator(integration_scheme: str):

@@ -8,10 +8,9 @@ from typing import TypeVar
 import numpy as np
 from scipy.optimize import minimize_scalar
 
-from .. import math
-from . import fiber, materials, units, pulse
-from ..cache import np_cache
-from ..utils import load_material_dico
+from scgenerator import math
+from scgenerator.cache import np_cache
+from scgenerator.physics import fiber, materials, pulse, units
 
 T = TypeVar("T")
 
@@ -28,8 +27,6 @@ def material_dispersion(
     material: str,
     pressure=None,
     temperature=None,
-    ideal=True,
-    safe=True,
 ):
     """returns the dispersion profile (beta_2) of a bulk material.
 
@@ -54,26 +51,11 @@ def material_dispersion(
 
     w = units.m(wavelengths)
 
-    if safe:
-        disp = np.zeros(len(w))
-        ind = w > 0
-        disp[ind] = material_dispersion(
-            units.m.inv(w[ind]), material, pressure, temperature, ideal, False
-        )
-        return disp
-    else:
-        material_dico = load_material_dico(material)
-        if ideal:
-            n_gas_2 = materials.sellmeier(wavelengths, material_dico, pressure, temperature) + 1
-        else:
-            N_1 = materials.number_density_van_der_waals(
-                pressure=pressure, temperature=temperature, material_dico=material_dico
-            )
-            N_0 = materials.number_density_van_der_waals(material_dico=material_dico)
-            n_gas_2 = materials.sellmeier(wavelengths, material_dico) * N_1 / N_0 + 1
-        order = np.argsort(w)
-        unorder = np.argsort(order)
-        return fiber.beta2(w[order], np.sqrt(n_gas_2[order]))[unorder]
+    sellmeier = materials.Sellmeier.load(material)
+    n_gas_2 = sellmeier.n_gas_2(wavelengths, temperature, pressure)
+    order = np.argsort(w)
+    unorder = np.argsort(order)
+    return fiber.beta2(w[order], np.sqrt(n_gas_2[order]))[unorder]
 
 
 def find_optimal_depth(
@@ -105,7 +87,7 @@ def find_optimal_depth(
     disp[ind] = material_dispersion(units.m.inv(w[ind]), material)
 
     def propagate(z):
-        return spectrum * np.exp(-0.5j * disp * w_c ** 2 * z)
+        return spectrum * np.exp(-0.5j * disp * w_c**2 * z)
 
     def integrate(z):
         return math.abs2(np.fft.ifft(propagate(z)))
@@ -118,7 +100,7 @@ def find_optimal_depth(
 
 
 def propagate_field(
-    t: np.ndarray, field: np.ndarray, z: float, material: str, center_wl_nm: float = 1540.0
+    t: np.ndarray, field: np.ndarray, z: float, material: str, center_wl_nm: float
 ) -> np.ndarray:
     """propagates a field through bulk material
 
@@ -132,8 +114,8 @@ def propagate_field(
         distance to propagate in m
     material : str
         material name
-    center_wl_nm : float, optional
-        center wavelength of the grid in nm, by default 1540
+    center_wl_nm : float
+        center wavelength of the grid in nm
 
     Returns
     -------
@@ -143,4 +125,4 @@ def propagate_field(
     w_c = math.wspace(t)
     l = units.m(w_c + units.nm(center_wl_nm))
     disp = material_dispersion(l, material)
-    return np.fft.ifft(np.fft.fft(field) * np.exp(0.5j * disp * w_c ** 2 * z))
+    return np.fft.ifft(np.fft.fft(field) * np.exp(0.5j * disp * w_c**2 * z))

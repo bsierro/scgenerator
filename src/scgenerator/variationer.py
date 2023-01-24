@@ -1,6 +1,6 @@
-from math import prod
 import itertools
 from collections.abc import MutableMapping, Sequence
+from math import prod
 from pathlib import Path
 from typing import Any, Callable, Generator, Generic, Iterable, Iterator, Optional, TypeVar, Union
 
@@ -8,7 +8,7 @@ import numpy as np
 from pydantic import validator
 from pydantic.main import BaseModel
 
-from .const import PARAM_SEPARATOR
+from scgenerator.const import PARAM_SEPARATOR
 
 T = TypeVar("T")
 
