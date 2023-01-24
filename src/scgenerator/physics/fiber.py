@@ -4,14 +4,13 @@ import numpy as np
 from numpy import e
 from numpy.fft import fft
 from numpy.polynomial.chebyshev import Chebyshev, cheb2poly
+from scgenerator import utils
+from scgenerator.cache import np_cache
+from scgenerator.math import argclosest, u_nm
+from scgenerator.physics import materials as mat
+from scgenerator.physics import units
+from scgenerator.physics.units import c, pi
 from scipy.interpolate import interp1d
-
-from .. import utils
-from ..cache import np_cache
-from ..math import argclosest, u_nm
-from . import materials as mat
-from . import units
-from .units import c, pi
 
 pipi = 2 * pi
 T = TypeVar("T")
@@ -112,12 +111,12 @@ def gvd_from_n_eff(n_eff: np.ndarray, wl_for_disp: np.ndarray):
 
 def beta2_to_D(beta2, wl_for_disp):
     """returns the D parameter corresponding to beta2(wl_for_disp)"""
-    return -(pipi * c) / (wl_for_disp ** 2) * beta2
+    return -(pipi * c) / (wl_for_disp**2) * beta2
 
 
 def D_to_beta2(D, wl_for_disp):
     """returns the beta2 parameters corresponding to D(wl_for_disp)"""
-    return -(wl_for_disp ** 2) / (pipi * c) * D
+    return -(wl_for_disp**2) / (pipi * c) * D
 
 
 def A_to_C(A: np.ndarray, A_eff_arr: np.ndarray) -> np.ndarray:
@@ -147,9 +146,9 @@ def plasma_dispersion(wl_for_disp, number_density, simple=False):
     w = units.m(wl_for_disp)
     if simple:
         w_pl = number_density * e2_me_e0
-        return -(w_pl ** 2) / (c * w ** 2)
+        return -(w_pl**2) / (c * w**2)
 
-    beta2_arr = beta2(w, np.sqrt(1 - number_density * e2_me_e0 / w ** 2))
+    beta2_arr = beta2(w, np.sqrt(1 - number_density * e2_me_e0 / w**2))
     return beta2_arr
 
 
@@ -224,7 +223,7 @@ def A_eff_marcatili(core_radius: float) -> float:
     float
         effective mode field area
     """
-    return 1.5 * core_radius ** 2
+    return 1.5 * core_radius**2
 
 
 def capillary_spacing_hasan(
@@ -261,7 +260,7 @@ def resonance_thickness(
         wl_for_disp
         / (4 * np.sqrt(n_si_2))
         * (2 * order + 1)
-        * (1 - n_gas_2 / n_si_2 + wl_for_disp ** 2 / (4 * n_si_2 * core_radius ** 2)) ** -0.5
+        * (1 - n_gas_2 / n_si_2 + wl_for_disp**2 / (4 * n_si_2 * core_radius**2)) ** -0.5
     )
 
 
@@ -328,7 +327,9 @@ def n_eff_hasan(
 
     Reference
     ----------
-    Hasan, Md Imran, Nail Akhmediev, and Wonkeun Chang. "Empirical formulae for dispersion and effective mode area in hollow-core antiresonant fibers." Journal of Lightwave Technology 36.18 (2018): 4060-4065.
+    Hasan, Md Imran, Nail Akhmediev, and Wonkeun Chang. "Empirical formulae for dispersion and
+    effective mode area in hollow-core antiresonant fibers." Journal of Lightwave Technology 36.18
+    (2018): 4060-4065.
     """
     u = u_nm(1, 1)
     alpha = 5e-12
@@ -340,7 +341,7 @@ def n_eff_hasan(
     if capillary_nested > 0:
         f2 += 0.0045 * np.exp(-4.1589 / (capillary_nested * Rg))
 
-    R_eff = f1 * core_radius * (1 - f2 * wl_for_disp ** 2 / (core_radius * capillary_thickness))
+    R_eff = f1 * core_radius * (1 - f2 * wl_for_disp**2 / (core_radius * capillary_thickness))
 
     n_eff_2 = n_gas_2 - (u * wl_for_disp / (pipi * R_eff)) ** 2
 
@@ -350,8 +351,8 @@ def n_eff_hasan(
         for m, strength in enumerate(capillary_resonance_strengths):
             n_eff_2 += (
                 strength
-                * wl_for_disp ** 2
-                / (alpha + wl_for_disp ** 2 - chi_sil * (2 * capillary_thickness / (m + 1)) ** 2)
+                * wl_for_disp**2
+                / (alpha + wl_for_disp**2 - chi_sil * (2 * capillary_thickness / (m + 1)) ** 2)
             )
 
     return np.sqrt(n_eff_2)
@@ -374,7 +375,7 @@ def A_eff_hasan(core_radius, capillary_num, capillary_spacing):
     A_eff : float
     """
     M_f = 1.5 / (1 - 0.5 * np.exp(-0.245 * capillary_num))
-    return M_f * core_radius ** 2 * np.exp((capillary_spacing / 22e-6) ** 2.5)
+    return M_f * core_radius**2 * np.exp((capillary_spacing / 22e-6) ** 2.5)
 
 
 def V_eff_step_index(
@@ -437,8 +438,8 @@ def V_parameter_koshiba(l: np.ndarray, pitch: float, pitch_ratio: float) -> floa
 
     V = A[0] + A[1] / (1 + A[2] * np.exp(A[3] * ratio_l))
 
-    n_FSM2 = 1.45 ** 2 - (l * V / (pi2a)) ** 2
-    V_eff = pi2a / l * np.sqrt(n_co ** 2 - n_FSM2)
+    n_FSM2 = 1.45**2 - (l * V / (pi2a)) ** 2
+    V_eff = pi2a / l * np.sqrt(n_co**2 - n_FSM2)
 
     return V_eff
 
@@ -627,7 +628,6 @@ def beta2(w_for_disp: np.ndarray, n_eff: np.ndarray) -> np.ndarray:
     return np.gradient(np.gradient(beta(w_for_disp, n_eff), w_for_disp), w_for_disp)
 
 
-
 def frame_velocity(beta1_arr: np.ndarray, w0_ind: int) -> float:
     return 1.0 / beta1_arr[w0_ind]
 
@@ -719,7 +719,7 @@ def dynamic_HCPCF_dispersion(
         in the fiber
     """
 
-    A_eff = 1.5 * core_radius ** 2
+    A_eff = 1.5 * core_radius**2
 
     # defining function instead of storing every possilble value
     def pressure(r):
@@ -811,7 +811,7 @@ def n_eff_pcf(wl_for_disp: np.ndarray, pitch: float, pitch_ratio: float) -> np.n
     V = A[0] + A[1] / (1 + A[2] * np.exp(A[3] * ratio_l))
     W = B[0] + B[1] / (1 + B[2] * np.exp(B[3] * ratio_l))
 
-    n_FSM2 = 1.45 ** 2 - (wl_for_disp * V / (pi2a)) ** 2
+    n_FSM2 = 1.45**2 - (wl_for_disp * V / (pi2a)) ** 2
     n_eff2 = (wl_for_disp * W / (pi2a)) ** 2 + n_FSM2
     n_eff = np.sqrt(n_eff2)
 
@@ -845,8 +845,8 @@ def saitoh_paramters(pitch_ratio: float) -> tuple[float, float]:
     di2 = np.array([9, 6.58, 10, 0.41])
     di3 = np.array([10, 24.8, 15, 6])
 
-    A = ai0 + ai1 * pitch_ratio ** bi1 + ai2 * pitch_ratio ** bi2 + ai3 * pitch_ratio ** bi3
-    B = ci0 + ci1 * pitch_ratio ** di1 + ci2 * pitch_ratio ** di2 + ci3 * pitch_ratio ** di3
+    A = ai0 + ai1 * pitch_ratio**bi1 + ai2 * pitch_ratio**bi2 + ai3 * pitch_ratio**bi3
+    B = ci0 + ci1 * pitch_ratio**di1 + ci2 * pitch_ratio**di2 + ci3 * pitch_ratio**di3
     return A, B
 
 
@@ -960,7 +960,7 @@ def dispersion_from_coefficients(
     coef = np.array(beta2_coefficients) / np.cumprod([1] + list(range(1, len(beta2_coefficients))))
     beta_arr = np.zeros_like(w_c)
     for k, b in reversed(list(enumerate(coef))):
-        beta_arr = beta_arr + b * w_c ** k
+        beta_arr = beta_arr + b * w_c**k
     return beta_arr
 
 
@@ -985,12 +985,12 @@ def delayed_raman_t(t: np.ndarray, raman_type: str) -> np.ndarray:
     t_ = t - t[0]
     t = t_
     if raman_type == "stolen":
-        hr_arr = (tau1 / tau2 ** 2 + 1 / tau1) * np.exp(-t_ / tau2) * np.sin(t_ / tau1)
+        hr_arr = (tau1 / tau2**2 + 1 / tau1) * np.exp(-t_ / tau2) * np.sin(t_ / tau1)
 
     elif raman_type == "agrawal":
         taub = 96e-15
-        h_a = (tau1 / tau2 ** 2 + 1 / tau1) * np.exp(-t_ / tau2) * np.sin(t_ / tau1)
-        h_b = (2 * taub - t_) / taub ** 2 * np.exp(-t_ / taub)
+        h_a = (tau1 / tau2**2 + 1 / tau1) * np.exp(-t_ / tau2) * np.sin(t_ / tau1)
+        h_b = (2 * taub - t_) / taub**2 * np.exp(-t_ / taub)
         hr_arr = 0.79 * h_a + 0.21 * h_b
 
     elif raman_type == "measured":
@@ -1096,12 +1096,12 @@ def effective_core_radius(wl_for_disp, core_radius, s=0.08, h=200e-9):
     -------
         effective_core_radius : ndarray, shape (n, )
     """
-    return core_radius / (1 + s * wl_for_disp ** 2 / (core_radius * h))
+    return core_radius / (1 + s * wl_for_disp**2 / (core_radius * h))
 
 
 def effective_radius_HCARF(core_radius, t, f1, f2, wl_for_disp):
     """eq. 3 in Hasan 2018"""
-    return f1 * core_radius * (1 - f2 * wl_for_disp ** 2 / (core_radius * t))
+    return f1 * core_radius * (1 - f2 * wl_for_disp**2 / (core_radius * t))
 
 
 def capillary_loss(wl: np.ndarray, he_mode: tuple[int, int], core_radius: float) -> np.ndarray:
@@ -1123,7 +1123,7 @@ def capillary_loss(wl: np.ndarray, he_mode: tuple[int, int], core_radius: float)
     """
     chi_silica = abs(mat.sellmeier(wl, utils.load_material_dico("silica")))
     nu_n = 0.5 * (chi_silica + 2) / np.sqrt(chi_silica)
-    return nu_n * (u_nm(*he_mode) * wl / pipi) ** 2 * core_radius ** -3
+    return nu_n * (u_nm(*he_mode) * wl / pipi) ** 2 * core_radius**-3
 
 
 def extinction_distance(loss: T, ratio=1 / e) -> T:

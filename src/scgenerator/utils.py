@@ -14,16 +14,16 @@ from dataclasses import dataclass
 from functools import cache, lru_cache
 from pathlib import Path
 from string import printable as str_printable
-from typing import Any, Callable, MutableMapping, Sequence, TypeVar, Set, Union
+from typing import Any, Callable, MutableMapping, Sequence, TypeVar, Union
 
 import numpy as np
 import pkg_resources as pkg
 import tomli
 import tomli_w
 
-from .const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN, Z_FN, ROOT_PARAMETERS
-from .logger import get_logger
-from .errors import DuplicateParameterError
+from scgenerator.const import PARAM_FN, PARAM_SEPARATOR, ROOT_PARAMETERS, SPEC1_FN, Z_FN
+from scgenerator.errors import DuplicateParameterError
+from scgenerator.logger import get_logger
 
 T_ = TypeVar("T_")
 
@@ -85,8 +85,8 @@ class Paths:
 class SubConfig:
     fixed: dict[str, Any]
     variable: list[dict[str, list]]
-    fixed_keys: Set[str]
-    variable_keys: Set[str]
+    fixed_keys: set[str]
+    variable_keys: set[str]
 
     def __init__(self, dico: dict[str, Any]):
         dico = dico.copy()

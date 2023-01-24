@@ -1,14 +1,15 @@
+from __future__ import annotations
+
 import functools
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 import numpy as np
-
-from .. import utils
-from ..cache import np_cache
-from ..logger import get_logger
-from . import units
-from .units import NA, c, epsilon0, kB
+from scgenerator import utils
+from scgenerator.cache import np_cache
+from scgenerator.logger import get_logger
+from scgenerator.physics import units
+from scgenerator.physics.units import NA, c, epsilon0, kB
 
 T = TypeVar("T", np.floating, np.ndarray)
 
@@ -22,6 +23,21 @@ class Sellmeier:
     kind: int = 2
     constant: float = 0
 
+    @classmethod
+    def load(cls, name: str) -> Sellmeier:
+        mat_dico = utils.load_material_dico(name)
+        s = mat_dico.get("sellmeier", {})
+        return cls(
+            **{
+                newk: s.get(k, None)
+                for newk, k in zip(
+                    ["B", "C", "pressure_ref", "temperature_ref", "kind", "constant"],
+                    ["B", "C", "P0", "T0", "kind", "const"],
+                )
+                if k in s
+            }
+        )
+
     def chi(self, wl: T) -> T:
         """n^2 - 1"""
         if isinstance(wl, np.ndarray):
@@ -30,10 +46,10 @@ class Sellmeier:
             chi = 0
         if self.kind == 1:
             for b, c_ in zip(self.B, self.C):
-                chi += wl ** 2 * b / (wl ** 2 - c_)
+                chi += wl**2 * b / (wl**2 - c_)
         elif self.kind == 2:  # gives n-1
             for b, c_ in zip(self.B, self.C):
-                chi += b / (c_ - 1 / wl ** 2)
+                chi += b / (c_ - 1 / wl**2)
             chi += self.constant
             chi = (chi + 1) ** 2 - 1
         elif self.kind == 3:  # Schott formula
@@ -201,7 +217,7 @@ def pressure_from_gradient(ratio, p0, p1):
     ----------
         the pressure (float)
     """
-    return np.sqrt(p0 ** 2 - ratio * (p0 ** 2 - p1 ** 2))
+    return np.sqrt(p0**2 - ratio * (p0**2 - p1**2))
 
 
 def number_density_van_der_waals(
@@ -241,7 +257,7 @@ def number_density_van_der_waals(
         pressure = 101325 if pressure is None else pressure
         temperature = 273.15 if temperature is None else temperature
 
-    ap = a / NA ** 2
+    ap = a / NA**2
     bp = b / NA
 
     # setup van der Waals equation for the number density
@@ -306,11 +322,11 @@ def sellmeier(
     if kind == 1:
         logger.debug("materials : using Sellmeier 1st kind equation")
         for b, c_ in zip(B, C):
-            chi[ind] += temp_l ** 2 * b / (temp_l ** 2 - c_)
+            chi[ind] += temp_l**2 * b / (temp_l**2 - c_)
     elif kind == 2:  # gives n-1
         logger.debug("materials : using Sellmeier 2nd kind equation")
         for b, c_ in zip(B, C):
-            chi[ind] += b / (c_ - 1 / temp_l ** 2)
+            chi[ind] += b / (c_ - 1 / temp_l**2)
         chi += const
         chi = (chi + 1) ** 2 - 1
     elif kind == 3:  # Schott formula
@@ -433,8 +449,8 @@ def gas_chi3(gas_name: str, wavelength: float, pressure: float, temperature: flo
 
 
 def n2_to_chi3(n2: float, n0: float) -> float:
-    return n2 * 4 * epsilon0 * n0 ** 2 * c / 3
+    return n2 * 4 * epsilon0 * n0**2 * c / 3
 
 
 def chi3_to_n2(chi3: float, n0: float) -> float:
-    return 3.0 * chi3 / (4.0 * epsilon0 * c * n0 ** 2)
+    return 3.0 * chi3 / (4.0 * epsilon0 * c * n0**2)
