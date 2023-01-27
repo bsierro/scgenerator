@@ -9,6 +9,10 @@ from scgenerator.math import cumulative_simpson, expm1_int
 from scgenerator.physics.units import e, hbar, me
 
 
+class PlasmaOutOfBoundsError(RuntimeError):
+    ...
+
+
 class PlasmaInfo(NamedTuple):
     polarization: np.ndarray
     electron_density: np.ndarray
@@ -47,7 +51,7 @@ def cache_ion_rate(
 
     def compute(field_abs: np.ndarray) -> np.ndarray:
         if field_abs.max() > E_max or field_abs.min() < -E_max:
-            raise ValueError("E field is out of bounds")
+            raise PlasmaOutOfBoundsError("E field is out of bounds")
         return interp(field_abs)
 
     return compute
