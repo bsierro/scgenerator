@@ -32,9 +32,10 @@
     # -----
 
 [air]
-    a           = 0.1358
-    atomic_mass = 4.809e-26
-    b           = 3.64e-5
+    a             = 0.1358
+    atomic_mass   = 4.809e-26
+    atomic_number = 7.14      # 78% N2 and 21 O2
+    b             = 3.64e-5
 
 [air.sellmeier]
     B    = [57921050000.0, 1679170000.0]
@@ -50,9 +51,10 @@
     source = "Pigeon, J. J., Tochitsky, S. Y., Welch, E. C., & Joshi, C. (2016). Measurements of the nonlinear refractive index of air, N 2, and O 2 at 10 μm using four-wave mixing. Optics letters, 41(17), 3924-3927."
 
 [nitrogen]
-    a           = 0.137
-    atomic_mass = 2.3259e-26
-    b           = 1.709e-5
+    a             = 0.137
+    atomic_mass   = 2.3259e-26
+    atomic_number = 7
+    b             = 1.709e-5
 
 [nitrogen.sellmeier]
     B     = [32431570000.0]

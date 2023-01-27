@@ -78,7 +78,7 @@ class Sellmeier:
 class Gas:
     name: str
     sellmeier: Sellmeier
-    atomic_number: int
+    atomic_number: int | float
     atomic_mass: float
     _n2: float
     ionization_energy: float | None
