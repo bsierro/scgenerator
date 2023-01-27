@@ -23,12 +23,18 @@ except ModuleNotFoundError:
 
 
 class TrackedValues(defaultdict):
-    def __init__(self):
+    def __init__(self, data=None):
         super().__init__(list)
 
     def append(self, d: dict[str, Any]):
         for k, v in d.items():
             self[k].append(v)
+
+    def __getstate__(self):
+        return self
+
+    def __setstate__(self, state):
+        self.update(state)
 
 
 class RK4IP:
@@ -186,7 +192,7 @@ class RK4IP:
 
                 new_tracked_values = integrator.all_values()
                 self.logger.debug(f"tracked values at z={state.z} : {new_tracked_values}")
-                self.tracked_values.append(new_tracked_values)
+                self.tracked_values.append(new_tracked_values | dict(z=state.z))
 
                 # Whether the current spectrum has to be stored depends on previous step
                 if store:
