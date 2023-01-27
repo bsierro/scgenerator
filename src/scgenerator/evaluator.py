@@ -310,6 +310,8 @@ default_rules: list[Rule] = [
     # Pulse
     Rule("field_0", pulse.finalize_pulse),
     Rule(["input_time", "input_field"], pulse.load_custom_field),
+    Rule("spec_0", lambda fft, field_0: fft(field_0)),
+    Rule("field_0", lambda ifft, spec_0: ifft(spec_0)),
     Rule("spec_0", utils.load_previous_spectrum, ["recovery_data_dir"], priorities=4),
     Rule("spec_0", utils.load_previous_spectrum, priorities=3),
     *Rule.deduce(
@@ -401,8 +403,6 @@ envelope_rules = default_rules + [
     Rule(["w_c", "w", "w_order"], math.build_envelope_w_grid),
     # Pulse
     Rule("pre_field_0", pulse.initial_field_envelope, priorities=1),
-    Rule("spec_0", np.fft.fft, ["field_0"]),
-    Rule("field_0", np.fft.ifft, ["spec_0"]),
     Rule("c_to_a_factor", pulse.c_to_a_factor),
     # Dispersion
     Rule(["wl_for_disp", "dispersion_ind"], fiber.lambda_for_envelope_dispersion),
@@ -439,8 +439,6 @@ full_field_rules = default_rules + [
     # Grid
     Rule(["w", "w_order", "l"], math.build_full_field_w_grid, priorities=1),
     # Pulse
-    Rule("spec_0", np.fft.rfft, ["field_0"]),
-    Rule("field_0", np.fft.irfft, ["spec_0"]),
     Rule("pre_field_0", pulse.initial_full_field),
     # Dispersion
     Rule(["wl_for_disp", "dispersion_ind"], fiber.lambda_for_full_field_dispersion),
