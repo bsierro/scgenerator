@@ -13,7 +13,7 @@ from typing import Any, Callable, ClassVar, Iterable, Iterator, Set, Type, TypeV
 
 import numpy as np
 
-from scgenerator import env, legacy, utils
+from scgenerator import env, utils
 from scgenerator.const import MANDATORY_PARAMETERS, PARAM_FN, VALID_VARIABLE, __version__
 from scgenerator.errors import EvaluatorError
 from scgenerator.evaluator import Evaluator
@@ -316,7 +316,7 @@ class Parameters:
     beta2_coefficients: Iterable[float] = Parameter(num_list)
     dispersion_file: str = Parameter(string)
     model: str = Parameter(
-        literal("pcf", "marcatili", "marcatili_adjusted", "hasan", "custom"), default="custom"
+        literal("pcf", "marcatili", "marcatili_adjusted", "hasan", "custom"),
     )
     zero_dispersion_wavelength: float = Parameter(
         in_range_incl(100e-9, 5000e-9), display_info=(1e9, "nm")
@@ -353,7 +353,7 @@ class Parameters:
     soliton_num: float = Parameter(non_negative(float, int))
     additional_noise_factor: float = Parameter(positive(float, int), default=1)
     shape: str = Parameter(literal("gaussian", "sech"), default="gaussian")
-    wavelength: float = Parameter(in_range_incl(100e-9, 3000e-9), display_info=(1e9, "nm"))
+    wavelength: float = Parameter(in_range_incl(100e-9, 10000e-9), display_info=(1e9, "nm"))
     intensity_noise: float = Parameter(in_range_incl(0, 1), display_info=(1e2, "%"), default=0)
     noise_correlation: float = Parameter(in_range_incl(-10, 10), default=0)
     width: float = Parameter(in_range_excl(0, 1e-9), display_info=(1e15, "fs"))
@@ -368,19 +368,21 @@ class Parameters:
     # simulation
     full_field: bool = Parameter(boolean, default=False)
     integration_scheme: str = Parameter(
-        literal("erk43", "erk54", "cqe", "sd", "constant"), converter=str.lower, default="erk43"
+        literal("erk43", "erk54", "cqe", "sd", "constant"),
+        converter=str.lower,
+        default="erk43",
     )
     raman_type: str = Parameter(literal("measured", "agrawal", "stolen"), converter=str.lower)
     spm: bool = Parameter(boolean, default=True)
     repeat: int = Parameter(positive(int), default=1)
-    t_num: int = Parameter(positive(int))
-    z_num: int = Parameter(positive(int))
+    t_num: int = Parameter(positive(int), default=8192)
+    z_num: int = Parameter(positive(int), default=128)
     time_window: float = Parameter(positive(float, int))
     dt: float = Parameter(in_range_excl(0, 10e-15))
     tolerated_error: float = Parameter(in_range_excl(1e-15, 1e-3), default=1e-11)
     step_size: float = Parameter(non_negative(float, int), default=0)
     interpolation_range: tuple[float, float] = Parameter(
-        validator_and(float_pair, validator_list(in_range_incl(100e-9, 5000e-9)))
+        validator_and(float_pair, validator_list(in_range_incl(100e-9, 10000e-9)))
     )
     interpolation_degree: int = Parameter(validator_and(type_checker(int), in_range_incl(2, 18)))
     prev_sim_dir: str = Parameter(string)
@@ -404,6 +406,7 @@ class Parameters:
     alpha: float = Parameter(non_negative(float, int))
     gamma_arr: np.ndarray = Parameter(type_checker(np.ndarray))
     A_eff_arr: np.ndarray = Parameter(type_checker(np.ndarray))
+    spectrum_factor: float = Parameter(type_checker(float))
     c_to_a_factor: np.ndarray = Parameter(type_checker(float, np.ndarray))
     w: np.ndarray = Parameter(type_checker(np.ndarray))
     l: np.ndarray = Parameter(type_checker(np.ndarray))
@@ -705,7 +708,7 @@ class FileConfiguration(AbstractConfiguration):
                 task, config_dict = self.__decide(sim_config)
                 if task == self.Action.RUN:
                     sim_dict.pop(data_dir)
-                    param_dict = legacy.translate_parameters(sim_config.config)
+                    param_dict = sim_config.config
                     yield sim_config.descriptor, Parameters(**param_dict)
                     if "recovery_last_stored" in config_dict and self.skip_callback is not None:
                         self.skip_callback(config_dict["recovery_last_stored"])
@@ -800,7 +803,6 @@ class FileConfiguration(AbstractConfiguration):
 
 
 if __name__ == "__main__":
-
     numero = type_checker(int)
 
     @numero

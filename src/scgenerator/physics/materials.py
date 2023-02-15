@@ -80,13 +80,12 @@ class Gas:
     sellmeier: Sellmeier
     atomic_number: int | float
     atomic_mass: float
-    _n2: float
+    chi3_0: float
     ionization_energy: float | None
 
     def __init__(self, gas_name: str):
         self.name = gas_name
         self.mat_dico = utils.load_material_dico(gas_name)
-        self._n2 = self.mat_dico["kerr"]["n2"]
         self.atomic_mass = self.mat_dico["atomic_mass"]
         self.atomic_number = self.mat_dico["atomic_number"]
         self.ionization_energy = self.mat_dico.get("ionization_energy")
@@ -101,6 +100,17 @@ class Gas:
                 )
                 if k in s
             }
+        )
+        kerr = self.mat_dico["kerr"]
+        n2_0 = kerr["n2"]
+        self._kerr_wl = kerr.get("wavelength", 800e-9)
+        self.chi3_0 = (
+            4
+            / 3
+            * units.epsilon0
+            * units.c
+            * self.sellmeier.n_gas_2(self._kerr_wl, kerr["T0"], kerr["P0"])
+            * n2_0
         )
 
     def pressure_from_relative_density(self, density: float, temperature: float = None) -> float:
@@ -212,8 +222,8 @@ class Gas:
             logger.warning(s)
         return np.min(roots)
 
-    def n2(self, temperature: float | None = None, pressure: float | None = None) -> float:
-        """nonlinear refractive index"""
+    def chi3(self, temperature: float | None = None, pressure: float | None = None) -> float:
+        """nonlinear susceptibility"""
 
         # if pressure and/or temperature are specified, adjustment is made according to number density ratio
         if pressure is not None or temperature is not None:
@@ -222,7 +232,18 @@ class Gas:
             ratio = N / N0
         else:
             ratio = 1
-        return ratio * self._n2
+        return ratio * self.chi3_0
+
+    def n2(self, temperature: float | None = None, pressure: float | None = None) -> float:
+        return (
+            0.75
+            * self.chi3(temperature, pressure)
+            / (
+                units.epsilon0
+                * units.c
+                * self.sellmeier.n_gas_2(self._kerr_wl, temperature, pressure)
+            )
+        )
 
     @property
     def ionic_charge(self):

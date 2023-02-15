@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime
 from logging import Logger
 from pathlib import Path
-from typing import Any, Generator, Iterator, Optional, Type, Union
+from typing import Any, Callable, Generator, Iterator, Optional, Type, Union
 
 import numpy as np
 
@@ -102,12 +102,12 @@ class RK4IP:
             z=self.z_targets.pop(0),
             current_step_size=initial_h,
             step=0,
-            C_to_A_factor=self.params.c_to_a_factor,
+            conversion_factor=self.params.spectrum_factor * self.params.c_to_a_factor,
             converter=self.params.ifft,
             spectrum=self.params.spec_0.copy() / self.params.c_to_a_factor,
         )
         self.stored_spectra = self.params.recovery_last_stored * [None] + [
-            self.init_state.spectrum.copy()
+            self.init_state.actual_spectrum.copy()
         ]
         self.tracked_values = TrackedValues()
 
@@ -134,13 +134,17 @@ class RK4IP:
         """
         utils.save_data(data, self.data_dir, name)
 
-    def run(self) -> list[np.ndarray]:
+    def run(
+        self, progress_callback: Callable[[int, CurrentState], None] | None = None
+    ) -> list[np.ndarray]:
         time_start = datetime.today()
         state = self.init_state
         self.logger.info(f"integration scheme : {self.params.integration_scheme}")
         for num, state in self.irun():
             if self.save_data:
                 self._save_current_spectrum(state.actual_spectrum, num)
+            if progress_callback is not None:
+                progress_callback(num, state)
             self.step_saved(state)
 
         self.logger.info(
@@ -189,7 +193,6 @@ class RK4IP:
             # catch overflows as errors
             warnings.filterwarnings("error", category=RuntimeWarning)
             for state in integrator:
-
                 new_tracked_values = integrator.all_values()
                 self.logger.debug(f"tracked values at z={state.z} : {new_tracked_values}")
                 self.tracked_values.append(new_tracked_values | dict(z=state.z))
@@ -318,7 +321,9 @@ class Simulations:
 
     @classmethod
     def new(
-        cls, configuration: FileConfiguration, method: Union[str, Type["Simulations"]] = None
+        cls,
+        configuration: FileConfiguration,
+        method: Union[str, Type["Simulations"]] = None,
     ) -> "Simulations":
         """Prefered method to create a new simulations object
 
@@ -519,7 +524,10 @@ class RaySimulations(Simulations, priority=2):
             f"{len(nodes)} node{'s' if len(nodes) > 1 else ''} in the Ray cluster : "
             + str(
                 [
-                    (node.get("NodeManagerHostname", "unknown"), node.get("Resources", {}))
+                    (
+                        node.get("NodeManagerHostname", "unknown"),
+                        node.get("Resources", {}),
+                    )
                     for node in nodes
                 ]
             )
@@ -623,7 +631,9 @@ def __parallel_RK4IP_worker(
 def parallel_RK4IP(
     config: os.PathLike,
 ) -> Generator[
-    tuple[tuple[list[tuple[str, Any]], Parameters, int, int, np.ndarray], ...], None, None
+    tuple[tuple[list[tuple[str, Any]], Parameters, int, int, np.ndarray], ...],
+    None,
+    None,
 ]:
     logger = get_logger(__name__)
     params = list(FileConfiguration(config))

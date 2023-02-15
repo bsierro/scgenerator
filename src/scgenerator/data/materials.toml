@@ -230,7 +230,7 @@
     atomic_mass       = 2.18017e-25
     atomic_number     = 54
     b                 = 5.105e-5
-    ionization_energy = 1.94342415157935
+    ionization_energy = 1.94342415157935e-18
 
 [xenon.sellmeier]
     B    = [3228690000.0, 3553930000.0, 60676400000.0]

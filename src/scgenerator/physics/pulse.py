@@ -219,6 +219,14 @@ def c_to_a_factor(A_eff_arr: np.ndarray) -> np.ndarray:
     return (A_eff_arr / A_eff_arr[0]) ** (1 / 4)
 
 
+def spectrum_factor_envelope(dt: float) -> float:
+    return dt / np.sqrt(2 * np.pi)
+
+
+def spectrum_factor_fullfield(dt: float) -> float:
+    return 2 * dt / np.sqrt(2 * np.pi)
+
+
 def conform_pulse_params(
     shape: Literal["gaussian", "sech"],
     width: float = None,
@@ -869,7 +877,6 @@ def find_lobe_limits(x_axis, values, debug="", already_sorted=True):
     # determining the true ones. If that fails, there is no meaningful peak to measure
     detailed_measurement = len(fwhm_pos) > 2
     if detailed_measurement:
-
         print("trouble measuring the peak.{}".format(debug_str))
         (
             spline_4,
@@ -974,7 +981,6 @@ def _detailed_find_lobe_limits(
     l_ind,
     r_ind,
 ):
-
     left_pos = fwhm_pos[fwhm_pos < peak_pos]
     right_pos = fwhm_pos[fwhm_pos > peak_pos]
 
@@ -987,7 +993,6 @@ def _detailed_find_lobe_limits(
 
     while len(left_pos) == 0 or len(right_pos) == 0:
         if iterations > 4:
-
             left_pos, right_pos = [np.min(peak_pos)], [np.max(peak_pos)]
             print(
                 "Cycle had to be broken. Peak measurement is probably wrong : {}".format(debug_str)

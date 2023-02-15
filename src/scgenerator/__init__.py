@@ -2,7 +2,6 @@
 from scgenerator import math, operators
 from scgenerator.evaluator import Evaluator
 from scgenerator.helpers import *
-from scgenerator.legacy import convert_sim_folder
 from scgenerator.math import abs2, argclosest, normalized, span, tspace, wspace
 from scgenerator.parameter import FileConfiguration, Parameters
 from scgenerator.physics import fiber, materials, plasma, pulse, simulate, units

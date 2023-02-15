@@ -67,6 +67,8 @@ def lambda_for_full_field_dispersion(
             "try a finer grid"
         )
     fu = np.concatenate((su[:2] - 2, su, su[-2:] + 2))
+    fu = np.where(fu < 0, 0, fu)
+    fu = np.where(fu >= len(l), len(l) - 1, fu)
     return l[fu], su
 
 
@@ -705,6 +707,8 @@ def dispersion_coefficients(
     """
 
     # we get the beta2 Taylor coeffiecients by making a fit around w0
+    if interpolation_degree < 2:
+        raise ValueError(f"interpolation_degree must be at least 2, got {interpolation_degree}")
     w_c = w_for_disp - w0
 
     w_c = w_c[2:-2]

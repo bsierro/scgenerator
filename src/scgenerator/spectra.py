@@ -9,7 +9,6 @@ import numpy as np
 
 from scgenerator import math
 from scgenerator.const import PARAM_FN, SPEC1_FN, SPEC1_FN_N
-from scgenerator.legacy import translate_parameters
 from scgenerator.logger import get_logger
 from scgenerator.parameter import Parameters
 from scgenerator.physics import pulse, units
@@ -355,7 +354,7 @@ class SimulatedFiber:
 
     def __init__(self, path: os.PathLike):
         self.path = Path(path)
-        self.params = Parameters(**translate_parameters(load_toml(self.path / PARAM_FN)))
+        self.params = Parameters(**load_toml(self.path / PARAM_FN))
         self.params.output_path = str(self.path.resolve())
         self.t = self.params.t
         self.w = self.params.w

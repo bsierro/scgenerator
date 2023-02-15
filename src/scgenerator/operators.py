@@ -21,7 +21,7 @@ class CurrentState:
     z: float
     current_step_size: float
     step: int
-    C_to_A_factor: np.ndarray
+    conversion_factor: np.ndarray
     converter: Callable[[np.ndarray], np.ndarray]
     __spectrum: np.ndarray
     __spec2: np.ndarray
@@ -33,7 +33,7 @@ class CurrentState:
         "z",
         "current_step_size",
         "step",
-        "C_to_A_factor",
+        "conversion_factor",
         "converter",
         "_CurrentState__spectrum",
         "_CurrentState__spec2",
@@ -48,14 +48,14 @@ class CurrentState:
         current_step_size: float,
         step: int,
         spectrum: np.ndarray,
-        C_to_A_factor: np.ndarray,
+        conversion_factor: np.ndarray,
         converter: Callable[[np.ndarray], np.ndarray] = np.fft.ifft,
     ):
         self.length = length
         self.z = z
         self.current_step_size = current_step_size
         self.step = step
-        self.C_to_A_factor = C_to_A_factor
+        self.conversion_factor = conversion_factor
         self.converter = converter
         self.spectrum = spectrum
 
@@ -65,7 +65,7 @@ class CurrentState:
 
     @property
     def actual_spectrum(self) -> np.ndarray:
-        return self.C_to_A_factor * self.spectrum
+        return self.conversion_factor * self.spectrum
 
     @property
     def spectrum(self) -> np.ndarray:
@@ -121,7 +121,7 @@ class CurrentState:
             z=self.z,
             current_step_size=self.current_step_size,
             step=self.step,
-            C_to_A_factor=self.C_to_A_factor,
+            conversion_factor=self.conversion_factor,
             converter=self.converter,
             spectrum=new_spectrum,
         )
@@ -133,7 +133,7 @@ class CurrentState:
             z=self.z,
             current_step_size=self.current_step_size,
             step=self.step,
-            C_to_A_factor=self.C_to_A_factor,
+            conversion_factor=self.conversion_factor,
             converter=self.converter,
         )
         new_state = CurrentState(spectrum=self.__spectrum, **(my_params | params))
@@ -146,7 +146,7 @@ class CurrentState:
             z=self.z,
             current_step_size=self.current_step_size,
             step=self.step,
-            C_to_A_factor=self.C_to_A_factor,
+            conversion_factor=self.conversion_factor,
             converter=self.converter,
             spectrum=self.__spectrum,
         )
@@ -889,7 +889,7 @@ class EnergyLoss(AbstractConservedQuantity):
 
     def __call__(self, state: CurrentState) -> float:
         return pulse.pulse_energy_with_loss(
-            math.abs2(state.C_to_A_factor * state.spectrum),
+            math.abs2(state.conversion_factor * state.spectrum),
             self.dw,
             self.loss_op(state),
             state.current_step_size,
@@ -901,7 +901,7 @@ class EnergyNoLoss(AbstractConservedQuantity):
         self.dw = w[1] - w[0]
 
     def __call__(self, state: CurrentState) -> float:
-        return pulse.pulse_energy(math.abs2(state.C_to_A_factor * state.spectrum), self.dw)
+        return pulse.pulse_energy(math.abs2(state.conversion_factor * state.spectrum), self.dw)
 
 
 def conserved_quantity(

@@ -2,14 +2,26 @@
 series of helper functions
 """
 
+from contextlib import nullcontext
+from pathlib import Path
+from typing import Any, Mapping
+
 import numpy as np
+import tomli
 
 from scgenerator.math import all_zeros
+from scgenerator.parameter import Parameters
 from scgenerator.physics.fiber import beta2, n_eff_hasan, n_eff_marcatili
 from scgenerator.physics.materials import n_gas_2
+from scgenerator.physics.simulate import RK4IP
 from scgenerator.physics.units import c
 
-__all__ = ["capillary_dispersion", "capillary_zdw", "revolver_dispersion"]
+try:
+    from tqdm import tqdm
+except ModuleNotFoundError:
+    tqdm = None
+
+__all__ = ["capillary_dispersion", "capillary_zdw", "revolver_dispersion","quick_sim"]
 
 
 def capillary_dispersion(
@@ -142,3 +154,42 @@ def extend_axis(axis: np.ndarray) -> np.ndarray:
     )
 
     return axis
+
+
+def quick_sim(params: dict[str, Any] | Parameters, **_params:Any) -> tuple[Parameters, np.ndarray]:
+    """
+    run a quick simulation
+
+    Parameters
+    ----------
+    params : dict[str, Any] | Parameters | os.PathLike
+        a dict of parameters, a Parameters obj or a path to a toml file from which to read the
+        parameters
+    _params : Any
+        override the initial parameters with these keyword arguments
+
+    Example
+    -------
+    ```
+    params, sim = quick_sim("long_fiber.toml", energy=10e-6)
+    ```
+
+    """
+    if isinstance(params, Mapping):
+        params = Parameters(**(params|_params))
+    else:
+        params = Parameters(**(tomli.loads(Path(params).read_text())|_params))
+
+    sim = RK4IP(params)
+    if tqdm:
+        pbar = tqdm(total=params.z_num)
+
+        def callback(_, __):
+            pbar.update()
+
+    else:
+        pbar = nullcontext()
+        callback = None
+
+    with pbar:
+        return params, sim.run(progress_callback=callback)

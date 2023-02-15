@@ -8,14 +8,13 @@ import numpy as np
 from cycler import cycler
 from tqdm import tqdm
 
-from .. import env, math
-from ..const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN
-from ..legacy import translate_parameters
-from ..parameter import FileConfiguration, Parameters
-from ..physics import fiber, units
-from ..plotting import plot_setup, transform_2D_propagation, get_extent
-from ..spectra import SimulationSeries
-from ..utils import _open_config, auto_crop, save_toml, simulations_list, load_toml, load_spectrum
+from scgenerator import env, math
+from scgenerator.const import PARAM_FN, PARAM_SEPARATOR, SPEC1_FN
+from scgenerator.parameter import FileConfiguration, Parameters
+from scgenerator.physics import fiber, units
+from scgenerator.plotting import plot_setup, transform_2D_propagation, get_extent
+from scgenerator.spectra import SimulationSeries
+from scgenerator.utils import _open_config, auto_crop, save_toml, simulations_list, load_toml, load_spectrum
 
 
 def fingerprint(params: Parameters):
@@ -279,10 +278,16 @@ def convert_params(params_file: os.PathLike):
     p = Path(params_file)
     if p.name == PARAM_FN:
         d = _open_config(params_file)
-        d = translate_parameters(d)
         save_toml(params_file, d)
         print(f"converted {p}")
     else:
+
+
+
+
+
+
+
         for pp in p.glob(PARAM_FN):
             convert_params(pp)
         for pp in p.glob("fiber*"):
@@ -297,7 +302,12 @@ def partial_plot(root: os.PathLike, lim: str = None):
     spec_list = sorted(
         path.glob(SPEC1_FN.format("*")), key=lambda el: int(re.search("[0-9]+", el.name)[0])
     )
-    params = Parameters(**translate_parameters(load_toml(path / "params.toml")))
+
+
+
+
+
+    params = Parameters(**load_toml(path / "params.toml"))
     params.z_targets = params.z_targets[: len(spec_list)]
     raw_values = np.array([load_spectrum(s) for s in spec_list])
     if lim is None:
