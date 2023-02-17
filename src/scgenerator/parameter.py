@@ -266,10 +266,11 @@ class Parameter:
     def validate(self: Parameter, v) -> tuple[bool, Any]:
         if v is None:
             is_value = False
-        try:
-            is_value = not isnan(v)
-        except TypeError:
-            is_value = True
+        else:
+            try:
+                is_value = not isnan(v)
+            except TypeError:
+                is_value = True
         if is_value:
             if self.converter is not None:
                 v = self.converter(v)
