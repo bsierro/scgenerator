@@ -903,7 +903,8 @@ def capillary_loss(wl: np.ndarray, he_mode: tuple[int, int], core_radius: float)
         loss in 1/m
     """
     chi_silica = abs(mat.Sellmeier.load("silica").chi(wl))
-    nu_n = 0.5 * (chi_silica + 2) / np.sqrt(chi_silica)
+    # the real loss alpha is 2*Im(n_eff), which differs from the notation of the paper
+    nu_n = (chi_silica + 2) / np.sqrt(chi_silica)
     return nu_n * (u_nm(*he_mode) * wl / pipi) ** 2 * core_radius**-3
 
 
