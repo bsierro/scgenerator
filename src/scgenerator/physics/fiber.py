@@ -943,7 +943,7 @@ def normalized_frequency_vincetti(
     n_gas_2 : ndarray
         real refractive index of the filling gas squared
     """
-    return 2 * thickness / wl * np.sqrt(n_clad_2 - 1)
+    return 2 * thickness / wl * np.sqrt(n_clad_2 - n_gas_2)
 
 
 def effective_core_radius_vincetti(
@@ -1123,8 +1123,7 @@ def n_eff_vincetti(
     if n_clad_2 is None:
         n_clad_2 = mat.Sellmeier.load("silica").n_gas_2(wl_for_disp)
 
-    # n_clad_0 = np.sqrt(n_clad_2[argclosest(wl_for_disp, wavelength)])
-    n_clad_0 = np.sqrt(n_clad_2)
+    n_clad_0 = np.sqrt(n_clad_2[argclosest(wl_for_disp, wavelength)])
 
     f = normalized_frequency_vincetti(wl_for_disp, thickness, n_clad_2, n_gas_2)
     r_co_eff = effective_core_radius_vincetti(wl_for_disp, f, tube_radius, gap, n_tubes)
