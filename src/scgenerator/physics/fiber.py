@@ -914,3 +914,227 @@ def extinction_distance(loss: T, ratio=1 / e) -> T:
 
 def L_eff(loss: T, length: float) -> T:
     return -np.expm1(-loss * length) / loss
+
+
+def core_radius_from_capillaries(tube_radius: float, gap: float, n_tubes: int) -> float:
+    k = 1 + 0.5 * gap / tube_radius
+    return tube_radius * (k / np.sin(np.pi / n_tubes) - 1)
+
+
+def gap_from_capillaries(core_radius: float, tube_radius: float, n_tubes: int) -> float:
+    s = np.sin(np.pi / n_tubes)
+    return 2 * (s * (tube_radius + core_radius) - tube_radius)
+
+
+def normalized_frequency_vincetti(
+    wl: np.ndarray, thickness: float, n_clad_2: np.ndarray, n_gas_2: np.ndarray
+) -> np.ndarray:
+    """
+    eq. 3 of [1] in n_eff_vincetti
+
+    Parameters
+    ----------
+    wl : ndarray
+        wavelength array
+    thickness : float
+        thickness of the capillary tube
+    n_clad_2 : ndarray
+        real refractive index of the cladding squared corresponding to wavelengths in wl
+    n_gas_2 : ndarray
+        real refractive index of the filling gas squared
+    """
+    return 2 * thickness / wl * np.sqrt(n_clad_2 - 1)
+
+
+def effective_core_radius_vincetti(
+    wl: np.ndarray, f: np.ndarray, r: float, g: float, n: int
+) -> np.ndarray:
+    """
+    Parameters
+    ----------
+    wl : ndarray
+        wavelength array
+    f : ndarray
+        corresponding normalized frequency
+    r : float
+        capillary external radius
+    g : float
+        gap size bewteen capillaries
+    n : int
+        number of tubes
+    """
+    r_co = core_radius_from_capillaries(r, g, n)
+    factor = 1.027 + 0.001 * (f + 2 / f**4)
+    #                                          | Missing in paper
+    #                                          V
+    inner = r_co**2 + n / np.pi * 0.046875 * r**2 * (1 + (3 + 20 * wl / r_co) * g / r)
+    return factor * np.sqrt(inner)
+
+
+def li_vincetti(f_2: T, f0_2: float) -> T:
+    k = f0_2 - f_2
+    return k / (k**2 + 9e-6 * f_2)
+
+
+def cutoff_frequency_he_vincetti(mu: int, nu: int, t_ratio: float, n_clad_0: float) -> np.ndarray:
+    """
+    eq. (4) in [2] of n_eff_vincetti
+    Parameters
+    ----------
+    mu : int
+        azimuthal mode number
+    nu : int
+        radial mode number
+    t_ratio : float
+        t/r_ext
+    n_clad_0 : float
+        refractive index of the cladding material, generally at the pump wavelength
+    """
+    if nu == 1:
+        base = np.abs(0.21 + 0.175 * mu - 0.1 * (mu - 0.35) ** -2)
+        corr = 0.04 * np.sqrt(mu) * t_ratio
+        return base * t_ratio ** (0.55 + 5e-3 * np.sqrt(n_clad_0**4 - 1)) + corr
+    elif nu >= 2:
+        return 0.3 / n_clad_0**0.3 * (0.5 * nu) ** -1.2 * np.abs(mu - 0.8) * t_ratio + nu - 1
+    else:
+        raise ValueError(f"nu must be a strictly positive integer, got {nu}")
+
+
+def cutoff_frequency_eh_vincetti(mu: int, nu: int, t_ratio: float, n_clad_0: float) -> np.ndarray:
+    """
+    eq. (5) in [2] of n_eff_vincetti
+    Parameters
+    ----------
+    mu : int
+        azimuthal mode number
+    nu : int
+        radial mode number
+    t_ratio : float
+        t/r_ext
+    n_clad_0 : float
+        refractive index of the cladding material, generally at the pump wavelength
+    """
+    if nu == 1:
+        base = 0.73 + 0.1425 * (mu**0.8 + 1.5) - 0.04 / (mu - 0.35)
+        expo = 0.5 - 0.1 * (n_clad_0 - 1) * (mu + 0.5) ** -0.1
+        corr = 0
+    elif nu >= 2:
+        base = (
+            (11.5 * nu**-1.2 / (7.75 - nu))
+            * (0.34 + 0.25 * mu * (n_clad_0 / 1.2) ** 1.15)
+            * (mu + 0.2 / n_clad_0) ** -0.15
+        )
+        expo = 0.75 + 0.06 * n_clad_0**-1.15 + 0.1 * np.sqrt(1.44 / n_clad_0) * (nu - 2)
+        corr = nu - 1
+    else:
+        raise ValueError(f"nu must be a positive integer, got {nu}")
+    return base * t_ratio**expo + corr
+
+
+def v_sum_vincetti(f: np.ndarray, t_ratio: float, n_clad_0: np.ndarray, n_terms: int) -> np.ndarray:
+    f_2 = f**2
+    out = np.zeros_like(f)
+    for nu in range(1, n_terms + 1):
+        out[:] += li_vincetti(f_2, cutoff_frequency_he_vincetti(1, nu, t_ratio, n_clad_0) ** 2)
+        out[:] += li_vincetti(f_2, cutoff_frequency_eh_vincetti(1, nu, t_ratio, n_clad_0) ** 2)
+    out *= 2e3
+    return out
+
+
+def n_eff_correction_vincetti(
+    wl: np.ndarray, f: np.ndarray, t_ratio: float, r_co: float, n_clad_0: float, n_terms: int
+) -> np.ndarray:
+    """
+    eq. 6 from [1] in n_eff_vincetti
+
+    Parameters
+    ----------
+    wl : np.ndarray
+        wavelength array
+    f : np.ndarray
+        corresponding normalized frequency
+    t_ratio : float
+        t (tube thickness) / r (external tube radius)
+    r_co : float
+        core radius
+    n_clad_0 : float
+        refractive index of the cladding (usu. at pump wavelength)
+    n_terms : int
+        how many resonances to calulcate
+    """
+    factor = 4.5e-7 / (1 - t_ratio) ** 4 * (wl / r_co) ** 2
+    return factor * v_sum_vincetti(f, t_ratio, n_clad_0, n_terms)
+
+
+def n_eff_vincetti(
+    wl_for_disp: np.ndarray,
+    wavelength: float,
+    n_gas_2: np.ndarray,
+    thickness: float,
+    tube_radius: float,
+    gap: float,
+    n_tubes: int,
+    n_terms: int = 8,
+    n_clad_2: np.ndarray | None = None,
+):
+    """
+    Parameters
+    ----------
+    wl_for_disp : ndarray
+        wavelength (m) array over which to compute the refractive index
+    wavelength : float
+        center wavelength / pump wavelength
+    n_gas_2 : ndarray
+        n^2 of the filling gas
+    thickness : float
+        thickness of the structural capillary tubes
+    tube_radius : float
+        external radius of the strucural capillaries
+    gap : float
+        gap between the structural capillary tubes
+    n_tubes : int
+        number of capillary tubes
+    n_terms : int
+        number of resonances to calculate, by default 8
+    n_clad_2: ndarray | None
+        n^2 of the cladding, by default Silica
+
+    Returns
+    -------
+    effective refractive index according to the Vincetti model
+
+
+
+    Internal symbols help
+    ---------------------
+    f: normalized frequency
+    r_co_eff: effective core radius
+
+
+    References
+    ----------
+    [1] ROSA, Lorenzo, MELLI, Federico, et VINCETTI, Luca. Analytical Formulas for Dispersion and
+        Effective Area in Hollow-Core Tube Lattice Fibers. Fibers, 2021, vol. 9, no 10, p. 58.
+    [2] VINCETTI, Luca et ROSA, Lorenzo. A simple analytical model for confinement loss estimation
+        kin hollow-core Tube Lattice Fibers. Optics Express, 2019, vol. 27, no 4, p. 5230-5237.
+
+    """
+
+    if n_clad_2 is None:
+        n_clad_2 = mat.Sellmeier.load("silica").n_gas_2(wl_for_disp)
+
+    # n_clad_0 = np.sqrt(n_clad_2[argclosest(wl_for_disp, wavelength)])
+    n_clad_0 = np.sqrt(n_clad_2)
+
+    f = normalized_frequency_vincetti(wl_for_disp, thickness, n_clad_2, n_gas_2)
+    r_co_eff = effective_core_radius_vincetti(wl_for_disp, f, tube_radius, gap, n_tubes)
+    r_co = core_radius_from_capillaries(tube_radius, gap, n_tubes)
+    d_n_eff = n_eff_correction_vincetti(
+        wl_for_disp, f, thickness / tube_radius, r_co, n_clad_0, n_terms
+    )
+
+    n_gas = np.sqrt(n_gas_2)
+
+    # eq. (21) in [1]
+    return n_gas - 0.125 / n_gas * (u_nm(1, 1) * wl_for_disp / (np.pi * r_co_eff)) ** 2 + d_n_eff
+
