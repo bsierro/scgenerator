@@ -1,13 +1,15 @@
+from math import factorial
+
 import numpy as np
 import pytest
+
 import scgenerator.math as m
-from math import factorial
 
 
 def test__power_fact_array():
     x = np.random.rand(5)
     for i in range(5):
-        assert m._power_fact_array(x, i) == pytest.approx(x ** i / factorial(i))
+        assert m._power_fact_array(x, i) == pytest.approx(x**i / factorial(i))
 
 
 def test__power_fact_single():
@@ -98,3 +100,35 @@ def test_update_frequency_domain():
 
 def test_wspace():
     pass
+
+
+def test_differentiate():
+    x = np.linspace(-10, 10, 256)
+    y = np.exp(-((x / 3) ** 2)) * (1 + 0.2 * np.sin(x * 5))
+
+    y[100] = 1e4
+    # true = np.exp(-(x/3)**2) * (x*(-0.4/9 * np.sin(5*x) - 2/9) + np.cos(5*x))
+    true = np.exp(-((x / 3) ** 2)) * (
+        x**2 * (0.00987654321 * np.sin(5 * x) + 0.0493827)
+        - 5.044444 * np.sin(5 * x)
+        - 0.44444 * x * np.cos(5 * x)
+        - 0.2222222
+    )
+
+    import matplotlib.pyplot as plt
+
+    h = x[1] - x[0]
+
+    grad = np.gradient(np.gradient(y)) / h**2
+    fine = m.differentiate_arr(y, 2, 6) / h**2
+
+    plt.plot(x, y)
+    plt.plot(x, grad, label="gradient")
+    plt.plot(x, fine, label="fine")
+    plt.plot(x, true, label="ture", ls=":")
+    plt.legend()
+    plt.show()
+
+
+if __name__ == "__main__":
+    test_differentiate()

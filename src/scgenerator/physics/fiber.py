@@ -973,7 +973,7 @@ def effective_core_radius_vincetti(
 
 def li_vincetti(f_2: T, f0_2: float) -> T:
     k = f0_2 - f_2
-    return k / (k**2 + 9e-6 * f_2)
+    return k / (k**2 + 9e-4 * f_2)
 
 
 def cutoff_frequency_he_vincetti(mu: int, nu: int, t_ratio: float, n_clad_0: float) -> np.ndarray:

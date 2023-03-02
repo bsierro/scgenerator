@@ -1,11 +1,12 @@
+import math
 from dataclasses import dataclass
-from typing import Union
+from functools import cache
+from typing import Sequence, Union
 
 import numba
 import numpy as np
 from scipy.interpolate import interp1d, lagrange
 from scipy.special import jn_zeros
-from functools import cache
 
 from scgenerator.cache import np_cache
 
@@ -576,3 +577,84 @@ def cumulative_boole(x: np.ndarray) -> np.ndarray:
     for i in range(4, len(x)):
         out[i] = out[i - 4] + np.sum(c * x[i - 4 : i + 1])
     return out
+
+
+def stencil_coefficients(stencil_points: Sequence, order: int) -> np.ndarray:
+    """
+    Reference
+    ---------
+    https://en.wikipedia.org/wiki/Finite_difference_coefficient#Arbitrary_stencil_points
+    """
+    mat = np.power.outer(stencil_points, np.arange(len(stencil_points))).T
+    d = np.zeros(len(stencil_points))
+    d[order] = math.factorial(order)
+    return np.linalg.solve(mat, d)
+
+
+@cache
+def central_stencil_coefficients(n: int, order: int) -> np.ndarray:
+    """
+    returns the coefficients of a centered finite difference scheme
+
+    Parameters
+    ----------
+    n : int
+        number of points
+    order : int
+        order of differentiation
+    """
+    return stencil_coefficients(np.arange(n * 2 + 1) - n, order)
+
+
+@cache
+def stencil_coefficients_set(n: int, order: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    coefficients for a forward, centered and backward finite difference differentation scheme of
+    order `order` that extends `n` points away from the evaluation point (`x_0`)
+    """
+    central = central_stencil_coefficients(n, order)
+    left = stencil_coefficients(np.arange(n + 1), order)
+    right = stencil_coefficients(-np.arange(n + 1)[::-1], order)
+    return left, central, right
+
+
+def differentiate_arr(
+    values: np.ndarray, diff_order: int, extent: int, correct_edges=True
+) -> np.ndarray:
+    """
+    takes a derivative of order `diff_order` using equally spaced values
+    **NOTE** : this function doesn't actually know about your grid spacing `h`, so you need to
+    divide the result by `h**diff_order` to get a correct result.
+
+    Parameters
+    ---------
+    values : ndarray
+        equally spaced values
+    diff_order : int
+        order of differentiation
+    extent : int
+        how many points away from the center the scheme uses. This determines accuracy.
+        example: extent=6 means that 13 (6 on either side + center) points are used to evaluate the
+        derivative at each point.
+    correct_edges : bool, optional
+        avoid artifacts by using forward/backward schemes on the edges, by default True
+
+    Reference
+    ---------
+    https://en.wikipedia.org/wiki/Finite_difference_coefficient
+
+    """
+    n_points = (diff_order + extent) // 2
+
+    if not correct_edges:
+        central_coefs = central_stencil_coefficients(n_points, diff_order)
+        return np.convolve(values, central_coefs[::-1], mode="same")
+
+    left_coefs, central_coefs, right_coefs = stencil_coefficients_set(n_points, diff_order)
+    return np.concatenate(
+        (
+            np.convolve(values[: 2 * n_points], left_coefs[::-1], mode="valid"),
+            np.convolve(values, central_coefs[::-1], mode="valid"),
+            np.convolve(values[-2 * n_points :], right_coefs[::-1], mode="valid"),
+        )
+    )
