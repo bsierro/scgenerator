@@ -926,6 +926,11 @@ def gap_from_capillaries(core_radius: float, tube_radius: float, n_tubes: int) -
     return 2 * (s * (tube_radius + core_radius) - tube_radius)
 
 
+def tube_radius_from_gap(core_radius: float, gap: float, n_tubes: int) -> float:
+    s = np.sin(np.pi / n_tubes)
+    return (core_radius * s - 0.5 * gap) / (1 - s)
+
+
 def normalized_frequency_vincetti(
     wl: np.ndarray, thickness: float, n_clad_2: np.ndarray, n_gas_2: np.ndarray
 ) -> np.ndarray:
@@ -1136,4 +1141,3 @@ def n_eff_vincetti(
 
     # eq. (21) in [1]
     return n_gas - 0.125 / n_gas * (u_nm(1, 1) * wl_for_disp / (np.pi * r_co_eff)) ** 2 + d_n_eff
-

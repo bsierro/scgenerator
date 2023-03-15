@@ -619,12 +619,14 @@ def stencil_coefficients_set(n: int, order: int) -> tuple[np.ndarray, np.ndarray
 
 
 def differentiate_arr(
-    values: np.ndarray, diff_order: int, extent: int, correct_edges=True
+    values: np.ndarray,
+    diff_order: int,
+    extent: int | None = None,
+    h: float = 1.0,
+    correct_edges=True,
 ) -> np.ndarray:
     """
     takes a derivative of order `diff_order` using equally spaced values
-    **NOTE** : this function doesn't actually know about your grid spacing `h`, so you need to
-    divide the result by `h**diff_order` to get a correct result.
 
     Parameters
     ---------
@@ -632,10 +634,12 @@ def differentiate_arr(
         equally spaced values
     diff_order : int
         order of differentiation
-    extent : int
+    extent : int, optional
         how many points away from the center the scheme uses. This determines accuracy.
         example: extent=6 means that 13 (6 on either side + center) points are used to evaluate the
-        derivative at each point.
+        derivative at each point. by default diff_order + 2
+    h : float, optional
+        step size, by default 1.0
     correct_edges : bool, optional
         avoid artifacts by using forward/backward schemes on the edges, by default True
 
@@ -644,17 +648,20 @@ def differentiate_arr(
     https://en.wikipedia.org/wiki/Finite_difference_coefficient
 
     """
+    if extent is None:
+        extent = diff_order + 2
     n_points = (diff_order + extent) // 2
 
     if not correct_edges:
         central_coefs = central_stencil_coefficients(n_points, diff_order)
-        return np.convolve(values, central_coefs[::-1], mode="same")
-
-    left_coefs, central_coefs, right_coefs = stencil_coefficients_set(n_points, diff_order)
-    return np.concatenate(
-        (
-            np.convolve(values[: 2 * n_points], left_coefs[::-1], mode="valid"),
-            np.convolve(values, central_coefs[::-1], mode="valid"),
-            np.convolve(values[-2 * n_points :], right_coefs[::-1], mode="valid"),
+        result = np.convolve(values, central_coefs[::-1], mode="same")
+    else:
+        left_coefs, central_coefs, right_coefs = stencil_coefficients_set(n_points, diff_order)
+        result = np.concatenate(
+            (
+                np.convolve(values[: 2 * n_points], left_coefs[::-1], mode="valid"),
+                np.convolve(values, central_coefs[::-1], mode="valid"),
+                np.convolve(values[-2 * n_points :], right_coefs[::-1], mode="valid"),
+            )
         )
-    )
+    return result / h**diff_order

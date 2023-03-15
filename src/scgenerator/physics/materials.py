@@ -6,6 +6,7 @@ from typing import TypeVar
 
 import numpy as np
 
+import scgenerator.math as math
 from scgenerator import utils
 from scgenerator.cache import np_cache
 from scgenerator.logger import get_logger
@@ -73,6 +74,28 @@ class Sellmeier:
 
     def n(self, wl: T, temperature: float | None = None, pressure: float | None = None) -> T:
         return np.sqrt(self.n_gas_2(wl, temperature, pressure))
+
+    def delta(self, wl: np.ndarray, wl_zero_disp: float) -> np.ndarray:
+        """
+        'delta' quantity that describes the gas dispersion according to eq. S7 in [1]
+
+        Parameters
+        ----------
+        wl : ndarray
+            wavelength in m
+        wl_zero_disp : float
+            zero dispersion wavelength in m
+
+        Reference
+        ---------
+        [1] TRAVERS, John C., GRIGOROVA, Teodora F., BRAHMS, Christian, et al. High-energy
+            pulse self-compression and ultraviolet generation through soliton dynamics in hollow
+            capillary fibres. Nature Photonics, 2019, vol. 13, no 8, p. 547-554.
+        """
+        factor = (math.u_nm(1, 1) / c) ** 2 * (0.5 * wl / np.pi) ** 3
+        f = np.gradient(np.gradient(self.chi(wl), wl), wl)
+        ind = math.argclosest(wl, wl_zero_disp)
+        return factor * (f / f[ind] - 1)
 
 
 class Gas:

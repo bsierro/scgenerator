@@ -14,14 +14,18 @@ from scgenerator.parameter import Parameters
 from scgenerator.physics.fiber import beta2, n_eff_hasan, n_eff_marcatili
 from scgenerator.physics.materials import n_gas_2
 from scgenerator.physics.simulate import RK4IP
-from scgenerator.physics.units import c
+from scgenerator.physics.units import c, nm
 
 try:
     from tqdm import tqdm
 except ModuleNotFoundError:
     tqdm = None
 
-__all__ = ["capillary_dispersion", "capillary_zdw", "revolver_dispersion","quick_sim"]
+__all__ = ["capillary_dispersion", "capillary_zdw", "revolver_dispersion", "quick_sim", "w_from_wl"]
+
+
+def w_from_wl(wl_min_nm: float, wl_max_nm: float, n: int) -> np.ndarray:
+    return np.linspace(nm(wl_max_nm), nm(wl_min_nm), n)
 
 
 def capillary_dispersion(
@@ -156,7 +160,7 @@ def extend_axis(axis: np.ndarray) -> np.ndarray:
     return axis
 
 
-def quick_sim(params: dict[str, Any] | Parameters, **_params:Any) -> tuple[Parameters, np.ndarray]:
+def quick_sim(params: dict[str, Any] | Parameters, **_params: Any) -> tuple[Parameters, np.ndarray]:
     """
     run a quick simulation
 
@@ -176,9 +180,9 @@ def quick_sim(params: dict[str, Any] | Parameters, **_params:Any) -> tuple[Param
 
     """
     if isinstance(params, Mapping):
-        params = Parameters(**(params|_params))
+        params = Parameters(**(params | _params))
     else:
-        params = Parameters(**(tomli.loads(Path(params).read_text())|_params))
+        params = Parameters(**(tomli.loads(Path(params).read_text()) | _params))
 
     sim = RK4IP(params)
     if tqdm:
