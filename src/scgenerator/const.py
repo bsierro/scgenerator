@@ -1,6 +1,7 @@
 from typing import Any
+import importlib.metadata
 
-__version__ = "0.2.7dev"
+__version__ = importlib.metadata.version("scgenerator")
 
 ONE_2 = 1 / 2
 ONE_3 = 1 / 3
