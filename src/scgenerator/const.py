@@ -1,13 +1,7 @@
-from typing import Any
 import importlib.metadata
+from typing import Any
 
 __version__ = importlib.metadata.version("scgenerator")
-
-ONE_2 = 1 / 2
-ONE_3 = 1 / 3
-ONE_FOURTH = 1 / 4
-ONE_FIFTH = 1 / 5
-ONE_6 = 1 / 6
 
 
 def pbar_format(worker_id: int) -> dict[str, Any]:
