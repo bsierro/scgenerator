@@ -254,6 +254,13 @@ def bar(p: _T) -> _T:
 def bar_inv(p):
     return p * 1e-5
 
+@unit("PRESSURE", "Pressure (mbar)")
+def mbar(p: _T)->_T:
+    return 1e2 * p
+
+@mbar.inverse
+def mbar_inv(p):
+    return 1e-2 * p
 
 @unit("OTHER", r"$\beta_2$ (fs$^2$/cm)")
 def beta2_fs_cm(b2: _T) -> _T:

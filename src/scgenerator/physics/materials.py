@@ -270,7 +270,36 @@ class Gas:
 
     @property
     def ionic_charge(self):
-        return self.atomic_number - 1
+        return 1
+
+    @property
+    def barrier_suppression(self) -> float:
+        """
+        Compute the barrier suppression threshold (W/m^2)
+        """
+        field_max = self.barrier_suppression_field
+        return 0.5 * units.c * units.epsilon0 * field_max**2
+
+    @property
+    def barrier_suppression_field(self) -> float:
+        """
+        Barrier suppression threshold electric field
+
+        Reference
+        ---------
+        [1] KRAINOV, V. P. Theory of barrier-suppression ionization of atoms. Journal of Nonlinear
+            Optical Physics & Materials, 1995, vol. 4, no 04, p. 775-798.
+        [2] BETHE, H. A. et SALPETER, E. E. Quantum mechanics of one-and two-electron atoms. 1977.
+        """
+        # from [1-2] :
+        # field_max = 0.0625 / self.ionic_charge * (self.ionization_energy / 2.1787e-18) ** 2
+        # return field_max = 5.14220670712125e11
+
+        # from [3] :
+        Z = self.ionic_charge
+        Ip_au = self.ionization_energy / 4.359744650021498e-18
+        ns = Z / np.sqrt(2 * Ip_au)
+        return Z**3 / (16 * ns**4) * 5.14220670712125e11
 
     def get(self, key, default=None):
         return self.mat_dico.get(key, default)
