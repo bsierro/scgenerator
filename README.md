@@ -1,3 +1,5 @@
+# THIS README IS NOT UP TO DATE
+
 It is recommended to import scgenerator in the following manner :
 `import scgenerator as sc`
 

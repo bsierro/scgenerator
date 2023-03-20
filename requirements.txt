@@ -1,6 +1,0 @@
-numpy
-matplotlib
-scipy
-tomli
-tomli-w
-tqdm

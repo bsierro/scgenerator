@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scgenerator"
+version = "0.3.0"
+description = "Simulate nonlinear pulse propagation in optical fibers"
+readme = "README.md"
+authors = [{ name = "Benoit Sierro", email = "benoit.sierro@iap.unibe.ch" }]
+license = "MIT"
+classifiers = [
+    "License :: OSI Approved :: MIT",
+    "Programming Language :: Python :: 3",
+]
+requires-python = ">=3.10"
+keywords = ["nonlinear", "fiber optics", "simulation", "runge-kutta"]
+dependencies = ["numpy >= 1.23", "tomli", "numba", "pydantic", "tqdm"]
+
+[tool.ruff]
+line-length = 100
+[tool.ruff.pydocstyle]
+convention = "numpy"
+
+[tool.black]
+line-length = 100
