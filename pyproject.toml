@@ -8,7 +8,7 @@ version = "0.3.0"
 description = "Simulate nonlinear pulse propagation in optical fibers"
 readme = "README.md"
 authors = [{ name = "Benoit Sierro", email = "benoit.sierro@iap.unibe.ch" }]
-license = "MIT"
+license = { file = "LICENS" }
 classifiers = [
     "License :: OSI Approved :: MIT",
     "Programming Language :: Python :: 3",
