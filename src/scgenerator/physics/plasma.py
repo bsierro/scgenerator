@@ -2,7 +2,6 @@ from typing import Any, Callable, NamedTuple
 
 import numpy as np
 import scipy.special
-from numpy.core.numeric import zeros_like
 from scipy.interpolate import interp1d
 
 from scgenerator.math import cumulative_simpson, expm1_int
@@ -94,14 +93,14 @@ class Plasma:
             number density of free electrons as function of time
         """
         field_abs: np.ndarray = np.abs(field)
-        nzi = field != 0
-        rate = zeros_like(field_abs)
-        rate[nzi] = self.rate(field_abs[nzi])
+        valid_ind = field != 0
+        rate = np.zeros_like(field_abs)
+        rate[valid_ind] = self.rate(field_abs[valid_ind])
         electron_density = free_electron_density(rate, self.dt, N0)
         dn_dt: np.ndarray = (N0 - electron_density) * rate
 
         loss_term = np.zeros_like(field)
-        loss_term[nzi] = dn_dt[nzi] * self.ionization_energy / field[nzi]
+        loss_term[valid_ind] = dn_dt[valid_ind] * self.ionization_energy / field[valid_ind]
 
         phase_term = self.dt * e**2 / me * cumulative_simpson(electron_density * field)
 

@@ -19,25 +19,34 @@ def expm1_int(y: np.ndarray, dx: float) -> np.ndarray:
     return -np.expm1(-cumulative_simpson(y) * dx)
 
 
-def span(*vec):
+def span(*vec: np.ndarray) -> tuple[float, float]:
     """returns the min and max of whatever array-like is given. can accept many args"""
     out = (np.inf, -np.inf)
+    if len(vec) == 0 or len(vec[0]) == 0:
+        raise ValueError(f"did not provide any value to span")
     for x in vec:
         x = np.atleast_1d(x)
-        if len(x.shape) > 1:
-            x = x.ravel()
-        minx = np.min(x)
-        maxx = np.max(x)
-        out = (np.min([minx, out[0]]), np.max([maxx, out[1]]))
-
-    if out[0] == np.inf or out[1] == -np.inf:
-        out = (0, 1)
-        print(f"failed to evaluate the span of {vec}")
+        out = (np.min([np.min(x), out[0]]), np.max([np.max(x), out[1]]))
     return out
 
 
-def argclosest(array: np.ndarray, target: Union[float, int]):
-    """returns the index/indices corresponding to the closest matches of target in array"""
+def argclosest(array: np.ndarray, target: float | int | Sequence[float | int]) -> int | np.ndarray:
+    """
+    returns the index/indices corresponding to the closest matches of target in array
+
+    Parameters
+    ----------
+    array : np.ndarray, shape (n,)
+        array of values
+    target : number | np.ndarray
+        find the closest value to target in `array`. The index of the closest match is returned.
+
+    Returns
+    -------
+    int | np.ndarray
+        index / indices of the closest match
+
+    """
     min_dist = np.inf
     index = None
     if isinstance(target, (list, tuple, np.ndarray)):
@@ -51,7 +60,7 @@ def argclosest(array: np.ndarray, target: Union[float, int]):
     return index
 
 
-def length(x):
+def extent(x):
     return np.max(x) - np.min(x)
 
 
@@ -109,85 +118,6 @@ def u_nm(n, m):
     return jn_zeros(n - 1, m)[-1]
 
 
-@np_cache
-def ndft_matrix(t: np.ndarray, f: np.ndarray) -> np.ndarray:
-    """creates the nfft matrix
-
-    Parameters
-    ----------
-    t : np.ndarray, shape = (n,)
-        time array
-    f : np.ndarray, shape = (m,)
-        frequency array
-
-    Returns
-    -------
-    np.ndarray, shape = (m, n)
-        multiply x(t) by this matrix to get ~X(f)
-    """
-    P, F = np.meshgrid(t, f)
-    return np.exp(-2j * np.pi * P * F)
-
-
-@np_cache
-def indft_matrix(t: np.ndarray, f: np.ndarray) -> np.ndarray:
-    """creates the nfft matrix
-
-    Parameters
-    ----------
-    t : np.ndarray, shape = (n,)
-        time array
-    f : np.ndarray, shape = (m,)
-        frequency array
-
-    Returns
-    -------
-    np.ndarray, shape = (m, n)
-        multiply ~X(f) by this matrix to get x(t)
-    """
-    return np.linalg.pinv(ndft_matrix(t, f))
-
-
-def ndft(t: np.ndarray, s: np.ndarray, f: np.ndarray) -> np.ndarray:
-    """computes the Fourier transform of an uneven signal
-
-    Parameters
-    ----------
-    t : np.ndarray, shape = (n,)
-        time array
-    s : np.ndarray, shape = (n, )
-        amplitute at each point of t
-    f : np.ndarray, shape = (m, )
-        desired frequencies
-
-    Returns
-    -------
-    np.ndarray, shape = (m, )
-        amplitude at each frequency
-    """
-    return ndft_matrix(t, f) @ s
-
-
-def indft(f: np.ndarray, a: np.ndarray, t: np.ndarray) -> np.ndarray:
-    """computes the inverse Fourier transform of an uneven spectrum
-
-    Parameters
-    ----------
-    f : np.ndarray, shape = (n,)
-        frequency array
-    a : np.ndarray, shape = (n, )
-        amplitude at each point of f
-    t : np.ndarray, shape = (m, )
-        time array
-
-    Returns
-    -------
-    np.ndarray, shape = (m, )
-        amplitude at each point of t
-    """
-    return indft_matrix(t, f) @ a
-
-
 def all_zeros(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """find all the x values such that y(x)=0 with linear interpolation"""
     pos = np.argwhere(y[1:] * y[:-1] < 0)[:, 0]
@@ -196,7 +126,9 @@ def all_zeros(x: np.ndarray, y: np.ndarray) -> np.ndarray:
 
 
 def wspace(t, t_num=0):
-    """frequency array such that x(t) <-> np.fft(x)(w)
+    """
+    frequency array such that x(t) <-> np.fft(x)(w)
+
     Parameters
     ----------
         t : float or array
@@ -204,8 +136,9 @@ def wspace(t, t_num=0):
             array : time array
         t_num : int-
             if t is a float, specifies the number of points
+
     Returns
-    ----------
+    -------
         w : array
             linspace of frencies corresponding to t
     """
@@ -221,7 +154,9 @@ def wspace(t, t_num=0):
 
 
 def tspace(time_window=None, t_num=None, dt=None):
-    """returns a time array centered on 0
+    """
+    returns a time array centered on 0
+
     Parameters
     ----------
         time_window : float
@@ -257,7 +192,8 @@ def tspace(time_window=None, t_num=None, dt=None):
 
 
 def build_envelope_w_grid(t: np.ndarray, w0: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """computes a bunch of values that relate to the simulation grid
+    """
+    convenience function to 
 
     Parameters
     ----------
@@ -334,7 +270,36 @@ def build_t_grid(
     return t, time_window, dt, t_num
 
 
-def polynom_extrapolation(x: np.ndarray, y: np.ndarray, degree: float) -> np.ndarray:
+def polynom_extrapolation(x: np.ndarray, y: np.ndarray, degree: int) -> np.ndarray:
+    """
+    performs a polynomial extrapolation on both ends of the support
+
+    Parameters
+    ----------
+    x : np.ndarray (n,)
+        x values
+    y : np.ndarray (n,)
+        y values. The shape must correspond to that of x.
+    degree : int
+        degree of the polynom.
+
+    Returns
+    -------
+    np.ndarray, shape (n,)
+        y array with zero values on either side replaces with polynomial extrapolation
+
+    Example
+        
+        
+
+    """
+    out = y.copy()
+    order = np.argsort(x)
+    left_ind, *_, right_ind = np.nonzero(out[order])[0]
+    return _polynom_extrapolation_in_place(out[order], left_ind, right_ind, degree)[order.argsort]
+
+
+def _polynom_extrapolation_in_place(y: np.ndarray, left_ind: int, right_ind: int, degree: float):
     """extrapolates IN PLACE linearily on both side of the support
 
     Parameters
@@ -346,13 +311,6 @@ def polynom_extrapolation(x: np.ndarray, y: np.ndarray, degree: float) -> np.nda
     right_ind : int
         last value we want to keep (extrapolate to the right of that)
     """
-    out = y.copy()
-    order = np.argsort(x)
-    left_ind, *_, right_ind = np.nonzero(out[order])[0]
-    return _polynom_extrapolation_in_place(out[order], left_ind, right_ind, degree)[order.argsort]
-
-
-def _polynom_extrapolation_in_place(y: np.ndarray, left_ind: int, right_ind: int, degree: float):
     r_left = (1 + np.arange(left_ind))[::-1] ** degree
     r_right = np.arange(len(y) - right_ind) ** degree
     y[:left_ind] = r_left * (y[left_ind] - y[left_ind + 1]) + y[left_ind]
@@ -390,7 +348,8 @@ def envelope_ind(
     signal: np.ndarray, dmin: int = 1, dmax: int = 1, split: bool = False
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    returns the indices of the top/bottom envelope of a signal
+    Attempts to separate the envolope from a periodic signal and return the indices of the 
+    top/bottom envelope of a signal
 
     Parameters
     ----------
@@ -405,9 +364,9 @@ def envelope_ind(
 
     Returns
     -------
-    np.ndarray, shape (m,), m < n
+    np.ndarray, shape (m,), m <= n
         lower envelope indices
-    np.ndarray, shape (l,), l < n
+    np.ndarray, shape (l,), l <= n
         upper envelope indices
     """
 
