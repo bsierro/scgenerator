@@ -1,19 +1,14 @@
-import warnings
-import numpy as np
-import rediscache
 import scgenerator as sc
 from customfunc.app import PlotApp
-from scipy.interpolate import interp1d
 from tqdm import tqdm
 
 # warnings.filterwarnings("error")
 
 
-@rediscache.rcache
 def get_specs(params: dict):
     p = sc.Parameters(**params)
     sim = sc.RK4IP(p)
-    return [s[-1] for s in tqdm(sim.irun(), total=p.z_num)], p.dump_dict()
+    return [s.actual_spectrum for _, s in tqdm(sim.irun(), total=p.z_num)], p.dump_dict()
 
 
 def main():
@@ -25,7 +20,7 @@ def main():
     rt = sc.PlotRange(-500, 500, "fs")
     x, o, ext = rs.sort_axis(params.w)
     vmin = -50
-    with PlotApp(i=(int, 0, params.z_num - 1)) as app:
+    with PlotApp(i=range(params.z_num)) as app:
         spec_ax = app[0]
         spec_ax.set_xlabel(rs.unit.label)
         field_ax = app[1]
@@ -42,8 +37,8 @@ def main():
 
         @app.cache
         def compute(i):
-            xt, field = sc.transform_1D_values(params.ifft(specs[i]), rt, params)
-            x, spec = sc.transform_1D_values(sc.abs2(specs[i]), rs, params, log=True)
+            xt, field = sc.transform_1D_values(params.ifft(specs[i]), rt, params=params)
+            x, spec = sc.transform_1D_values(sc.abs2(specs[i]), rs, params=params, log=True)
             # spec = np.where(spec > vmin, spec, vmin)
             field2 = sc.abs2(field)
             bot, top = sc.math.envelope_ind(field2)

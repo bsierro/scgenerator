@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from abc import abstractmethod
 from collections import defaultdict
-from typing import Iterator, Type
+from typing import Any, Iterator, Type
 
 import numba
 import numpy as np
@@ -14,7 +14,6 @@ from scgenerator.operators import (
     CurrentState,
     LinearOperator,
     NonLinearOperator,
-    ValueTracker,
 )
 from scgenerator.utils import get_arg_names
 
@@ -55,12 +54,12 @@ class IntegratorFactory:
         return cls(**kwargs)
 
 
-class Integrator(ValueTracker):
+class Integrator:
     linear_operator: LinearOperator
     nonlinear_operator: NonLinearOperator
     state: CurrentState
     target_error: float
-    _tracked_values: dict[str, float]
+    _tracked_values: dict[float, dict[str, Any]]
     logger: logging.Logger
     __factory: IntegratorFactory = IntegratorFactory()
     order = 4
@@ -109,16 +108,13 @@ class Integrator(ValueTracker):
             tracked values
         """
         return self._tracked_values | dict(z=self.state.z, step=self.state.step)
-
-    def record_tracked_values(self):
-        self._tracked_values = super().all_values()
-
+    
     def nl(self, spectrum: np.ndarray) -> np.ndarray:
         return self.nonlinear_operator(self.state.replace(spectrum))
 
     def accept_step(
         self, new_state: CurrentState, previous_step_size: float, next_step_size: float
-    ) -> CurrentState:
+    ):
         self.state = new_state
         self.state.current_step_size = next_step_size
         self.state.z += previous_step_size

@@ -5,8 +5,9 @@ Nothing except the solver should depend on this file
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 from scipy.interpolate import interp1d
@@ -20,25 +21,25 @@ class CurrentState:
     length: float
     z: float
     current_step_size: float
-    step: int
-    conversion_factor: np.ndarray
+    conversion_factor: np.ndarray | float
     converter: Callable[[np.ndarray], np.ndarray]
-    __spectrum: np.ndarray
-    __spec2: np.ndarray
-    __field: np.ndarray
-    __field2: np.ndarray
+    stats: dict[str, Any]
+    spectrum: np.ndarray
+    spec2: np.ndarray
+    field: np.ndarray
+    field2: np.ndarray
 
     __slots__ = [
         "length",
         "z",
         "current_step_size",
-        "step",
         "conversion_factor",
         "converter",
-        "_CurrentState__spectrum",
-        "_CurrentState__spec2",
-        "_CurrentState__field",
-        "_CurrentState__field2",
+        "spectrum",
+        "spectrum2",
+        "field",
+        "field2",
+        "stats",
     ]
 
     def __init__(
@@ -46,18 +47,31 @@ class CurrentState:
         length: float,
         z: float,
         current_step_size: float,
-        step: int,
         spectrum: np.ndarray,
-        conversion_factor: np.ndarray,
+        conversion_factor: np.ndarray | float,
         converter: Callable[[np.ndarray], np.ndarray] = np.fft.ifft,
+        spectrum2: np.ndarray | None = None,
+        field: np.ndarray | None = None,
+        field2: np.ndarray | None = None,
+        stats: dict[str, Any] | None = None,
     ):
         self.length = length
         self.z = z
         self.current_step_size = current_step_size
-        self.step = step
         self.conversion_factor = conversion_factor
         self.converter = converter
-        self.spectrum = spectrum
+
+        if spectrum2 is None and field is None and field2 is None:
+            self.set_spectrum(spectrum)
+        elif any(el is None for el in (spectrum2, field, field2)):
+            raise ValueError(
+                "You must provide either all three of (spectrum2, field, field2) or none of them"
+            )
+        else:
+            self.spectrum2 = spectrum2
+            self.field = field
+            self.field2 = field2
+        self.stats = stats or {}
 
     @property
     def z_ratio(self) -> float:
@@ -67,125 +81,25 @@ class CurrentState:
     def actual_spectrum(self) -> np.ndarray:
         return self.conversion_factor * self.spectrum
 
-    @property
-    def spectrum(self) -> np.ndarray:
-        return self.__spectrum
-
-    @spectrum.setter
-    def spectrum(self, new_value: np.ndarray):
-        self.__spectrum = new_value
-        self.__spec2 = None
-        self.__field = None
-        self.__field2 = None
-
-    @property
-    def spec2(self) -> np.ndarray:
-        if self.__spec2 is None:
-            self.__spec2 = math.abs2(self.spectrum)
-        return self.__spec2
-
-    @property
-    def field(self) -> np.ndarray:
-        if self.__field is None:
-            self.__field = self.converter(self.spectrum)
-        return self.__field
-
-    @property
-    def field2(self) -> np.ndarray:
-        if self.__field2 is None:
-            self.__field2 = math.abs2(self.field)
-        return self.__field2
-
-    def force_values(self, spec2: np.ndarray, field: np.ndarray, field2: np.ndarray):
-        """force these values instead of recomputing them
-
-        Parameters
-        ----------
-        spectrum : np.ndarray
-            spectrum
-        spec2 : np.ndarray
-            |spectrum|^2
-        field : np.ndarray
-            field = converter(spectrum)
-        field2 : np.ndarray
-            |field|^2
-        """
-        self.__spec2 = spec2
-        self.__field = field
-        self.__field2 = field2
-
-    def replace(self, new_spectrum: np.ndarray) -> CurrentState:
-        """returns a new state with new attributes"""
-        return CurrentState(
-            length=self.length,
-            z=self.z,
-            current_step_size=self.current_step_size,
-            step=self.step,
-            conversion_factor=self.conversion_factor,
-            converter=self.converter,
-            spectrum=new_spectrum,
-        )
-
-    def with_params(self, **params) -> CurrentState:
-        """returns a new CurrentState with modified params, except for the solution"""
-        my_params = dict(
-            length=self.length,
-            z=self.z,
-            current_step_size=self.current_step_size,
-            step=self.step,
-            conversion_factor=self.conversion_factor,
-            converter=self.converter,
-        )
-        new_state = CurrentState(spectrum=self.__spectrum, **(my_params | params))
-        new_state.force_values(self.spec2, self.field, self.field2)
-        return new_state
+    def set_spectrum(self, new_spectrum: np.ndarray):
+        self.spectrum = new_spectrum
+        self.spectrum2 = math.abs2(self.spectrum)
+        self.field = self.converter(self.spectrum)
+        self.field2 = math.abs2(self.field)
 
     def copy(self) -> CurrentState:
-        new = CurrentState(
-            length=self.length,
-            z=self.z,
-            current_step_size=self.current_step_size,
-            step=self.step,
-            conversion_factor=self.conversion_factor,
-            converter=self.converter,
-            spectrum=self.__spectrum,
+        return CurrentState(
+            self.length,
+            self.z,
+            self.current_step_size,
+            self.spectrum.copy(),
+            self.conversion_factor,
+            self.converter,
+            self.spectrum2.copy(),
+            self.field.copy(),
+            self.field2.copy(),
+            deepcopy(self.stats),
         )
-        new.force_values(self.__spec2, self.__field, self.__field2)
-        return new
-
-
-class ValueTracker(ABC):
-    def values(self) -> dict[str, float]:
-        return {}
-
-    def all_values(self) -> dict[str, float]:
-        out = self.values()
-        for operator in vars(self).values():
-            if isinstance(operator, ValueTracker):
-                out = operator.all_values() | out
-        return out
-
-    def __repr__(self) -> str:
-        value_pair_list = list(vars(self).items())
-        if len(value_pair_list) == 0:
-            value_pair_str_list = ""
-        elif len(value_pair_list) == 1:
-            value_pair_str_list = [self.__value_repr(value_pair_list[0][0], value_pair_list[0][1])]
-        else:
-            value_pair_str_list = [k + "=" + self.__value_repr(k, v) for k, v in value_pair_list]
-
-        return self.__class__.__name__ + "(" + ", ".join(value_pair_str_list) + ")"
-
-    def __value_repr(self, k: str, v) -> str:
-        if k.endswith("_const") and isinstance(v, (list, np.ndarray, tuple)):
-            return repr(v[0])
-        return repr(v)
-
-
-class Operator(ValueTracker):
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        pass
 
 
 class NoOpTime(Operator):
@@ -540,7 +454,6 @@ class ConstantWaveVector(AbstractWaveVector):
         dispersion_ind: np.ndarray,
         w_order: np.ndarray,
     ):
-
         self.beta_arr = np.zeros(w_num, dtype=float)
         self.beta_arr[dispersion_ind] = fiber.beta(w_for_disp, n_op())[2:-2]
         left_ind, *_, right_ind = np.nonzero(self.beta_arr[w_order])[0]
@@ -817,7 +730,6 @@ class VariableScalarGamma(AbstractGamma):
 class Plasma(Operator):
     mat_plasma: plasma.Plasma
     gas_op: AbstractGas
-    ionization_fraction = 0.0
 
     def __init__(self, dt: float, w: np.ndarray, gas_op: AbstractGas):
         self.gas_op = gas_op
@@ -827,11 +739,8 @@ class Plasma(Operator):
     def __call__(self, state: CurrentState) -> np.ndarray:
         N0 = self.gas_op.number_density(state)
         plasma_info = self.mat_plasma(state.field, N0)
-        self.ionization_fraction = plasma_info.electron_density[-1] / N0
+        state.stats["ionization_fraction"] = plasma_info.electron_density[-1] / N0
         return self.factor_out * np.fft.rfft(plasma_info.polarization)
-
-    def values(self) -> dict[str, float]:
-        return dict(ionization_fraction=self.ionization_fraction)
 
 
 class NoPlasma(NoOpFreq, Plasma):
@@ -863,7 +772,7 @@ class PhotonNumberLoss(AbstractConservedQuantity):
 
     def __call__(self, state: CurrentState) -> float:
         return pulse.photon_number_with_loss(
-            state.spec2,
+            state.spectrum2,
             self.w,
             self.dw,
             self.gamma_op(state),
@@ -879,7 +788,7 @@ class PhotonNumberNoLoss(AbstractConservedQuantity):
         self.gamma_op = gamma_op
 
     def __call__(self, state: CurrentState) -> float:
-        return pulse.photon_number(state.spec2, self.w, self.dw, self.gamma_op(state))
+        return pulse.photon_number(state.spectrum2, self.w, self.dw, self.gamma_op(state))
 
 
 class EnergyLoss(AbstractConservedQuantity):

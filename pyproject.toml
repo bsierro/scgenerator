@@ -32,3 +32,4 @@ convention = "numpy"
 
 [tool.black]
 line-length = 100
+

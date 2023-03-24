@@ -408,7 +408,7 @@ class Parameters:
     gamma_arr: np.ndarray = Parameter(type_checker(np.ndarray))
     A_eff_arr: np.ndarray = Parameter(type_checker(np.ndarray))
     spectrum_factor: float = Parameter(type_checker(float))
-    c_to_a_factor: np.ndarray = Parameter(type_checker(float, np.ndarray))
+    c_to_a_factor: np.ndarray = Parameter(type_checker(float, int, np.ndarray))
     w: np.ndarray = Parameter(type_checker(np.ndarray))
     l: np.ndarray = Parameter(type_checker(np.ndarray))
     w_c: np.ndarray = Parameter(type_checker(np.ndarray))

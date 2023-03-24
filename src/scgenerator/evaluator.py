@@ -312,7 +312,7 @@ default_rules: list[Rule] = [
     Rule("w_num", len, ["w"]),
     Rule("dw", lambda w: w[1] - w[0]),
     Rule(["fft", "ifft"], utils.fft_functions, priorities=1),
-    Rule("interpolation_range", lambda dt: (2 * units.c * dt, 8e-6)),
+    Rule("interpolation_range", lambda dt: (max(100e-9, 2 * units.c * dt), 8e-6)),
     # Pulse
     Rule("field_0", pulse.finalize_pulse),
     Rule(["input_time", "input_field"], pulse.load_custom_field),
@@ -340,7 +340,6 @@ default_rules: list[Rule] = [
     Rule("L_NL", pulse.L_NL),
     Rule("L_sol", pulse.L_sol),
     Rule("c_to_a_factor", lambda: 1, priorities=-1),
-    Rule("c_to_a_factor", pulse.c_to_a_factor),
     # Fiber Dispersion
     Rule("w_for_disp", units.m, ["wl_for_disp"]),
     Rule("hr_w", fiber.delayed_raman_w),
@@ -419,6 +418,7 @@ envelope_rules = default_rules + [
     # Pulse
     Rule("spectrum_factor", pulse.spectrum_factor_envelope, priorities=-1),
     Rule("pre_field_0", pulse.initial_field_envelope, priorities=1),
+    Rule("c_to_a_factor", pulse.c_to_a_factor),
     # Dispersion
     Rule(["wl_for_disp", "dispersion_ind"], fiber.lambda_for_envelope_dispersion),
     Rule("beta2_coefficients", fiber.dispersion_coefficients),
