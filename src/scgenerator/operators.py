@@ -4,13 +4,13 @@ Nothing except the solver should depend on this file
 """
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 import numpy as np
-from scipy.interpolate import interp1d
+from matplotlib.cbook import operator
 
 from scgenerator import math
 from scgenerator.logger import get_logger
@@ -102,21 +102,33 @@ class CurrentState:
         )
 
 
-class NoOpTime(Operator):
-    def __init__(self, t_num: int):
-        self.arr_const = np.zeros(t_num)
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns 0"""
-        return self.arr_const
+Operator = Callable[[CurrentState], np.ndarray]
+Qualifier = Callable[[CurrentState], float]
 
 
-class NoOpFreq(Operator):
-    def __init__(self, w_num: int):
-        self.arr_const = np.zeros(w_num)
+def no_op_time(t_num) -> Operator:
+    arr_const = np.zeros(t_num)
 
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.arr_const
+    def operate(state: CurrentState) -> np.ndarray:
+        return arr_const
+
+    return operate
+
+
+def no_op_freq(w_num) -> Operator:
+    arr_const = np.zeros(w_num)
+
+    def operate(state: CurrentState) -> np.ndarray:
+        return arr_const
+
+    return operate
+
+
+def const_op(array: np.ndarray) -> Operator:
+    def operate(state: CurrentState) -> np.ndarray:
+        return array
+
+    return operate
 
 
 ##################################################
@@ -124,13 +136,7 @@ class NoOpFreq(Operator):
 ##################################################
 
 
-class AbstractGas(Operator):
-    gas: materials.Gas
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.square_index(state)
-
-    @abstractmethod
+class GasOp(Protocol):
     def pressure(self, state: CurrentState) -> float:
         """returns the pressure at the current
 
@@ -144,7 +150,6 @@ class AbstractGas(Operator):
             pressure un bar
         """
 
-    @abstractmethod
     def number_density(self, state: CurrentState) -> float:
         """returns the number density in 1/m^3 of at the current state
 
@@ -158,7 +163,6 @@ class AbstractGas(Operator):
             number density in 1/m^3
         """
 
-    @abstractmethod
     def square_index(self, state: CurrentState) -> np.ndarray:
         """returns the square of the material refractive index at the current state
 
@@ -173,7 +177,8 @@ class AbstractGas(Operator):
         """
 
 
-class ConstantGas(AbstractGas):
+class ConstantGas:
+    gas: materials.Gas
     pressure_const: float
     number_density_const: float
     n_gas_2_const: np.ndarray
@@ -201,7 +206,8 @@ class ConstantGas(AbstractGas):
         return self.n_gas_2_const
 
 
-class PressureGradientGas(AbstractGas):
+class PressureGradientGas:
+    gas: materials.Gas
     p_in: float
     p_out: float
     temperature: float
@@ -237,79 +243,55 @@ class PressureGradientGas(AbstractGas):
 ##################################################
 
 
-class AbstractRefractiveIndex(Operator):
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the total/effective refractive index at this state
+def constant_refractive_index(n_eff: np.ndarray) -> Operator:
+    def operate(state: CurrentState) -> np.ndarray:
+        return n_eff
 
-        Parameters
-        ----------
-        state : CurrentState
-
-        Returns
-        -------
-        np.ndarray
-            refractive index
-        """
+    return operate
 
 
-class ConstantRefractiveIndex(AbstractRefractiveIndex):
-    n_eff_arr: np.ndarray
+def marcatili_refractive_index(
+    gas_op: GasOp, core_radius: float, wl_for_disp: np.ndarray
+) -> Operator:
+    def operate(state: CurrentState) -> np.ndarray:
+        return fiber.n_eff_marcatili(wl_for_disp, gas_op.square_index(state), core_radius)
 
-    def __init__(self, n_eff: np.ndarray):
-        self.n_eff_arr = n_eff
-
-    def __call__(self, state: CurrentState = None) -> np.ndarray:
-        return self.n_eff_arr
+    return operate
 
 
-class MarcatiliRefractiveIndex(AbstractRefractiveIndex):
-    gas_op: AbstractGas
-    core_radius: float
-    wl_for_disp: np.ndarray
+def marcatili_adjusted_refractive_index(
+    gas_op: GasOp, core_radius: float, wl_for_disp: np.ndarray
+) -> Operator:
+    def operate(state: CurrentState) -> np.ndarray:
+        return fiber.n_eff_marcatili_adjusted(wl_for_disp, gas_op.square_index(state), core_radius)
 
-    def __init__(self, gas_op: ConstantGas, core_radius: float, wl_for_disp: np.ndarray):
-        self.gas_op = gas_op
-        self.core_radius = core_radius
-        self.wl_for_disp = wl_for_disp
+    return operate
 
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return fiber.n_eff_marcatili(
-            self.wl_for_disp, self.gas_op.square_index(state), self.core_radius
+
+def vincetti_refracrive_index(
+    gas_op: GasOp,
+    core_radius: float,
+    wl_for_disp: np.ndarray,
+    wavelength: float,
+    wall_thickness: float,
+    tube_radius: float,
+    gap: float,
+    n_tubes: int,
+    n_terms: int,
+) -> Operator:
+    def operate(state: CurrentState) -> np.ndarray:
+        return fiber.n_eff_vincetti(
+            wl_for_disp,
+            wavelength,
+            gas_op.square_index(state),
+            wall_thickness,
+            tube_radius,
+            gap,
+            n_tubes,
+            n_terms,
         )
 
-
-class MarcatiliAdjustedRefractiveIndex(MarcatiliRefractiveIndex):
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return fiber.n_eff_marcatili_adjusted(
-            self.wl_for_disp, self.gas_op.square_index(state), self.core_radius
-        )
-
-
-@dataclass(repr=False, eq=False)
-class HasanRefractiveIndex(AbstractRefractiveIndex):
-    gas_op: ConstantGas
-    core_radius: float
-    capillary_num: int
-    capillary_nested: int
-    capillary_thickness: float
-    capillary_radius: float
-    capillary_resonance_strengths: list[float]
-    wl_for_disp: np.ndarray
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return fiber.n_eff_hasan(
-            self.wl_for_disp,
-            self.gas_op.square_index(state),
-            self.core_radius,
-            self.capillary_num,
-            self.capillary_nested,
-            self.capillary_thickness,
-            fiber.capillary_spacing_hasan(
-                self.capillary_num, self.capillary_radius, self.core_radius
-            ),
-            self.capillary_resonance_strengths,
-        )
+    return operate
 
 
 ##################################################
@@ -317,109 +299,67 @@ class HasanRefractiveIndex(AbstractRefractiveIndex):
 ##################################################
 
 
-class AbstractDispersion(Operator):
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the dispersion in the frequency domain
-
-        Parameters
-        ----------
-        state : CurrentState
-
-        Returns
-        -------
-        np.ndarray
-            dispersive component
-        """
-
-
-class ConstantPolyDispersion(AbstractDispersion):
+def constant_polynomial_dispersion(
+    beta2_coefficients: np.ndarray,
+    w_c: np.ndarray,
+) -> Operator:
     """
     dispersion approximated by fitting a polynome on the dispersion and
     evaluating on the envelope
     """
+    w_power_fact = np.array(
+        [math.power_fact(w_c, k) for k in range(2, len(beta2_coefficients) + 2)]
+    )
+    disp_arr = fiber.fast_poly_dispersion_op(w_c, beta2_coefficients, w_power_fact)
 
-    disp_arr: np.ndarray
+    def operate(state: CurrentState) -> np.ndarray:
+        return disp_arr
 
-    def __init__(
-        self,
-        beta2_coefficients: np.ndarray,
-        w_c: np.ndarray,
-    ):
-        w_power_fact = np.array(
-            [math.power_fact(w_c, k) for k in range(2, len(beta2_coefficients) + 2)]
-        )
-        self.disp_arr = fiber.fast_poly_dispersion_op(w_c, beta2_coefficients, w_power_fact)
-
-    def __call__(self, state: CurrentState = None) -> np.ndarray:
-        return self.disp_arr
+    return operate
 
 
-class ConstantDirectDispersion(AbstractDispersion):
+def constant_direct_diersion(
+    w_for_disp: np.ndarray,
+    w0: np.ndarray,
+    t_num: int,
+    n_eff: np.ndarray,
+    dispersion_ind: np.ndarray,
+    w_order: np.ndarray,
+) -> Operator:
     """
     Direct dispersion for when the refractive index is known
     """
+    disp_arr = np.zeros(t_num, dtype=complex)
+    w0_ind = math.argclosest(w_for_disp, w0)
+    disp_arr[dispersion_ind] = fiber.fast_direct_dispersion(w_for_disp, w0, n_eff, w0_ind)[2:-2]
+    left_ind, *_, right_ind = np.nonzero(disp_arr[w_order])[0]
+    disp_arr[w_order] = math._polynom_extrapolation_in_place(
+        disp_arr[w_order], left_ind, right_ind, 1
+    )
 
-    disp_arr: np.ndarray
+    def operate(state: CurrentState) -> np.ndarray:
+        return disp_arr
 
-    def __init__(
-        self,
-        w_for_disp: np.ndarray,
-        w0: np.ndarray,
-        t_num: int,
-        n_op: ConstantRefractiveIndex,
-        dispersion_ind: np.ndarray,
-        w_order: np.ndarray,
-    ):
-        self.disp_arr = np.zeros(t_num, dtype=complex)
-        w0_ind = math.argclosest(w_for_disp, w0)
-        self.disp_arr[dispersion_ind] = fiber.fast_direct_dispersion(
-            w_for_disp, w0, n_op(), w0_ind
+    return operate
+
+
+def direct_dispersion(
+    w_for_disp: np.ndarray,
+    w0: np.ndarray,
+    t_num: int,
+    n_eff_op: Operator,
+    dispersion_ind: np.ndarray,
+) -> Operator:
+    disp_arr = np.zeros(t_num, dtype=complex)
+    w0_ind = math.argclosest(w_for_disp, w0)
+
+    def operate(state: CurrentState) -> np.ndarray:
+        disp_arr[dispersion_ind] = fiber.fast_direct_dispersion(
+            w_for_disp, w0, n_eff_op(state), w0_ind
         )[2:-2]
-        left_ind, *_, right_ind = np.nonzero(self.disp_arr[w_order])[0]
-        self.disp_arr[w_order] = math._polynom_extrapolation_in_place(
-            self.disp_arr[w_order], left_ind, right_ind, 1
-        )
+        return disp_arr
 
-    def __call__(self, state: CurrentState = None) -> np.ndarray:
-        return self.disp_arr
-
-
-class DirectDispersion(AbstractDispersion):
-    def __new__(
-        cls,
-        w_for_disp: np.ndarray,
-        w0: np.ndarray,
-        t_num: int,
-        n_op: ConstantRefractiveIndex,
-        dispersion_ind: np.ndarray,
-        w_order: np.ndarray,
-    ):
-        if isinstance(n_op, ConstantRefractiveIndex):
-            return ConstantDirectDispersion(w_for_disp, w0, t_num, n_op, dispersion_ind, w_order)
-        return object.__new__(cls)
-
-    def __init__(
-        self,
-        w_for_disp: np.ndarray,
-        w0: np.ndarray,
-        t_num: int,
-        n_op: ConstantRefractiveIndex,
-        dispersion_ind: np.ndarray,
-        w_order: np.ndarray,
-    ):
-        self.w_for_disp = w_for_disp
-        self.disp_ind = dispersion_ind
-        self.n_op = n_op
-        self.disp_arr = np.zeros(t_num, dtype=complex)
-        self.w0 = w0
-        self.w0_ind = math.argclosest(w_for_disp, w0)
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        self.disp_arr[self.disp_ind] = fiber.fast_direct_dispersion(
-            self.w_for_disp, self.w0, self.n_op(state), self.w0_ind
-        )[2:-2]
-        return self.disp_arr
+    return operate
 
 
 ##################################################
@@ -427,106 +367,24 @@ class DirectDispersion(AbstractDispersion):
 ##################################################
 
 
-class AbstractWaveVector(Operator):
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the wave vector beta in the frequency domain
+def constant_wave_vector(
+    n_eff: np.ndarray,
+    w_for_disp: np.ndarray,
+    w_num: int,
+    dispersion_ind: np.ndarray,
+    w_order: np.ndarray,
+):
+    beta_arr = np.zeros(w_num, dtype=float)
+    beta_arr[dispersion_ind] = fiber.beta(w_for_disp, n_eff)[2:-2]
+    left_ind, *_, right_ind = np.nonzero(beta_arr[w_order])[0]
+    beta_arr[w_order] = math._polynom_extrapolation_in_place(
+        beta_arr[w_order], left_ind, right_ind, 1.0
+    )
 
-        Parameters
-        ----------
-        state : CurrentState
+    def operate(state: CurrentState) -> np.ndarray:
+        return beta_arr
 
-        Returns
-        -------
-        np.ndarray
-            wave vector
-        """
-
-
-class ConstantWaveVector(AbstractWaveVector):
-    beta_arr: np.ndarray
-
-    def __init__(
-        self,
-        n_op: ConstantRefractiveIndex,
-        w_for_disp: np.ndarray,
-        w_num: int,
-        dispersion_ind: np.ndarray,
-        w_order: np.ndarray,
-    ):
-        self.beta_arr = np.zeros(w_num, dtype=float)
-        self.beta_arr[dispersion_ind] = fiber.beta(w_for_disp, n_op())[2:-2]
-        left_ind, *_, right_ind = np.nonzero(self.beta_arr[w_order])[0]
-        self.beta_arr[w_order] = math._polynom_extrapolation_in_place(
-            self.beta_arr[w_order], left_ind, right_ind, 1.0
-        )
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.beta_arr
-
-
-##################################################
-###################### LOSS ######################
-##################################################
-
-
-class AbstractLoss(Operator):
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the loss in the frequency domain
-
-        Parameters
-        ----------
-        state : CurrentState
-
-        Returns
-        -------
-        np.ndarray
-            loss in 1/m
-        """
-
-
-class ConstantLoss(AbstractLoss):
-    arr_const: np.ndarray
-
-    def __init__(self, alpha: float, w_num: int):
-        self.arr_const = alpha * np.ones(w_num)
-
-    def __call__(self, state: CurrentState = None) -> np.ndarray:
-        return self.arr_const
-
-
-class NoLoss(ConstantLoss):
-    def __init__(self, w_num: int):
-        super().__init__(0, w_num)
-
-
-class CapillaryLoss(ConstantLoss):
-    def __init__(
-        self,
-        wl_for_disp: np.ndarray,
-        dispersion_ind: np.ndarray,
-        w_num: int,
-        core_radius: float,
-        he_mode: tuple[int, int],
-    ):
-        alpha = fiber.capillary_loss(wl_for_disp, he_mode, core_radius)
-        self.arr = np.zeros(w_num)
-        self.arr[dispersion_ind] = alpha[2:-2]
-
-    def __call__(self, state: CurrentState = None) -> np.ndarray:
-        return self.arr
-
-
-class CustomLoss(ConstantLoss):
-    def __init__(self, l: np.ndarray, loss_file: str):
-        loss_data = np.load(loss_file)
-        wl = loss_data["wavelength"]
-        loss = loss_data["loss"]
-        self.arr = interp1d(wl, loss, fill_value=0, bounds_error=False)(l)
-
-    def __call__(self, state: CurrentState = None) -> np.ndarray:
-        return self.arr
+    return operate
 
 
 ##################################################
@@ -534,52 +392,28 @@ class CustomLoss(ConstantLoss):
 ##################################################
 
 
-class AbstractRaman(Operator):
-    fraction: float = 0.0
+def envelope_raman(raman_type: str, raman_fraction: float, t: np.ndarray) -> Operator:
+    hr_w = fiber.delayed_raman_w(t, raman_type)
 
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the raman component
+    def operate(state: CurrentState) -> np.ndarray:
+        return raman_fraction * np.fft.ifft(hr_w * np.fft.fft(state.field2))
 
-        Parameters
-        ----------
-        state : CurrentState
-
-        Returns
-        -------
-        np.ndarray
-            raman component
-        """
+    return operate
 
 
-class NoEnvelopeRaman(NoOpTime, AbstractRaman):
-    pass
+def full_field_raman(
+    raman_type: str, raman_fraction: float, t: np.ndarray, w: np.ndarray, chi3: float
+) -> Operator:
+    hr_w = fiber.delayed_raman_w(t, raman_type)
+    factor_in = units.epsilon0 * chi3 * raman_fraction
+    factor_out = 1j * w**2 / (2.0 * units.c**2 * units.epsilon0)
 
-
-class NoFullFieldRaman(NoOpFreq, AbstractRaman):
-    pass
-
-
-class EnvelopeRaman(AbstractRaman):
-    def __init__(self, raman_type: str, t: np.ndarray):
-        self.hr_w = fiber.delayed_raman_w(t, raman_type)
-        self.fraction = 0.245 if raman_type == "agrawal" else 0.18
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.fraction * np.fft.ifft(self.hr_w * np.fft.fft(state.field2))
-
-
-class FullFieldRaman(AbstractRaman):
-    def __init__(self, raman_type: str, t: np.ndarray, w: np.ndarray, chi3: float):
-        self.hr_w = fiber.delayed_raman_w(t, raman_type)
-        self.fraction = 0.245 if raman_type == "agrawal" else 0.18
-        self.factor_in = units.epsilon0 * chi3 * self.fraction
-        self.factor_out = 1j * w**2 / (2.0 * units.c**2 * units.epsilon0)
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.factor_out * np.fft.rfft(
-            self.factor_in * state.field * np.fft.irfft(self.hr_w * np.fft.rfft(state.field2))
+    def operate(state: CurrentState) -> np.ndarray:
+        return factor_out * np.fft.rfft(
+            factor_in * state.field * np.fft.irfft(hr_w * np.fft.rfft(state.field2))
         )
+
+    return operate
 
 
 ##################################################
@@ -587,81 +421,24 @@ class FullFieldRaman(AbstractRaman):
 ##################################################
 
 
-class AbstractSPM(Operator):
-    fraction: float = 1.0
+def envelope_spm(raman_fraction: float) -> Operator:
+    fraction = 1 - raman_fraction
 
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the SPM component
+    def operate(state: CurrentState) -> np.ndarray:
+        return fraction * state.field2
 
-        Parameters
-        ----------
-        state : CurrentState
-
-        Returns
-        -------
-        np.ndarray
-            SPM component
-        """
+    return operate
 
 
-class NoEnvelopeSPM(NoOpFreq, AbstractSPM):
-    pass
+def full_field_spm(raman_fraction: float, w: np.ndarray, chi3: float) -> Operator:
+    fraction = 1 - raman_fraction
+    factor_out = 1j * w**2 / (2.0 * units.c**2 * units.epsilon0)
+    factor_in = fraction * chi3 * units.epsilon0
 
+    def operate(state: CurrentState) -> np.ndarray:
+        return factor_out * np.fft.rfft(factor_in * state.field2 * state.field)
 
-class NoFullFieldSPM(NoOpTime, AbstractSPM):
-    pass
-
-
-class EnvelopeSPM(AbstractSPM):
-    def __init__(self, raman_op: AbstractRaman):
-        self.fraction = 1 - raman_op.fraction
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.fraction * state.field2
-
-
-class FullFieldSPM(AbstractSPM):
-    def __init__(self, raman_op: AbstractRaman, w: np.ndarray, chi3: float):
-        self.fraction = 1 - raman_op.fraction
-        self.factor_out = 1j * w**2 / (2.0 * units.c**2 * units.epsilon0)
-        self.factor_in = self.fraction * chi3 * units.epsilon0
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.factor_out * np.fft.rfft(self.factor_in * state.field2 * state.field)
-
-
-##################################################
-################# SELF-STEEPENING ################
-##################################################
-
-
-class AbstractSelfSteepening(Operator):
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the self-steepening component
-
-        Parameters
-        ----------
-        state : CurrentState
-
-        Returns
-        -------
-        np.ndarray
-            self-steepening component
-        """
-
-
-class NoSelfSteepening(NoOpFreq, AbstractSelfSteepening):
-    pass
-
-
-class SelfSteepening(AbstractSelfSteepening):
-    def __init__(self, w_c: np.ndarray, w0: float):
-        self.arr = w_c / w0
-
-    def __call__(self, state: CurrentState = None) -> np.ndarray:
-        return self.arr
+    return operate
 
 
 ##################################################
@@ -669,57 +446,14 @@ class SelfSteepening(AbstractSelfSteepening):
 ##################################################
 
 
-class AbstractGamma(Operator):
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the gamma component
+def variable_gamma(gas_op: GasOp, w0: float, A_eff: float, t_num: int) -> Operator:
+    arr = np.ones(t_num)
 
-        Parameters
+    def operate(state: CurrentState) -> np.ndarray:
+        n2 = gas_op.square_index(state)
+        return arr * fiber.gamma_parameter(n2, w0, A_eff)
 
-        ----------
-        state : CurrentState
-
-        Returns
-        -------
-        np.ndarray
-            gamma component
-        """
-
-
-class ConstantScalarGamma(AbstractGamma):
-    def __init__(self, gamma: float, t_num: int):
-        self.arr_const = gamma * np.ones(t_num)
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.arr_const
-
-
-class NoGamma(ConstantScalarGamma):
-    def __init__(self, w: np.ndarray) -> None:
-        super().__init__(0, w)
-
-
-class ConstantGamma(AbstractGamma):
-    def __init__(self, gamma_arr: np.ndarray):
-        self.arr = gamma_arr
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.arr
-
-
-class VariableScalarGamma(AbstractGamma):
-    def __init__(
-        self, gas_op: AbstractGas, temperature: float, w0: float, A_eff: float, t_num: int
-    ):
-        self.gas_op = gas_op
-        self.temperature = temperature
-        self.w0 = w0
-        self.A_eff = A_eff
-        self.arr = np.ones(t_num)
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        n2 = self.gas_op.gas.n2(self.temperature, self.gas_op.pressure(state))
-        return self.arr * fiber.gamma_parameter(n2, self.w0, self.A_eff)
+    return operate
 
 
 ##################################################
@@ -727,24 +461,16 @@ class VariableScalarGamma(AbstractGamma):
 ##################################################
 
 
-class Plasma(Operator):
-    mat_plasma: plasma.Plasma
-    gas_op: AbstractGas
+def ionization(w: np.ndarray, gas_op: GasOp, plasma_op: plasma.Plasma) -> Operator:
+    factor_out = -w / (2.0 * units.c**2 * units.epsilon0)
 
-    def __init__(self, dt: float, w: np.ndarray, gas_op: AbstractGas):
-        self.gas_op = gas_op
-        self.mat_plasma = plasma.Plasma(dt, self.gas_op.gas["ionization_energy"])
-        self.factor_out = -w / (2.0 * units.c**2 * units.epsilon0)
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        N0 = self.gas_op.number_density(state)
-        plasma_info = self.mat_plasma(state.field, N0)
+    def operate(state: CurrentState) -> np.ndarray:
+        N0 = gas_op.number_density(state)
+        plasma_info = plasma_op(state.field, N0)
         state.stats["ionization_fraction"] = plasma_info.electron_density[-1] / N0
-        return self.factor_out * np.fft.rfft(plasma_info.polarization)
+        return factor_out * np.fft.rfft(plasma_info.polarization)
 
-
-class NoPlasma(NoOpFreq, Plasma):
-    pass
+    return operate
 
 
 ##################################################
@@ -752,91 +478,78 @@ class NoPlasma(NoOpFreq, Plasma):
 ##################################################
 
 
-class AbstractConservedQuantity(Operator):
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> float:
-        pass
+def photon_number_with_loss(w: np.ndarray, gamma_op: Operator, loss_op: Operator) -> Qualifier:
+    w = w
+    dw = w[1] - w[0]
 
-
-class NoConservedQuantity(AbstractConservedQuantity):
-    def __call__(self, state: CurrentState) -> float:
-        return 0.0
-
-
-class PhotonNumberLoss(AbstractConservedQuantity):
-    def __init__(self, w: np.ndarray, gamma_op: AbstractGamma, loss_op: AbstractLoss):
-        self.w = w
-        self.dw = w[1] - w[0]
-        self.gamma_op = gamma_op
-        self.loss_op = loss_op
-
-    def __call__(self, state: CurrentState) -> float:
+    def qualify(state: CurrentState) -> float:
         return pulse.photon_number_with_loss(
             state.spectrum2,
-            self.w,
-            self.dw,
-            self.gamma_op(state),
-            self.loss_op(state),
+            w,
+            dw,
+            gamma_op(state),
+            loss_op(state),
             state.current_step_size,
         )
 
-
-class PhotonNumberNoLoss(AbstractConservedQuantity):
-    def __init__(self, w: np.ndarray, gamma_op: AbstractGamma):
-        self.w = w
-        self.dw = w[1] - w[0]
-        self.gamma_op = gamma_op
-
-    def __call__(self, state: CurrentState) -> float:
-        return pulse.photon_number(state.spectrum2, self.w, self.dw, self.gamma_op(state))
+    return qualify
 
 
-class EnergyLoss(AbstractConservedQuantity):
-    def __init__(self, w: np.ndarray, loss_op: AbstractLoss):
-        self.dw = w[1] - w[0]
-        self.loss_op = loss_op
+def photon_number_without_loss(w: np.ndarray, gamma_op: Operator) -> Qualifier:
+    dw = w[1] - w[0]
 
-    def __call__(self, state: CurrentState) -> float:
+    def qualify(state: CurrentState) -> float:
+        return pulse.photon_number(state.spectrum2, w, dw, gamma_op(state))
+
+    return qualify
+
+
+def energy_with_loss(w: np.ndarray, loss_op: Operator) -> Qualifier:
+    dw = w[1] - w[0]
+
+    def qualify(state: CurrentState) -> float:
         return pulse.pulse_energy_with_loss(
             math.abs2(state.conversion_factor * state.spectrum),
-            self.dw,
-            self.loss_op(state),
+            dw,
+            loss_op(state),
             state.current_step_size,
         )
 
+    return qualify
 
-class EnergyNoLoss(AbstractConservedQuantity):
-    def __init__(self, w: np.ndarray):
-        self.dw = w[1] - w[0]
 
-    def __call__(self, state: CurrentState) -> float:
-        return pulse.pulse_energy(math.abs2(state.conversion_factor * state.spectrum), self.dw)
+def energy_without_loss(w: np.ndarray) -> Qualifier:
+    dw = w[1] - w[0]
+
+    def qualify(state: CurrentState) -> float:
+        return pulse.pulse_energy(math.abs2(state.conversion_factor * state.spectrum), dw)
+
+    return qualify
 
 
 def conserved_quantity(
     adapt_step_size: bool,
-    raman_op: AbstractGamma,
-    gamma_op: AbstractGamma,
-    loss_op: AbstractLoss,
+    raman: bool,
+    loss: bool,
+    gamma_op: Operator,
+    loss_op: Operator,
     w: np.ndarray,
-) -> AbstractConservedQuantity:
+) -> Qualifier:
     if not adapt_step_size:
-        return NoConservedQuantity()
+        return lambda state: 0.0
     logger = get_logger(__name__)
-    raman = not isinstance(raman_op, NoEnvelopeRaman)
-    loss = not isinstance(loss_op, NoLoss)
     if raman and loss:
         logger.debug("Conserved quantity : photon number with loss")
-        return PhotonNumberLoss(w, gamma_op, loss_op)
+        return photon_number_with_loss(w, gamma_op, loss_op)
     elif raman:
         logger.debug("Conserved quantity : photon number without loss")
-        return PhotonNumberNoLoss(w, gamma_op)
+        return photon_number_without_loss(w, gamma_op)
     elif loss:
         logger.debug("Conserved quantity : energy with loss")
-        return EnergyLoss(w, loss_op)
+        return energy_with_loss(w, loss_op)
     else:
         logger.debug("Conserved quantity : energy without loss")
-        return EnergyNoLoss(w)
+        return energy_without_loss(w)
 
 
 ##################################################
@@ -844,44 +557,26 @@ def conserved_quantity(
 ##################################################
 
 
-class LinearOperator(Operator):
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the linear operator to be multiplied by the spectrum in the frequency domain
+def envelope_linear_operator(dispersion_op: Operator, loss_op: Operator) -> Operator:
+    def operate(state: CurrentState) -> np.ndarray:
+        return dispersion_op(state) - loss_op(state) / 2
 
-        Parameters
-        ----------
-        state : CurrentState
-
-        Returns
-        -------
-        np.ndarray
-            linear component
-        """
+    return operate
 
 
-class EnvelopeLinearOperator(LinearOperator):
-    def __init__(self, dispersion_op: AbstractDispersion, loss_op: AbstractLoss):
-        self.dispersion_op = dispersion_op
-        self.loss_op = loss_op
+def full_field_linear_operator(
+    self,
+    beta_op: Operator,
+    loss_op: Operator,
+    frame_velocity: float,
+    w: np.ndarray,
+) -> Operatore:
+    delay = w / frame_velocity
 
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return self.dispersion_op(state) - self.loss_op(state) / 2
+    def operate(state: CurrentState) -> np.ndarray:
+        return 1j * (wave_vector(state) - delay) - loss_op(state) / 2
 
-
-class FullFieldLinearOperator(LinearOperator):
-    def __init__(
-        self,
-        beta_op: AbstractWaveVector,
-        loss_op: AbstractLoss,
-        frame_velocity: float,
-        w: np.ndarray,
-    ):
-        self.delay = w / frame_velocity
-        self.wave_vector = beta_op
-        self.loss_op = loss_op
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        return 1j * (self.wave_vector(state) - self.delay) - self.loss_op(state) / 2
+    return operate
 
 
 ##################################################

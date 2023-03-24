@@ -885,6 +885,11 @@ def effective_radius_HCARF(core_radius, t, f1, f2, wl_for_disp):
     return f1 * core_radius * (1 - f2 * wl_for_disp**2 / (core_radius * t))
 
 
+def scalar_loss(alpha: float, w_num: int) -> np.ndarray:
+    """simple, wavelength independent scalar loss"""
+    return alpha * np.ones(w_num)
+
+
 def capillary_loss(wl: np.ndarray, he_mode: tuple[int, int], core_radius: float) -> np.ndarray:
     """computes the wavelenth dependent capillary loss according to Marcatili
 
@@ -906,6 +911,19 @@ def capillary_loss(wl: np.ndarray, he_mode: tuple[int, int], core_radius: float)
     # the real loss alpha is 2*Im(n_eff), which differs from the notation of the paper
     nu_n = (chi_silica + 2) / np.sqrt(chi_silica)
     return nu_n * (u_nm(*he_mode) * wl / pipi) ** 2 * core_radius**-3
+
+
+def safe_constant_loss(
+    wl_for_disp: np.ndarray,
+    dispersion_ind: np.ndarray,
+    w_num: int,
+    core_radius: float,
+    he_mode: tuple[int, int],
+)->np.ndarray:
+    alpha = capillary_loss(wl_for_disp, he_mode, core_radius)
+    loss_arr = np.zeros(w_num)
+    loss_arr[dispersion_ind] = alpha[2:-2]
+    return loss_arr
 
 
 def extinction_distance(loss: T, ratio=1 / e) -> T:
