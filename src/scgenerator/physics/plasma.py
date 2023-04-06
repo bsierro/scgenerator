@@ -22,14 +22,21 @@ class PlasmaInfo(NamedTuple):
 def ion_rate_adk(
     field_abs: np.ndarray, ion_energy: float, Z: float
 ) -> Callable[[np.ndarray], np.ndarray]:
-
+    """
+    CHANG, W., NAZARKIN, A., TRAVERS, J. C., et al. Influence of ionization on ultrafast gas-based
+    nonlinear fiber optics. Optics express, 2011, vol. 19, no 21, p. 21018-21027.
+    """
     nstar = Z * np.sqrt(2.1787e-18 / ion_energy)
     omega_p = ion_energy / hbar
-    Cnstar = 2 ** (2 * nstar) / (scipy.special.gamma(nstar + 1) ** 2)
-    omega_pC = omega_p * Cnstar
+    Cnstar2 = 2 ** (2 * nstar) * scipy.special.gamma(nstar + 1) ** -2
+    omega_pC = omega_p * Cnstar2
     omega_t = e * field_abs / np.sqrt(2 * me * ion_energy)
     opt4 = 4 * omega_p / omega_t
     return omega_pC * opt4 ** (2 * nstar - 1) * np.exp(-opt4 / 3)
+
+
+def ion_rate_ppt(field_abs: np.ndarray, ion_energy: float, Z: float) -> np.ndarray:
+    ...
 
 
 def cache_ion_rate(
@@ -42,7 +49,7 @@ def cache_ion_rate(
     interp = interp1d(
         field,
         rate_func(field, ion_energy, Z),
-        "cubic",
+        "linear",
         assume_sorted=True,
         fill_value=0,
         bounds_error=False,

@@ -7,6 +7,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any, Callable, Protocol
 
 import numpy as np
@@ -17,7 +18,7 @@ from scgenerator.logger import get_logger
 from scgenerator.physics import fiber, materials, plasma, pulse, units
 
 
-class CurrentState:
+class SimulationState:
     length: float
     z: float
     current_step_size: float
@@ -29,26 +30,13 @@ class CurrentState:
     field: np.ndarray
     field2: np.ndarray
 
-    __slots__ = [
-        "length",
-        "z",
-        "current_step_size",
-        "conversion_factor",
-        "converter",
-        "spectrum",
-        "spectrum2",
-        "field",
-        "field2",
-        "stats",
-    ]
-
     def __init__(
         self,
-        length: float,
-        z: float,
-        current_step_size: float,
         spectrum: np.ndarray,
-        conversion_factor: np.ndarray | float,
+        length: float = 10.0,
+        current_step_size: float = 1.0,
+        z: float = 0.0,
+        conversion_factor: np.ndarray | float = 1.0,
         converter: Callable[[np.ndarray], np.ndarray] = np.fft.ifft,
         spectrum2: np.ndarray | None = None,
         field: np.ndarray | None = None,
@@ -68,6 +56,7 @@ class CurrentState:
                 "You must provide either all three of (spectrum2, field, field2) or none of them"
             )
         else:
+            self.spectrum = spectrum
             self.spectrum2 = spectrum2
             self.field = field
             self.field2 = field2
@@ -81,18 +70,39 @@ class CurrentState:
     def actual_spectrum(self) -> np.ndarray:
         return self.conversion_factor * self.spectrum
 
-    def set_spectrum(self, new_spectrum: np.ndarray):
-        self.spectrum = new_spectrum
-        self.spectrum2 = math.abs2(self.spectrum)
-        self.field = self.converter(self.spectrum)
-        self.field2 = math.abs2(self.field)
+    @cached_property
+    def spectrum2(self) -> np.ndarray:
+        return math.abs2(self.spectrum)
 
-    def copy(self) -> CurrentState:
-        return CurrentState(
-            self.length,
-            self.z,
-            self.current_step_size,
+    @cached_property
+    def field(self) -> np.ndarray:
+        return self.converter(self.spectrum)
+
+    @cached_property
+    def field2(self) -> np.ndarray:
+        return math.abs2(self.field)
+
+    def set_spectrum(self, new_spectrum: np.ndarray)->SimulationState:
+        """sets the new spectrum and clears cached properties"""
+        self.spectrum = new_spectrum
+        for el in ["spectrum2", "field", "field2"]:
+            if el in self.__dict__:
+                delattr(self, el)
+        return self
+
+    def clear(self):
+        """clears cached properties and stats dict"""
+        self.stats = {}
+        for el in ["spectrum2", "field", "field2"]:
+            if el in self.__dict__:
+                delattr(self, el)
+
+    def copy(self) -> SimulationState:
+        return SimulationState(
             self.spectrum.copy(),
+            self.length,
+            self.current_step_size,
+            self.z,
             self.conversion_factor,
             self.converter,
             self.spectrum2.copy(),
@@ -102,14 +112,14 @@ class CurrentState:
         )
 
 
-Operator = Callable[[CurrentState], np.ndarray]
-Qualifier = Callable[[CurrentState], float]
+Operator = Callable[[SimulationState], np.ndarray]
+Qualifier = Callable[[SimulationState], float]
 
 
 def no_op_time(t_num) -> Operator:
     arr_const = np.zeros(t_num)
 
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return arr_const
 
     return operate
@@ -118,14 +128,14 @@ def no_op_time(t_num) -> Operator:
 def no_op_freq(w_num) -> Operator:
     arr_const = np.zeros(w_num)
 
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return arr_const
 
     return operate
 
 
-def const_op(array: np.ndarray) -> Operator:
-    def operate(state: CurrentState) -> np.ndarray:
+def constant_array_operator(array: np.ndarray) -> Operator:
+    def operate(state: SimulationState) -> np.ndarray:
         return array
 
     return operate
@@ -137,7 +147,7 @@ def const_op(array: np.ndarray) -> Operator:
 
 
 class GasOp(Protocol):
-    def pressure(self, state: CurrentState) -> float:
+    def pressure(self, state: SimulationState) -> float:
         """returns the pressure at the current
 
         Parameters
@@ -150,7 +160,7 @@ class GasOp(Protocol):
             pressure un bar
         """
 
-    def number_density(self, state: CurrentState) -> float:
+    def number_density(self, state: SimulationState) -> float:
         """returns the number density in 1/m^3 of at the current state
 
         Parameters
@@ -163,7 +173,7 @@ class GasOp(Protocol):
             number density in 1/m^3
         """
 
-    def square_index(self, state: CurrentState) -> np.ndarray:
+    def square_index(self, state: SimulationState) -> np.ndarray:
         """returns the square of the material refractive index at the current state
 
         Parameters
@@ -196,13 +206,13 @@ class ConstantGas:
         self.number_density_const = self.gas.number_density(temperature, pressure, ideal_gas)
         self.n_gas_2_const = self.gas.sellmeier.n_gas_2(wl_for_disp, temperature, pressure)
 
-    def pressure(self, state: CurrentState = None) -> float:
+    def pressure(self, state: SimulationState = None) -> float:
         return self.pressure_const
 
-    def number_density(self, state: CurrentState = None) -> float:
+    def number_density(self, state: SimulationState = None) -> float:
         return self.number_density_const
 
-    def square_index(self, state: CurrentState = None) -> float:
+    def square_index(self, state: SimulationState = None) -> float:
         return self.n_gas_2_const
 
 
@@ -228,13 +238,13 @@ class PressureGradientGas:
         self.ideal_gas = ideal_gas
         self.wl_for_disp = wl_for_disp
 
-    def pressure(self, state: CurrentState) -> float:
+    def pressure(self, state: SimulationState) -> float:
         return materials.pressure_from_gradient(state.z_ratio, self.p_in, self.p_out)
 
-    def number_density(self, state: CurrentState) -> float:
+    def number_density(self, state: SimulationState) -> float:
         return self.gas.number_density(self.temperature, self.pressure(state), self.ideal_gas)
 
-    def square_index(self, state: CurrentState) -> np.ndarray:
+    def square_index(self, state: SimulationState) -> np.ndarray:
         return self.gas.sellmeier.n_gas_2(self.wl_for_disp, self.temperature, self.pressure(state))
 
 
@@ -244,7 +254,7 @@ class PressureGradientGas:
 
 
 def constant_refractive_index(n_eff: np.ndarray) -> Operator:
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return n_eff
 
     return operate
@@ -253,7 +263,7 @@ def constant_refractive_index(n_eff: np.ndarray) -> Operator:
 def marcatili_refractive_index(
     gas_op: GasOp, core_radius: float, wl_for_disp: np.ndarray
 ) -> Operator:
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return fiber.n_eff_marcatili(wl_for_disp, gas_op.square_index(state), core_radius)
 
     return operate
@@ -262,13 +272,13 @@ def marcatili_refractive_index(
 def marcatili_adjusted_refractive_index(
     gas_op: GasOp, core_radius: float, wl_for_disp: np.ndarray
 ) -> Operator:
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return fiber.n_eff_marcatili_adjusted(wl_for_disp, gas_op.square_index(state), core_radius)
 
     return operate
 
 
-def vincetti_refracrive_index(
+def vincetti_refractive_index(
     gas_op: GasOp,
     core_radius: float,
     wl_for_disp: np.ndarray,
@@ -279,7 +289,7 @@ def vincetti_refracrive_index(
     n_tubes: int,
     n_terms: int,
 ) -> Operator:
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return fiber.n_eff_vincetti(
             wl_for_disp,
             wavelength,
@@ -312,13 +322,13 @@ def constant_polynomial_dispersion(
     )
     disp_arr = fiber.fast_poly_dispersion_op(w_c, beta2_coefficients, w_power_fact)
 
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return disp_arr
 
     return operate
 
 
-def constant_direct_diersion(
+def constant_direct_dispersion(
     w_for_disp: np.ndarray,
     w0: np.ndarray,
     t_num: int,
@@ -337,7 +347,7 @@ def constant_direct_diersion(
         disp_arr[w_order], left_ind, right_ind, 1
     )
 
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return disp_arr
 
     return operate
@@ -353,7 +363,7 @@ def direct_dispersion(
     disp_arr = np.zeros(t_num, dtype=complex)
     w0_ind = math.argclosest(w_for_disp, w0)
 
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         disp_arr[dispersion_ind] = fiber.fast_direct_dispersion(
             w_for_disp, w0, n_eff_op(state), w0_ind
         )[2:-2]
@@ -381,7 +391,7 @@ def constant_wave_vector(
         beta_arr[w_order], left_ind, right_ind, 1.0
     )
 
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return beta_arr
 
     return operate
@@ -395,7 +405,7 @@ def constant_wave_vector(
 def envelope_raman(raman_type: str, raman_fraction: float, t: np.ndarray) -> Operator:
     hr_w = fiber.delayed_raman_w(t, raman_type)
 
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return raman_fraction * np.fft.ifft(hr_w * np.fft.fft(state.field2))
 
     return operate
@@ -408,7 +418,7 @@ def full_field_raman(
     factor_in = units.epsilon0 * chi3 * raman_fraction
     factor_out = 1j * w**2 / (2.0 * units.c**2 * units.epsilon0)
 
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return factor_out * np.fft.rfft(
             factor_in * state.field * np.fft.irfft(hr_w * np.fft.rfft(state.field2))
         )
@@ -424,7 +434,7 @@ def full_field_raman(
 def envelope_spm(raman_fraction: float) -> Operator:
     fraction = 1 - raman_fraction
 
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return fraction * state.field2
 
     return operate
@@ -435,7 +445,7 @@ def full_field_spm(raman_fraction: float, w: np.ndarray, chi3: float) -> Operato
     factor_out = 1j * w**2 / (2.0 * units.c**2 * units.epsilon0)
     factor_in = fraction * chi3 * units.epsilon0
 
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return factor_out * np.fft.rfft(factor_in * state.field2 * state.field)
 
     return operate
@@ -449,7 +459,7 @@ def full_field_spm(raman_fraction: float, w: np.ndarray, chi3: float) -> Operato
 def variable_gamma(gas_op: GasOp, w0: float, A_eff: float, t_num: int) -> Operator:
     arr = np.ones(t_num)
 
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         n2 = gas_op.square_index(state)
         return arr * fiber.gamma_parameter(n2, w0, A_eff)
 
@@ -461,13 +471,14 @@ def variable_gamma(gas_op: GasOp, w0: float, A_eff: float, t_num: int) -> Operat
 ##################################################
 
 
-def ionization(w: np.ndarray, gas_op: GasOp, plasma_op: plasma.Plasma) -> Operator:
+def ionization(w: np.ndarray, gas_op: GasOp, plasma_obj: plasma.Plasma) -> Operator:
     factor_out = -w / (2.0 * units.c**2 * units.epsilon0)
 
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         N0 = gas_op.number_density(state)
-        plasma_info = plasma_op(state.field, N0)
+        plasma_info = plasma_obj(state.field, N0)
         state.stats["ionization_fraction"] = plasma_info.electron_density[-1] / N0
+        state.stats["electron_density"] = plasma_info.electron_density[-1]
         return factor_out * np.fft.rfft(plasma_info.polarization)
 
     return operate
@@ -482,7 +493,7 @@ def photon_number_with_loss(w: np.ndarray, gamma_op: Operator, loss_op: Operator
     w = w
     dw = w[1] - w[0]
 
-    def qualify(state: CurrentState) -> float:
+    def qualify(state: SimulationState) -> float:
         return pulse.photon_number_with_loss(
             state.spectrum2,
             w,
@@ -498,7 +509,7 @@ def photon_number_with_loss(w: np.ndarray, gamma_op: Operator, loss_op: Operator
 def photon_number_without_loss(w: np.ndarray, gamma_op: Operator) -> Qualifier:
     dw = w[1] - w[0]
 
-    def qualify(state: CurrentState) -> float:
+    def qualify(state: SimulationState) -> float:
         return pulse.photon_number(state.spectrum2, w, dw, gamma_op(state))
 
     return qualify
@@ -507,7 +518,7 @@ def photon_number_without_loss(w: np.ndarray, gamma_op: Operator) -> Qualifier:
 def energy_with_loss(w: np.ndarray, loss_op: Operator) -> Qualifier:
     dw = w[1] - w[0]
 
-    def qualify(state: CurrentState) -> float:
+    def qualify(state: SimulationState) -> float:
         return pulse.pulse_energy_with_loss(
             math.abs2(state.conversion_factor * state.spectrum),
             dw,
@@ -521,7 +532,7 @@ def energy_with_loss(w: np.ndarray, loss_op: Operator) -> Qualifier:
 def energy_without_loss(w: np.ndarray) -> Qualifier:
     dw = w[1] - w[0]
 
-    def qualify(state: CurrentState) -> float:
+    def qualify(state: SimulationState) -> float:
         return pulse.pulse_energy(math.abs2(state.conversion_factor * state.spectrum), dw)
 
     return qualify
@@ -558,23 +569,22 @@ def conserved_quantity(
 
 
 def envelope_linear_operator(dispersion_op: Operator, loss_op: Operator) -> Operator:
-    def operate(state: CurrentState) -> np.ndarray:
+    def operate(state: SimulationState) -> np.ndarray:
         return dispersion_op(state) - loss_op(state) / 2
 
     return operate
 
 
 def full_field_linear_operator(
-    self,
     beta_op: Operator,
     loss_op: Operator,
     frame_velocity: float,
     w: np.ndarray,
-) -> Operatore:
+) -> operator:
     delay = w / frame_velocity
 
-    def operate(state: CurrentState) -> np.ndarray:
-        return 1j * (wave_vector(state) - delay) - loss_op(state) / 2
+    def operate(state: SimulationState) -> np.ndarray:
+        return 1j * (beta_op(state) - delay) - loss_op(state) / 2
 
     return operate
 
@@ -584,59 +594,29 @@ def full_field_linear_operator(
 ##################################################
 
 
-class NonLinearOperator(Operator):
-    @abstractmethod
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        """returns the nonlinear operator applied on the spectrum in the frequency domain
-
-        Parameters
-        ----------
-        state : CurrentState
-
-        Returns
-        -------
-        np.ndarray
-            nonlinear component
-        """
-
-
-class EnvelopeNonLinearOperator(NonLinearOperator):
-    def __init__(
-        self,
-        gamma_op: AbstractGamma,
-        ss_op: AbstractSelfSteepening,
-        spm_op: AbstractSPM,
-        raman_op: AbstractRaman,
-    ):
-        self.gamma_op = gamma_op
-        self.ss_op = ss_op
-        self.spm_op = spm_op
-        self.raman_op = raman_op
-
-    def __call__(self, state: CurrentState) -> np.ndarray:
+def envelope_nonlinear_operator(
+    gamma_op: Operator, ss_op: Operator, spm_op: Operator, raman_op: Operator
+) -> Operator:
+    def operate(state: SimulationState) -> np.ndarray:
         return (
             -1j
-            * self.gamma_op(state)
-            * (1 + self.ss_op(state))
-            * np.fft.fft(state.field * (self.spm_op(state) + self.raman_op(state)))
+            * gamma_op(state)
+            * (1 + ss_op(state))
+            * np.fft.fft(state.field * (spm_op(state) + raman_op(state)))
         )
 
+    return operate
 
-class FullFieldNonLinearOperator(NonLinearOperator):
-    def __init__(
-        self,
-        raman_op: AbstractRaman,
-        spm_op: AbstractSPM,
-        plasma_op: Plasma,
-        w: np.ndarray,
-        beta_op: AbstractWaveVector,
-    ):
-        self.raman_op = raman_op
-        self.spm_op = spm_op
-        self.plasma_op = plasma_op
-        self.factor = 1j * w**2 / (2.0 * units.c**2 * units.epsilon0)
-        self.beta_op = beta_op
 
-    def __call__(self, state: CurrentState) -> np.ndarray:
-        total_nonlinear = self.spm_op(state) + self.raman_op(state) + self.plasma_op(state)
-        return total_nonlinear / self.beta_op(state)
+def full_field_nonlinear_operator(
+    w: np.ndarray,
+    raman_op: Operator,
+    spm_op: Operator,
+    plasma_op: Operator,
+    beta_op: Operator,
+) -> Operator:
+    def operate(state: SimulationState) -> np.ndarray:
+        total_nonlinear = spm_op(state) + raman_op(state) + plasma_op(state)
+        return total_nonlinear / beta_op(state)
+
+    return operate

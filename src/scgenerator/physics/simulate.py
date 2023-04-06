@@ -12,7 +12,7 @@ import numpy as np
 
 from scgenerator import solver, utils
 from scgenerator.logger import get_logger
-from scgenerator.operators import CurrentState
+from scgenerator.operators import SimulationState
 from scgenerator.parameter import FileConfiguration, Parameters
 from scgenerator.pbar import PBars, ProgressBarActor, progress_worker
 
@@ -52,7 +52,7 @@ class RK4IP:
     size_fac: float
     cons_qty: list[float]
 
-    init_state: CurrentState
+    init_state: SimulationState
     stored_spectra: list[np.ndarray]
 
     def __init__(
@@ -97,7 +97,7 @@ class RK4IP:
             initial_h = (self.z_targets[1] - self.z_targets[0]) / 2
         else:
             initial_h = self.error_ok
-        self.init_state = CurrentState(
+        self.init_state = SimulationState(
             length=self.params.length,
             z=self.z_targets.pop(0),
             current_step_size=initial_h,
@@ -135,7 +135,7 @@ class RK4IP:
         utils.save_data(data, self.data_dir, name)
 
     def run(
-        self, progress_callback: Callable[[int, CurrentState], None] | None = None
+        self, progress_callback: Callable[[int, SimulationState], None] | None = None
     ) -> list[np.ndarray]:
         time_start = datetime.today()
         state = self.init_state
@@ -158,7 +158,7 @@ class RK4IP:
 
         return self.stored_spectra
 
-    def irun(self) -> Iterator[tuple[int, CurrentState]]:
+    def irun(self) -> Iterator[tuple[int, SimulationState]]:
         """run the simulation as a generator obj
 
         Yields
@@ -221,10 +221,10 @@ class RK4IP:
                     store = True
                     integrator.state.current_step_size = self.z_targets[0] - state.z
 
-    def step_saved(self, state: CurrentState):
+    def step_saved(self, state: SimulationState):
         pass
 
-    def __iter__(self) -> Iterator[tuple[int, CurrentState]]:
+    def __iter__(self) -> Iterator[tuple[int, SimulationState]]:
         yield from self.irun()
 
     def __len__(self) -> int:
@@ -244,7 +244,7 @@ class SequentialRK4IP(RK4IP):
             save_data=save_data,
         )
 
-    def step_saved(self, state: CurrentState):
+    def step_saved(self, state: SimulationState):
         self.pbars.update(1, state.z / self.params.length - self.pbars[1].n)
 
 
@@ -263,7 +263,7 @@ class MutliProcRK4IP(RK4IP):
             save_data=save_data,
         )
 
-    def step_saved(self, state: CurrentState):
+    def step_saved(self, state: SimulationState):
         self.p_queue.put((self.worker_id, state.z / self.params.length))
 
 
@@ -290,7 +290,7 @@ class RayRK4IP(RK4IP):
         self.set(params, p_actor, worker_id, save_data)
         self.run()
 
-    def step_saved(self, state: CurrentState):
+    def step_saved(self, state: SimulationState):
         self.p_actor.update.remote(self.worker_id, state.z / self.params.length)
         self.p_actor.update.remote(0)
 

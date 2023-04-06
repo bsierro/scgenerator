@@ -8,7 +8,7 @@ import numpy as np
 from scgenerator import math, operators, utils
 from scgenerator.const import MANDATORY_PARAMETERS
 from scgenerator.errors import EvaluatorError, NoDefaultError
-from scgenerator.physics import fiber, materials, pulse, units
+from scgenerator.physics import fiber, materials, pulse, units, plasma
 from scgenerator.utils import _mock_function, func_rewrite, get_arg_names, get_logger
 
 
@@ -401,15 +401,19 @@ default_rules: list[Rule] = [
     Rule("gamma", lambda gamma_arr: gamma_arr[0], priorities=-1),
     Rule("gamma", fiber.gamma_parameter),
     Rule("gamma_arr", fiber.gamma_parameter, ["n2", "w0", "A_eff_arr"]),
+    # Raman
+    Rule("raman_fraction", fiber.raman_fraction),
+    # loss
+    Rule("alpha_arr", fiber.scalar_loss),
+    Rule("alpha_arr", fiber.safe_capillary_loss, conditions=dict(loss="capillary")),
     # operators
-    Rule("n_op", operators.ConstantRefractiveIndex),
-    Rule("n_op", operators.MarcatiliRefractiveIndex),
-    Rule("n_op", operators.MarcatiliAdjustedRefractiveIndex),
-    Rule("n_op", operators.HasanRefractiveIndex),
+    Rule("n_eff_op", operators.marcatili_refractive_index),
+    Rule("n_eff_op", operators.marcatili_adjusted_refractive_index),
+    Rule("n_eff_op", operators.vincetti_refractive_index),
     Rule("gas_op", operators.ConstantGas),
     Rule("gas_op", operators.PressureGradientGas),
-    Rule("loss_op", operators.NoLoss, priorities=-1),
-    Rule("conserved_quantity", operators.NoConservedQuantity, priorities=-1),
+    Rule("loss_op", operators.constant_array_operator, ["alpha_arr"]),
+    Rule("loss_op", operators.no_op_freq, priorities=-1),
 ]
 
 envelope_rules = default_rules + [
@@ -430,29 +434,23 @@ envelope_rules = default_rules + [
         priorities=[2, 2, 2],
     ),
     # Operators
-    Rule("gamma_op", operators.ConstantGamma, priorities=1),
-    Rule("gamma_op", operators.ConstantScalarGamma),
-    Rule("gamma_op", operators.NoGamma, priorities=-1),
-    Rule("gamma_op", operators.VariableScalarGamma, priorities=2),
-    Rule("ss_op", operators.SelfSteepening),
-    Rule("ss_op", operators.NoSelfSteepening, priorities=-1),
-    Rule("spm_op", operators.NoEnvelopeSPM, priorities=-1),
-    Rule("spm_op", operators.EnvelopeSPM),
-    Rule("raman_op", operators.EnvelopeRaman),
-    Rule("raman_op", operators.NoEnvelopeRaman, priorities=-1),
-    Rule("nonlinear_operator", operators.EnvelopeNonLinearOperator),
-    Rule("loss_op", operators.CustomLoss, priorities=3),
+    Rule("gamma_op", operators.variable_gamma, priorities=2),
+    Rule("gamma_op", operators.constant_array_operator, ["gamma_arr"], priorities=1),
     Rule(
-        "loss_op",
-        operators.CapillaryLoss,
-        priorities=2,
-        conditions=dict(loss="capillary"),
+        "gamma_op", lambda w_num, gamma: operators.constant_array_operator(np.ones(w_num) * gamma)
     ),
-    Rule("loss_op", operators.ConstantLoss, priorities=1),
-    Rule("dispersion_op", operators.ConstantPolyDispersion),
-    Rule("dispersion_op", operators.ConstantDirectDispersion),
-    Rule("dispersion_op", operators.DirectDispersion),
-    Rule("linear_operator", operators.EnvelopeLinearOperator),
+    Rule("gamma_op", operators.no_op_freq, priorities=-1),
+    Rule("ss_op", lambda w_c, w0: operators.constant_array_operator(w_c / w0)),
+    Rule("ss_op", operators.no_op_freq, priorities=-1),
+    Rule("spm_op", operators.envelope_spm),
+    Rule("spm_op", operators.no_op_freq, priorities=-1),
+    Rule("raman_op", operators.envelope_raman),
+    Rule("raman_op", operators.no_op_freq, priorities=-1),
+    Rule("nonlinear_operator", operators.envelope_nonlinear_operator),
+    Rule("dispersion_op", operators.constant_polynomial_dispersion),
+    Rule("dispersion_op", operators.constant_direct_dispersion),
+    Rule("dispersion_op", operators.direct_dispersion),
+    Rule("linear_operator", operators.envelope_linear_operator),
     Rule("conserved_quantity", operators.conserved_quantity),
 ]
 
@@ -468,16 +466,14 @@ full_field_rules = default_rules + [
     Rule("beta2", lambda beta2_arr, w0_ind: beta2_arr[w0_ind]),
     # Nonlinearity
     Rule("chi3", materials.gas_chi3),
+    Rule("plasma_obj", lambda dt, gas_info: plasma.Plasma(dt, gas_info.ionization_energy)),
     # Operators
-    Rule("spm_op", operators.FullFieldSPM),
-    Rule("spm_op", operators.NoFullFieldSPM, priorities=-1),
-    Rule("beta_op", operators.ConstantWaveVector),
-    Rule(
-        "linear_operator",
-        operators.FullFieldLinearOperator,
-    ),
-    Rule("plasma_op", operators.Plasma, conditions=dict(photoionization=True)),
-    Rule("plasma_op", operators.NoPlasma, priorities=-1),
-    Rule("raman_op", operators.NoFullFieldRaman, priorities=-1),
-    Rule("nonlinear_operator", operators.FullFieldNonLinearOperator),
+    Rule("spm_op", operators.full_field_spm),
+    Rule("spm_op", operators.no_op_freq, priorities=-1),
+    Rule("beta_op", operators.constant_wave_vector),
+    Rule("linear_operator", operators.full_field_linear_operator),
+    Rule("plasma_op", operators.ionization, conditions=dict(photoionization=True)),
+    Rule("plasma_op", operators.no_op_freq, priorities=-1),
+    Rule("raman_op", operators.no_op_freq, priorities=-1),
+    Rule("nonlinear_operator", operators.full_field_nonlinear_operator),
 ]

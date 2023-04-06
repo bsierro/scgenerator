@@ -18,7 +18,7 @@ from scgenerator.const import MANDATORY_PARAMETERS, PARAM_FN, VALID_VARIABLE, __
 from scgenerator.errors import EvaluatorError
 from scgenerator.evaluator import Evaluator
 from scgenerator.logger import get_logger
-from scgenerator.operators import AbstractConservedQuantity, LinearOperator, NonLinearOperator
+from scgenerator.operators import Qualifier
 from scgenerator.solver import Integrator
 from scgenerator.utils import DebugDict, fiber_folder, update_path_name
 from scgenerator.variationer import VariationDescriptor, Variationer
@@ -374,6 +374,7 @@ class Parameters:
         default="erk43",
     )
     raman_type: str = Parameter(literal("measured", "agrawal", "stolen"), converter=str.lower)
+    raman_fraction: float = Parameter(non_negative(float, int), default=0.0)
     spm: bool = Parameter(boolean, default=True)
     repeat: int = Parameter(positive(int), default=1)
     t_num: int = Parameter(positive(int), default=8192)
@@ -392,12 +393,10 @@ class Parameters:
     worker_num: int = Parameter(positive(int))
 
     # computed
-    linear_operator: LinearOperator = Parameter(type_checker(LinearOperator))
-    nonlinear_operator: NonLinearOperator = Parameter(type_checker(NonLinearOperator))
+    linear_operator: Operator = Parameter(is_function)
+    nonlinear_operator: Operator = Parameter(is_function)
     integrator: Integrator = Parameter(type_checker(Integrator))
-    conserved_quantity: AbstractConservedQuantity = Parameter(
-        type_checker(AbstractConservedQuantity)
-    )
+    conserved_quantity: Qualifier = Parameter(is_function)
     fft: Callable[[np.ndarray], np.ndarray] = Parameter(is_function)
     ifft: Callable[[np.ndarray], np.ndarray] = Parameter(is_function)
     field_0: np.ndarray = Parameter(type_checker(np.ndarray))

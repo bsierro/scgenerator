@@ -745,6 +745,13 @@ def dispersion_from_coefficients(
     return beta_arr
 
 
+def raman_fraction(raman_type: str) -> float:
+    if raman_type == "agrawal":
+        return 0.245
+    else:
+        return 0.18
+
+
 def delayed_raman_t(t: np.ndarray, raman_type: str) -> np.ndarray:
     """
     computes the unnormalized temporal Raman response function applied to the array t
@@ -913,13 +920,13 @@ def capillary_loss(wl: np.ndarray, he_mode: tuple[int, int], core_radius: float)
     return nu_n * (u_nm(*he_mode) * wl / pipi) ** 2 * core_radius**-3
 
 
-def safe_constant_loss(
+def safe_capillary_loss(
     wl_for_disp: np.ndarray,
     dispersion_ind: np.ndarray,
     w_num: int,
     core_radius: float,
     he_mode: tuple[int, int],
-)->np.ndarray:
+) -> np.ndarray:
     alpha = capillary_loss(wl_for_disp, he_mode, core_radius)
     loss_arr = np.zeros(w_num)
     loss_arr[dispersion_ind] = alpha[2:-2]
