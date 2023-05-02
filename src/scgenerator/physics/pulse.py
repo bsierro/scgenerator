@@ -1107,7 +1107,7 @@ def measure_properties(spectra, t, compress=True, return_limits=False, debug="")
 
     # Compute mean coherence
     mean_g12 = avg_g12(spectra)
-    fwhm_abs = math.length(fwhm_lim)
+    fwhm_abs = math.span(fwhm_lim)
 
     # To compute amplitude and fwhm fluctuations, we need to measure every single peak
     P0 = []
@@ -1119,7 +1119,7 @@ def measure_properties(spectra, t, compress=True, return_limits=False, debug="")
         lobe_lim, fwhm_lim, _, big_spline = find_lobe_limits(t, f, debug)
         all_lims.append((lobe_lim, fwhm_lim))
         P0.append(big_spline(lobe_lim[2]))
-        fwhm.append(math.length(fwhm_lim))
+        fwhm.append(math.span(fwhm_lim))
         t_offset.append(lobe_lim[2])
         energies.append(np.trapz(fields, t))
     fwhm_var = np.std(fwhm) / np.mean(fwhm)
@@ -1165,7 +1165,7 @@ def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float
     else:
         intensity = field
     _, fwhm_lim, _, _ = find_lobe_limits(t, intensity)
-    fwhm = math.length(fwhm_lim)
+    fwhm = math.span(fwhm_lim)
     peak_power = intensity.max()
     energy = np.trapz(intensity, t)
     return fwhm, peak_power, energy

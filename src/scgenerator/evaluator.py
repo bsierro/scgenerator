@@ -8,7 +8,7 @@ import numpy as np
 from scgenerator import math, operators, utils
 from scgenerator.const import MANDATORY_PARAMETERS
 from scgenerator.errors import EvaluatorError, NoDefaultError
-from scgenerator.physics import fiber, materials, pulse, units, plasma
+from scgenerator.physics import fiber, materials, plasma, pulse, units
 from scgenerator.utils import _mock_function, func_rewrite, get_arg_names, get_logger
 
 
@@ -412,8 +412,12 @@ default_rules: list[Rule] = [
     Rule("n_eff_op", operators.vincetti_refractive_index),
     Rule("gas_op", operators.ConstantGas),
     Rule("gas_op", operators.PressureGradientGas),
-    Rule("loss_op", operators.constant_array_operator, ["alpha_arr"]),
-    Rule("loss_op", operators.no_op_freq, priorities=-1),
+    Rule("square_index", lambda gas_op: gas_op.square_index),
+    Rule("number_density", lambda gas_op: gas_op.number_density),
+    Rule("n2_op", lambda gas_op: gas_op.n2),
+    Rule("chi3_op", lambda gas_op: gas_op.chi3),
+    Rule("loss_op", operators.constant_quantity, ["alpha_arr"]),
+    Rule("loss_op", lambda: operators.constant_quantity(0), priorities=-1),
 ]
 
 envelope_rules = default_rules + [
@@ -435,12 +439,10 @@ envelope_rules = default_rules + [
     ),
     # Operators
     Rule("gamma_op", operators.variable_gamma, priorities=2),
-    Rule("gamma_op", operators.constant_array_operator, ["gamma_arr"], priorities=1),
-    Rule(
-        "gamma_op", lambda w_num, gamma: operators.constant_array_operator(np.ones(w_num) * gamma)
-    ),
+    Rule("gamma_op", operators.constant_quantity, ["gamma_arr"], priorities=1),
+    Rule("gamma_op", lambda w_num, gamma: operators.constant_quantity(np.ones(w_num) * gamma)),
     Rule("gamma_op", operators.no_op_freq, priorities=-1),
-    Rule("ss_op", lambda w_c, w0: operators.constant_array_operator(w_c / w0)),
+    Rule("ss_op", lambda w_c, w0: operators.constant_quantity(w_c / w0)),
     Rule("ss_op", operators.no_op_freq, priorities=-1),
     Rule("spm_op", operators.envelope_spm),
     Rule("spm_op", operators.no_op_freq, priorities=-1),

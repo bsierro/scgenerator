@@ -26,7 +26,7 @@ def span(*vec: np.ndarray) -> tuple[float, float]:
         raise ValueError(f"did not provide any value to span")
     for x in vec:
         x = np.atleast_1d(x)
-        out = (np.min([np.min(x), out[0]]), np.max([np.max(x), out[1]]))
+        out = (min(np.min(x), out[0]), max(np.max(x), out[1]))
     return out
 
 
@@ -193,7 +193,7 @@ def tspace(time_window=None, t_num=None, dt=None):
 
 def build_envelope_w_grid(t: np.ndarray, w0: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    convenience function to 
+    convenience function to
 
     Parameters
     ----------
@@ -289,8 +289,8 @@ def polynom_extrapolation(x: np.ndarray, y: np.ndarray, degree: int) -> np.ndarr
         y array with zero values on either side replaces with polynomial extrapolation
 
     Example
-        
-        
+
+
 
     """
     out = y.copy()
@@ -348,7 +348,7 @@ def envelope_ind(
     signal: np.ndarray, dmin: int = 1, dmax: int = 1, split: bool = False
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Attempts to separate the envolope from a periodic signal and return the indices of the 
+    Attempts to separate the envolope from a periodic signal and return the indices of the
     top/bottom envelope of a signal
 
     Parameters

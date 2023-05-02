@@ -18,8 +18,7 @@ from scgenerator.const import MANDATORY_PARAMETERS, PARAM_FN, VALID_VARIABLE, __
 from scgenerator.errors import EvaluatorError
 from scgenerator.evaluator import Evaluator
 from scgenerator.logger import get_logger
-from scgenerator.operators import Qualifier
-from scgenerator.solver import Integrator
+from scgenerator.operators import Qualifier, SpecOperator
 from scgenerator.utils import DebugDict, fiber_folder, update_path_name
 from scgenerator.variationer import VariationDescriptor, Variationer
 
@@ -393,9 +392,8 @@ class Parameters:
     worker_num: int = Parameter(positive(int))
 
     # computed
-    linear_operator: Operator = Parameter(is_function)
-    nonlinear_operator: Operator = Parameter(is_function)
-    integrator: Integrator = Parameter(type_checker(Integrator))
+    linear_operator: SpecOperator = Parameter(is_function)
+    nonlinear_operator: SpecOperator = Parameter(is_function)
     conserved_quantity: Qualifier = Parameter(is_function)
     fft: Callable[[np.ndarray], np.ndarray] = Parameter(is_function)
     ifft: Callable[[np.ndarray], np.ndarray] = Parameter(is_function)

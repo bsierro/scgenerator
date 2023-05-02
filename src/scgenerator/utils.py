@@ -5,6 +5,7 @@ scgenerator module but some function may be used in any python program
 """
 from __future__ import annotations
 
+import datetime
 import inspect
 import itertools
 import os
@@ -20,7 +21,6 @@ import numpy as np
 import pkg_resources as pkg
 import tomli
 import tomli_w
-
 from scgenerator.const import PARAM_FN, PARAM_SEPARATOR, ROOT_PARAMETERS, SPEC1_FN, Z_FN
 from scgenerator.errors import DuplicateParameterError
 from scgenerator.logger import get_logger
@@ -31,6 +31,19 @@ T_ = TypeVar("T_")
 class DebugDict(dict):
     def __setitem__(self, k, v) -> None:
         return super().__setitem__(k, v)
+
+
+class TimedMessage:
+    def __init__(self, interval: float = 10.0):
+        self.interval = datetime.timedelta(seconds=interval)
+        self.next = datetime.datetime.now()
+
+    def ready(self) -> bool:
+        t = datetime.datetime.now()
+        if self.next <= t:
+            self.next = t + self.interval
+            return True
+        return False
 
 
 class Paths:
@@ -148,7 +161,7 @@ def conform_toml_path(path: os.PathLike) -> Path:
 
 def open_single_config(path: os.PathLike) -> dict[str, Any]:
     d = _open_config(path)
-    f = d.pop("Fiber")[0]
+    f = d.pop("Fiber", [{}])[0]
     return d | f
 
 

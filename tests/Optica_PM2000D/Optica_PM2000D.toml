@@ -1,0 +1,18 @@
+name = "PM2000D"
+mean_power = 0.23
+field_file = "Pos30000New.npz"
+repetition_rate = 40e-6
+wavelength = 1546e-9
+dt = 1e-15
+t_num = 8192
+tolerated_error = 1e-6
+quantum_noise = true
+# raman_type = "agrawal"
+z_num = 128
+length = 0.3
+dispersion_file = "PM2000D_2 extrapolated 4 0.npz"
+interpolation_degree = 12
+A_eff_file = "PM2000D_A_eff_marcuse.npz"
+n2 = 4.5e-20
+
+
