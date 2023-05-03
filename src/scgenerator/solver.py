@@ -24,7 +24,7 @@ class SimulationResult:
         else:
             self.z = np.arange(len(spectra), dtype=float)
         self.size = len(self.z)
-        self.spectra = spectra
+        self.spectra = np.array(spectra)
         self.stats = stats
 
     def stat(self, stat_name: str) -> np.ndarray:
@@ -127,14 +127,20 @@ def solve43(
         const_step_size = False
     k5 = nonlinear(spec, 0)
     z = 0
-    stats = {"z": z}
-
-    yield spec, stats
+    stats = {}
 
     step_ind = 1
     msg = TimedMessage(2)
     running = True
     last_error = 0
+    error = 0
+    rejected = []
+
+    def stats():
+        return dict(z=z, rejected=rejected.copy(), error=error, h=h)
+
+    yield spec, stats() | dict(h=0)
+
     while running:
         expD = np.exp(h * 0.5 * linear(z))
 
@@ -153,7 +159,9 @@ def solve43(
         coarse = r + h / 30 * (2 * k4 + 3 * new_k5)
 
         error = weaknorm(fine, coarse, rtol, atol)
-        if 0 < error <= 1:
+        if error == 0:  # solution is exact if no nonlinerity is included
+            next_h_factor = 1.5
+        elif 0 < error <= 1:
             next_h_factor = safety * pi_step_factor(error, last_error, 4, 0.8)
         else:
             next_h_factor = max(0.1, safety * error ** (-0.25))
@@ -162,15 +170,19 @@ def solve43(
             k5 = new_k5
             spec = fine
             z += h
-            stats["z"] = z
+
             step_ind += 1
             last_error = error
-            yield fine, stats
+
+            yield fine, stats()
+
+            rejected.clear()
             if z > z_max:
                 return
             if const_step_size:
                 continue
         else:
+            rejected.append((h, error))
             print(f"{z = :.3f} rejected step {step_ind} with {h = :.2g}, {error = :.2g}")
 
         h = h * next_h_factor
@@ -196,7 +208,6 @@ def integrate(
         for i, (spec, new_stat) in enumerate(
             solve43(spec0, linear, nonlinear, length, atol, rtol, safety)
         ):
-            print(new_stat)
             if msg.ready():
                 print(f"step {i}, z = {new_stat['z']*100:.2f}cm")
             all_spectra.append(spec)

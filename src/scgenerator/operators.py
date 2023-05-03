@@ -266,8 +266,7 @@ def constant_wave_vector(
 ##################################################
 
 
-def envelope_raman(raman_type: str, raman_fraction: float, t: np.ndarray) -> FieldOperator:
-    hr_w = fiber.delayed_raman_w(t, raman_type)
+def envelope_raman(hr_w:np.ndarra, raman_fraction: float) -> FieldOperator:
 
     def operate(field: np.ndarray, z: float) -> np.ndarray:
         return raman_fraction * np.fft.ifft(hr_w * np.fft.fft(math.abs2(field)))

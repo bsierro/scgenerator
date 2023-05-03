@@ -342,7 +342,6 @@ default_rules: list[Rule] = [
     Rule("c_to_a_factor", lambda: 1, priorities=-1),
     # Fiber Dispersion
     Rule("w_for_disp", units.m, ["wl_for_disp"]),
-    Rule("hr_w", fiber.delayed_raman_w),
     Rule("gas_info", materials.Gas),
     Rule("chi_gas", lambda gas_info, wl_for_disp: gas_info.sellmeier.chi(wl_for_disp)),
     Rule("n_gas_2", materials.n_gas_2),
@@ -402,7 +401,9 @@ default_rules: list[Rule] = [
     Rule("gamma", fiber.gamma_parameter),
     Rule("gamma_arr", fiber.gamma_parameter, ["n2", "w0", "A_eff_arr"]),
     # Raman
+    Rule(["hr_w", "raman_fraction"], fiber.delayed_raman_w),
     Rule("raman_fraction", fiber.raman_fraction),
+    Rule("raman-fraction", lambda:0, priorities=-1),
     # loss
     Rule("alpha_arr", fiber.scalar_loss),
     Rule("alpha_arr", fiber.safe_capillary_loss, conditions=dict(loss="capillary")),
@@ -443,7 +444,7 @@ envelope_rules = default_rules + [
     Rule("gamma_op", lambda w_num, gamma: operators.constant_quantity(np.ones(w_num) * gamma)),
     Rule("gamma_op", operators.no_op_freq, priorities=-1),
     Rule("ss_op", lambda w_c, w0: operators.constant_quantity(w_c / w0)),
-    Rule("ss_op", operators.no_op_freq, priorities=-1),
+    Rule("ss_op", lambda: operators.constant_quantity(0), priorities=-1),
     Rule("spm_op", operators.envelope_spm),
     Rule("spm_op", operators.no_op_freq, priorities=-1),
     Rule("raman_op", operators.envelope_raman),

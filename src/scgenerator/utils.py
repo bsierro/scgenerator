@@ -18,19 +18,18 @@ from string import printable as str_printable
 from typing import Any, Callable, MutableMapping, Sequence, TypeVar, Union
 
 import numpy as np
+from numpy.ma.extras import isin
 import pkg_resources as pkg
 import tomli
 import tomli_w
-from scgenerator.const import PARAM_FN, PARAM_SEPARATOR, ROOT_PARAMETERS, SPEC1_FN, Z_FN
+
+from scgenerator.const import (PARAM_FN, PARAM_SEPARATOR, ROOT_PARAMETERS,
+                               SPEC1_FN, Z_FN)
 from scgenerator.errors import DuplicateParameterError
 from scgenerator.logger import get_logger
 
 T_ = TypeVar("T_")
 
-
-class DebugDict(dict):
-    def __setitem__(self, k, v) -> None:
-        return super().__setitem__(k, v)
 
 
 class TimedMessage:
@@ -175,7 +174,23 @@ def _open_config(path: os.PathLike):
 
     if "Fiber" not in dico:
         dico = dict(name=path.name, Fiber=[dico])
+
+    resolve_relative_paths(dico, path.parent)
+
     return dico
+
+def resolve_relative_paths(d:dict[str, Any], root:os.PathLike | None=None):
+    root = Path(root) if root is not None else Path.cwd()
+    for k, v in d.items():
+        if isinstance(v, MutableMapping):
+            resolve_relative_paths(v, root)
+        elif not isinstance(v, str) and isinstance(v, Sequence):
+            for el in v:
+                if isinstance(el, MutableMapping):
+                    resolve_relative_paths(el, root)
+        elif "file" in k:
+            d[k] = str(root / v)
+
 
 
 def resolve_loadfile_arg(dico: dict[str, Any]) -> dict[str, Any]:

@@ -1,3 +1,7 @@
+"""
+collection of purely mathematical function
+"""
+
 import math
 from dataclasses import dataclass
 from functools import cache
@@ -7,8 +11,6 @@ import numba
 import numpy as np
 from scipy.interpolate import interp1d, lagrange
 from scipy.special import jn_zeros
-
-from scgenerator.cache import np_cache
 
 pi = np.pi
 c = 299792458.0
@@ -316,6 +318,22 @@ def _polynom_extrapolation_in_place(y: np.ndarray, left_ind: int, right_ind: int
     y[:left_ind] = r_left * (y[left_ind] - y[left_ind + 1]) + y[left_ind]
     y[right_ind:] = r_right * (y[right_ind] - y[right_ind - 1]) + y[right_ind]
     return y
+
+
+def interp_2d(
+    old_x: np.ndarray,
+    old_y: np.ndarray,
+    z: np.ndarray,
+    new_x: np.ndarray | tuple,
+    new_y: np.ndarray | tuple,
+    kind="linear",
+) -> np.ndarray:
+    if isinstance(new_x, tuple):
+        new_x = np.linspace(*new_x)
+    if isinstance(new_y, tuple):
+        new_y = np.linspace(*new_y)
+    z = interp1d(old_y, z, axis=0, kind=kind, bounds_error=False, fill_value=0)(new_y)
+    return interp1d(old_x, z, kind=kind, bounds_error=False, fill_value=0)(new_x)
 
 
 @numba.jit(nopython=True)

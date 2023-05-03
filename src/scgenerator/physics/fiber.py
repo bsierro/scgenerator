@@ -798,10 +798,12 @@ def delayed_raman_t(t: np.ndarray, raman_type: str) -> np.ndarray:
     return hr_arr
 
 
-def delayed_raman_w(t: np.ndarray, raman_type: str) -> np.ndarray:
+def delayed_raman_w(t: np.ndarray, raman_type: str) -> tuple[np.ndarray, float]:
     """returns the delayed raman response function as function of w
-    see delayed_raman_t for detailes"""
-    return fft(delayed_raman_t(t, raman_type)) * (t[1] - t[0])
+    see delayed_raman_t for detailes as well as the raman fraction"""
+    hr_w = fft(delayed_raman_t(t, raman_type)) * (t[1] - t[0])
+    return hr_w, raman_fraction(raman_type)
+
 
 
 def fast_poly_dispersion_op(w_c, beta_arr, power_fact_arr, where=slice(None)):

@@ -19,7 +19,7 @@ from scgenerator.errors import EvaluatorError
 from scgenerator.evaluator import Evaluator
 from scgenerator.logger import get_logger
 from scgenerator.operators import Qualifier, SpecOperator
-from scgenerator.utils import DebugDict, fiber_folder, update_path_name
+from scgenerator.utils import fiber_folder, update_path_name
 from scgenerator.variationer import VariationDescriptor, Variationer
 
 T = TypeVar("T")
@@ -287,7 +287,7 @@ class Parameters:
     """
 
     # internal machinery
-    _param_dico: dict[str, Any] = field(init=False, default_factory=DebugDict, repr=False)
+    _param_dico: dict[str, Any] = field(init=False, default_factory=dict, repr=False)
     _evaluator: Evaluator = field(init=False, repr=False)
     _p_names: ClassVar[Set[str]] = set()
 
@@ -373,7 +373,7 @@ class Parameters:
         default="erk43",
     )
     raman_type: str = Parameter(literal("measured", "agrawal", "stolen"), converter=str.lower)
-    raman_fraction: float = Parameter(non_negative(float, int), default=0.0)
+    raman_fraction: float = Parameter(non_negative(float, int))
     spm: bool = Parameter(boolean, default=True)
     repeat: int = Parameter(positive(int), default=1)
     t_num: int = Parameter(positive(int), default=8192)
@@ -440,7 +440,7 @@ class Parameters:
         return self.dump_dict(add_metadata=False)
 
     def __setstate__(self, dumped_dict: dict[str, Any]):
-        self._param_dico = DebugDict()
+        self._param_dico = dict()
         for k, v in dumped_dict.items():
             setattr(self, k, v)
         self.__post_init__()
