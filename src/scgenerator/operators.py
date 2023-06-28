@@ -335,6 +335,8 @@ def ionization(
     def operate(field: np.ndarray, z: float) -> np.ndarray:
         N0 = number_density(z)
         plasma_info = plasma_obj(field, N0)
+
+
         # state.stats["ionization_fraction"] = plasma_info.electron_density[-1] / N0
         # state.stats["electron_density"] = plasma_info.electron_density[-1]
         return plasma_info.polarization

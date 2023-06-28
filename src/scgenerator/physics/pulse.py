@@ -189,9 +189,6 @@ def modify_field_ratio(
     elif peak_power is not None:
         ratio *= np.sqrt(peak_power / math.abs2(pre_field_0).max())
 
-    if intensity_noise is not None:
-        d_int, _ = technical_noise(intensity_noise, noise_correlation)
-        ratio *= np.sqrt(d_int)
     return ratio
 
 
@@ -217,6 +214,10 @@ def convert_field_units(envelope: np.ndarray, n: np.ndarray, A_eff: float) -> np
 
 def c_to_a_factor(A_eff_arr: np.ndarray) -> np.ndarray:
     return (A_eff_arr / A_eff_arr[0]) ** (1 / 4)
+
+
+def a_to_c_factor(A_eff_arr: np.ndarray) -> np.ndarray:
+    return (A_eff_arr / A_eff_arr[0]) ** (-1 / 4)
 
 
 def spectrum_factor_envelope(dt: float) -> float:
@@ -497,10 +498,16 @@ def finalize_pulse(
     dt: float,
     additional_noise_factor: float,
     input_transmission: float,
+    intensity_noise: float | None,
 ) -> np.ndarray:
     if quantum_noise:
         pre_field_0 = pre_field_0 + shot_noise(w, time_window, dt, additional_noise_factor)
-    return np.sqrt(input_transmission) * pre_field_0
+
+    ratio = 1
+    if intensity_noise is not None:
+        d_int, _ = technical_noise(intensity_noise, 0)
+        ratio *= np.sqrt(d_int)
+    return np.sqrt(input_transmission) * pre_field_0 * ratio
 
 
 def mean_phase(spectra):
@@ -1094,7 +1101,7 @@ def measure_properties(spectra, t, compress=True, return_limits=False, debug="")
     field = np.mean(fields, axis=0)
     ideal_field = math.abs2(fftshift(ifft(np.sqrt(np.mean(math.abs2(spectra), axis=0)))))
 
-    # Isolate whole central lobe of bof mean and ideal field
+    # Isolate whole central lobe of both mean and ideal field
     lobe_lim, fwhm_lim, _, big_spline = find_lobe_limits(t, field, debug)
     lobe_lim_i, _, _, big_spline_i = find_lobe_limits(t, ideal_field, debug)
 
@@ -1107,7 +1114,7 @@ def measure_properties(spectra, t, compress=True, return_limits=False, debug="")
 
     # Compute mean coherence
     mean_g12 = avg_g12(spectra)
-    fwhm_abs = math.span(fwhm_lim)
+    fwhm_abs = np.max(fwhm_lim) - np.min(fwhm_lim)
 
     # To compute amplitude and fwhm fluctuations, we need to measure every single peak
     P0 = []
@@ -1119,7 +1126,7 @@ def measure_properties(spectra, t, compress=True, return_limits=False, debug="")
         lobe_lim, fwhm_lim, _, big_spline = find_lobe_limits(t, f, debug)
         all_lims.append((lobe_lim, fwhm_lim))
         P0.append(big_spline(lobe_lim[2]))
-        fwhm.append(math.span(fwhm_lim))
+        fwhm.append(np.max(fwhm_lim) - np.min(fwhm_lim))
         t_offset.append(lobe_lim[2])
         energies.append(np.trapz(fields, t))
     fwhm_var = np.std(fwhm) / np.mean(fwhm)
@@ -1165,7 +1172,7 @@ def measure_field(t: np.ndarray, field: np.ndarray) -> Tuple[float, float, float
     else:
         intensity = field
     _, fwhm_lim, _, _ = find_lobe_limits(t, intensity)
-    fwhm = math.span(fwhm_lim)
+    fwhm = math.total_extent(fwhm_lim)
     peak_power = intensity.max()
     energy = np.trapz(intensity, t)
     return fwhm, peak_power, energy

@@ -1,0 +1,15 @@
+name = "Travers"
+repetition_rate = 1e3
+wavelength = 800e-9
+tolerated_error = 1e-6
+z_num = 128
+t_num = 4096
+dt = 50e-18
+core_radius = 125e-6
+gas_name = "helium"
+pressure = 400e2
+energy = 0.4e-3
+width = 10e-15
+length = 3
+full_field = true
+shape = "sech"

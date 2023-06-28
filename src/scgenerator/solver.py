@@ -6,7 +6,6 @@ from typing import Any, Iterator, Sequence
 
 import numba
 import numpy as np
-
 from scgenerator.math import abs2
 from scgenerator.operators import SpecOperator
 from scgenerator.utils import TimedMessage
@@ -89,6 +88,7 @@ def solve43(
     rtol: float,
     safety: float,
     h_const: float | None = None,
+    targets: Sequence[float] | None = None,
 ) -> Iterator[tuple[np.ndarray, dict[str, Any]]]:
     """
     Solve the GNLSE using an embedded Runge-Kutta of order 4(3) in the interaction picture.
@@ -128,13 +128,18 @@ def solve43(
     k5 = nonlinear(spec, 0)
     z = 0
     stats = {}
+    rejected = []
+    if targets is not None:
+        targets = list(sorted(set(targets)))
+        if targets[0] == 0:
+            targets.pop(0)
 
-    step_ind = 1
+    step_ind = 0
     msg = TimedMessage(2)
     running = True
     last_error = 0
     error = 0
-    rejected = []
+    store_next = False
 
     def stats():
         return dict(z=z, rejected=rejected.copy(), error=error, h=h)
@@ -174,10 +179,13 @@ def solve43(
             step_ind += 1
             last_error = error
 
-            yield fine, stats()
+            if targets is None or store_next:
+                if targets is not None:
+                    targets.pop(0)
+                yield fine, stats()
 
             rejected.clear()
-            if z > z_max:
+            if z >= z_max:
                 return
             if const_step_size:
                 continue
@@ -186,6 +194,13 @@ def solve43(
             print(f"{z = :.3f} rejected step {step_ind} with {h = :.2g}, {error = :.2g}")
 
         h = h * next_h_factor
+
+        if targets is not None and z + h > targets[0]:
+            h = targets[0] - z
+            store_next = True
+        else:
+            store_next = False
+
         if msg.ready():
             print(f"step {step_ind}, {z = :.3f}, {error = :g}, {h = :.3g}")
 
@@ -198,6 +213,7 @@ def integrate(
     atol: float = 1e-6,
     rtol: float = 1e-6,
     safety: float = 0.9,
+    targets: Sequence[float] | None = None,
 ) -> SimulationResult:
     spec0 = initial_spectrum.copy()
     all_spectra = []
@@ -206,7 +222,7 @@ def integrate(
     with warnings.catch_warnings():
         warnings.filterwarnings("error")
         for i, (spec, new_stat) in enumerate(
-            solve43(spec0, linear, nonlinear, length, atol, rtol, safety)
+            solve43(spec0, linear, nonlinear, length, atol, rtol, safety, targets=targets)
         ):
             if msg.ready():
                 print(f"step {i}, z = {new_stat['z']*100:.2f}cm")

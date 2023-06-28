@@ -1,9 +1,8 @@
 """
-May 2023
-
-Testing the new solver / operators structure
-using parameters from the 2022 Optica paper
+Testing the the solver / operator mechanism with
+parameters from the 2019 Travers paper
 """
+
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import interp1d
@@ -16,7 +15,7 @@ import scgenerator.solver as sol
 
 
 def main():
-    params = sc.Parameters(**sc.open_single_config("./tests/Optica_PM2000D/Optica_PM2000D.toml"))
+    params = sc.Parameters(**sc.open_single_config("./tests/Travers/Travers.toml"))
     # print(params.nonlinear_operator)
     # print(params.compute("dispersion_op"))
     # print(params.linear_operator)
@@ -39,7 +38,7 @@ def main():
     x = params.l
     # x = units.THz.inv(w)
     # new_x = np.linspace(100, 2200, 1024)
-    new_x = np.linspace(800e-9, 2000e-9, 1024)
+    new_x = np.linspace(100e-9, 1200e-9, 1024)
     solution = interp1d(res.z, specs2, axis=0)(new_z)
     solution = interp1d(x, solution)(new_x)
     solution = units.to_log2D(solution)

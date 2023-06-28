@@ -403,7 +403,7 @@ default_rules: list[Rule] = [
     # Raman
     Rule(["hr_w", "raman_fraction"], fiber.delayed_raman_w),
     Rule("raman_fraction", fiber.raman_fraction),
-    Rule("raman-fraction", lambda:0, priorities=-1),
+    Rule("raman_fraction", lambda:0, priorities=-1),
     # loss
     Rule("alpha_arr", fiber.scalar_loss),
     Rule("alpha_arr", fiber.safe_capillary_loss, conditions=dict(loss="capillary")),

@@ -34,7 +34,7 @@ def lambda_for_envelope_dispersion(
     if l[su].min() > 1.01 * interpolation_range[0]:
         raise ValueError(
             f"lower range of {1e9*interpolation_range[0]:.1f}nm is not reached by the grid. "
-            "try a finer grid"
+            f"Minimum of grid is {1e9*l[su].min():.1f}nm. Try a finer grid"
         )
 
     ind_above_cond = su >= len(l) // 2

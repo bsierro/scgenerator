@@ -5,7 +5,7 @@ collection of purely mathematical function
 import math
 from dataclasses import dataclass
 from functools import cache
-from typing import Sequence, Union
+from typing import Sequence
 
 import numba
 import numpy as np
@@ -25,11 +25,17 @@ def span(*vec: np.ndarray) -> tuple[float, float]:
     """returns the min and max of whatever array-like is given. can accept many args"""
     out = (np.inf, -np.inf)
     if len(vec) == 0 or len(vec[0]) == 0:
-        raise ValueError(f"did not provide any value to span")
+        raise ValueError("did not provide any value to span")
     for x in vec:
         x = np.atleast_1d(x)
         out = (min(np.min(x), out[0]), max(np.max(x), out[1]))
     return out
+
+
+def total_extent(*vec: np.ndarray) -> float:
+    """measure the distance between the min and max value of all given arrays"""
+    left, right = span(*vec)
+    return right - left
 
 
 def argclosest(array: np.ndarray, target: float | int | Sequence[float | int]) -> int | np.ndarray:
