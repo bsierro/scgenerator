@@ -13,7 +13,6 @@ from scgenerator.math import all_zeros
 from scgenerator.parameter import Parameters
 from scgenerator.physics.fiber import beta2, n_eff_hasan, n_eff_marcatili
 from scgenerator.physics.materials import n_gas_2
-from scgenerator.physics.simulate import RK4IP
 from scgenerator.physics.units import c, nm
 
 try:

@@ -10,6 +10,7 @@ from typing import Callable, TypeVar, Union
 import numpy as np
 from numpy import pi
 
+
 c = 299792458.0
 hbar = 1.05457148e-34
 NA = 6.02214076e23
