@@ -122,14 +122,6 @@ def D_to_beta2(D, wl_for_disp):
     return -(wl_for_disp**2) / (pipi * c) * D
 
 
-def A_to_C(A: np.ndarray, A_eff_arr: np.ndarray) -> np.ndarray:
-    return (A_eff_arr / A_eff_arr[0]) ** (-1 / 4) * A
-
-
-def C_to_A(C: np.ndarray, A_eff_arr: np.ndarray) -> np.ndarray:
-    return (A_eff_arr / A_eff_arr[0]) ** (1 / 4) * C
-
-
 def plasma_dispersion(wl_for_disp, number_density, simple=False):
     """computes dispersion (beta2) for constant plasma
 

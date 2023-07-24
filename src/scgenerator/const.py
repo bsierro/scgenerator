@@ -26,58 +26,6 @@ Z_FN = "z.npy"
 PARAM_FN = "params.toml"
 PARAM_SEPARATOR = " "
 
-VALID_VARIABLE = {
-    "dispersion_file",
-    "prev_data_dir",
-    "field_file",
-    "loss_file",
-    "A_eff_file",
-    "beta2_coefficients",
-    "gamma",
-    "pitch",
-    "pitch_ratio",
-    "effective_mode_diameter",
-    "core_radius",
-    "model",
-    "capillary_num",
-    "capillary_radius",
-    "capillary_thickness",
-    "capillary_spacing",
-    "capillary_resonance_strengths",
-    "capillary_resonance_max_order",
-    "capillary_nested",
-    "he_mode",
-    "fit_parameters",
-    "input_transmission",
-    "n2",
-    "pressure",
-    "temperature",
-    "gas_name",
-    "plasma_density",
-    "peak_power",
-    "mean_power",
-    "peak_power",
-    "energy",
-    "quantum_noise",
-    "shape",
-    "wavelength",
-    "intensity_noise",
-    "width",
-    "t0",
-    "soliton_num",
-    "raman_type",
-    "tolerated_error",
-    "photoionization",
-    "step_size",
-    "interpolation_degree",
-    "ideal_gas",
-    "length",
-    "integration_scheme",
-    "num",
-}
-
-INVALID_VARIABLE = {"repeat"}
-
 
 MANDATORY_PARAMETERS = [
     "name",

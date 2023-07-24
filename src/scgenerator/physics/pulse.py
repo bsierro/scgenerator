@@ -510,6 +510,14 @@ def finalize_pulse(
     return np.sqrt(input_transmission) * pre_field_0 * ratio
 
 
+def A_to_C(A: np.ndarray, A_eff_arr: np.ndarray) -> np.ndarray:
+    return (A_eff_arr / A_eff_arr[0]) ** (-1 / 4) * A
+
+
+def C_to_A(C: np.ndarray, A_eff_arr: np.ndarray) -> np.ndarray:
+    return (A_eff_arr / A_eff_arr[0]) ** (1 / 4) * C
+
+
 def mean_phase(spectra):
     """computes the mean phase of spectra
     Parameter
