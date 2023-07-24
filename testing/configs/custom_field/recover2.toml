@@ -1,7 +1,0 @@
-dt = 1e-15
-input_transmission = 0.9
-length = 1
-prev_data_dir = "testing/configs/custom_field/recover_data"
-t_num = 2048
-wavelength = 1000e-9
-z_num = 32

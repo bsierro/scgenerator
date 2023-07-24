@@ -1,8 +1,0 @@
-dt = 1e-15
-field_file = "testing/configs/custom_field/init_field.npz"
-length = 1
-mean_power = 220e-3
-repetition_rate = 40e6
-t_num = 2048
-wavelength = 1000e-9
-z_num = 32

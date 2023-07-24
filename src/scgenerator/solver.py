@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import json
+import os
 import warnings
+import zipfile
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Iterator, Sequence
 
 import numba
 import numpy as np
 
 from scgenerator.math import abs2
-from scgenerator.operators import SpecOperator
+from scgenerator.operators import SpecOperator, VariableQuantity
 from scgenerator.utils import TimedMessage
 
 
@@ -18,8 +22,15 @@ class SimulationResult:
     stats: dict[str, list[Any]]
     z: np.ndarray
 
-    def __init__(self, spectra: Sequence[np.ndarray], stats: dict[str, list[Any]]):
-        if "z" in stats:
+    def __init__(
+        self,
+        spectra: Sequence[np.ndarray],
+        stats: dict[str, list[Any]],
+        z: np.ndarray | None = None,
+    ):
+        if z is not None:
+            self.z = z
+        elif "z" in stats:
             self.z = np.array(stats["z"])
         else:
             self.z = np.arange(len(spectra), dtype=float)
@@ -29,6 +40,29 @@ class SimulationResult:
 
     def stat(self, stat_name: str) -> np.ndarray:
         return np.array(self.stats[stat_name])
+
+    def save(self, path: os.PathLike):
+        path = Path(path)
+        if not path.name.endswith(".zip"):
+            path = path.parent / (path.name + ".zip")
+        with zipfile.ZipFile(path, "w") as zf:
+            with zf.open("spectra.npy", "w") as file:
+                np.save(file, self.spectra)
+            with zf.open("z.npy", "w") as file:
+                np.save(file, self.z)
+            with zf.open("stats.json", "w") as file:
+                file.write(json.dumps(self.stats).encode())
+
+    @classmethod
+    def load(cls, path: os.PathLike):
+        with zipfile.ZipFile(path, "r") as zf:
+            with zf.open("spectra.npy", "r") as file:
+                spectra = np.load(file)
+            with zf.open("z.npy", "r") as file:
+                z = np.load(file)
+            with zf.open("stats.json", "r") as file:
+                stats = json.loads(file.read().decode())
+        return cls(spectra, stats, z)
 
 
 @numba.jit(nopython=True)
@@ -82,7 +116,7 @@ def pi_step_factor(error: float, last_error: float, order: int, eps: float = 0.8
 
 def solve43(
     spec: np.ndarray,
-    linear: SpecOperator,
+    linear: VariableQuantity,
     nonlinear: SpecOperator,
     z_max: float,
     atol: float,
