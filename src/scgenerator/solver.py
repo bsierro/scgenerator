@@ -6,6 +6,7 @@ from typing import Any, Iterator, Sequence
 
 import numba
 import numpy as np
+
 from scgenerator.math import abs2
 from scgenerator.operators import SpecOperator
 from scgenerator.utils import TimedMessage
@@ -133,6 +134,7 @@ def solve43(
         targets = list(sorted(set(targets)))
         if targets[0] == 0:
             targets.pop(0)
+        h = min(h, targets[0] / 2)
 
     step_ind = 0
     msg = TimedMessage(2)

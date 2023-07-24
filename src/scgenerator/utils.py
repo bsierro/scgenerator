@@ -23,13 +23,11 @@ import pkg_resources as pkg
 import tomli
 import tomli_w
 
-from scgenerator.const import (PARAM_FN, PARAM_SEPARATOR, ROOT_PARAMETERS,
-                               SPEC1_FN, Z_FN)
+from scgenerator.const import PARAM_FN, PARAM_SEPARATOR, ROOT_PARAMETERS, SPEC1_FN, Z_FN
 from scgenerator.errors import DuplicateParameterError
 from scgenerator.logger import get_logger
 
 T_ = TypeVar("T_")
-
 
 
 class TimedMessage:
@@ -179,7 +177,8 @@ def _open_config(path: os.PathLike):
 
     return dico
 
-def resolve_relative_paths(d:dict[str, Any], root:os.PathLike | None=None):
+
+def resolve_relative_paths(d: dict[str, Any], root: os.PathLike | None = None):
     root = Path(root) if root is not None else Path.cwd()
     for k, v in d.items():
         if isinstance(v, MutableMapping):
@@ -190,7 +189,6 @@ def resolve_relative_paths(d:dict[str, Any], root:os.PathLike | None=None):
                     resolve_relative_paths(el, root)
         elif "file" in k:
             d[k] = str(root / v)
-
 
 
 def resolve_loadfile_arg(dico: dict[str, Any]) -> dict[str, Any]:

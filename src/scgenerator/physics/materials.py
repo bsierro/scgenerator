@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import cache
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import numpy as np
 
@@ -106,14 +106,16 @@ class Gas:
     chi3_0: float
     ionization_energy: float | None
 
+    _raw_sellmeier: dict[str, Any]
+
     def __init__(self, gas_name: str):
         self.name = gas_name
-        self.mat_dico = utils.load_material_dico(gas_name)
-        self.atomic_mass = self.mat_dico["atomic_mass"]
-        self.atomic_number = self.mat_dico["atomic_number"]
-        self.ionization_energy = self.mat_dico.get("ionization_energy")
+        self._raw_sellmeier = utils.load_material_dico(gas_name)
+        self.atomic_mass = self._raw_sellmeier["atomic_mass"]
+        self.atomic_number = self._raw_sellmeier["atomic_number"]
+        self.ionization_energy = self._raw_sellmeier.get("ionization_energy")
 
-        s = self.mat_dico.get("sellmeier", {})
+        s = self._raw_sellmeier.get("sellmeier", {})
         self.sellmeier = Sellmeier(
             **{
                 newk: s.get(k, None)
@@ -124,7 +126,7 @@ class Gas:
                 if k in s
             }
         )
-        kerr = self.mat_dico["kerr"]
+        kerr = self._raw_sellmeier["kerr"]
         n2_0 = kerr["n2"]
         self._kerr_wl = kerr.get("wavelength", 800e-9)
         self.chi3_0 = (
@@ -212,18 +214,23 @@ class Gas:
 
         Raises
         ----------
-        ValueError : Since the Van der Waals equation is a cubic one, there could be more than one real, positive solution
+        ValueError : Since the Van der Waals equation is a cubic one, there could be more than one
+        real, positive solution
         """
 
         logger = get_logger(__name__)
 
         if pressure == 0:
             return 0
-        a = self.mat_dico.get("a", 0)
-        b = self.mat_dico.get("b", 0)
-        pressure = self.mat_dico["sellmeier"].get("P0", 101325) if pressure is None else pressure
+        a = self._raw_sellmeier.get("a", 0)
+        b = self._raw_sellmeier.get("b", 0)
+        pressure = (
+            self._raw_sellmeier["sellmeier"].get("P0", 101325) if pressure is None else pressure
+        )
         temperature = (
-            self.mat_dico["sellmeier"].get("T0", 273.15) if temperature is None else temperature
+            self._raw_sellmeier["sellmeier"].get("T0", 273.15)
+            if temperature is None
+            else temperature
         )
         ap = a / NA**2
         bp = b / NA
@@ -302,10 +309,10 @@ class Gas:
         return Z**3 / (16 * ns**4) * 5.14220670712125e11
 
     def get(self, key, default=None):
-        return self.mat_dico.get(key, default)
+        return self._raw_sellmeier.get(key, default)
 
     def __getitem__(self, key):
-        return self.mat_dico[key]
+        return self._raw_sellmeier[key]
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.name!r})"
@@ -317,7 +324,7 @@ def n_gas_2(wl_for_disp: np.ndarray, gas_name: str, pressure: float, temperature
     return Sellmeier.load(gas_name).n_gas_2(wl_for_disp, temperature, pressure)
 
 
-def pressure_from_gradient(ratio, p0, p1):
+def pressure_from_gradient(ratio: float, p0: float, p1: float) -> float:
     """returns the pressure as function of distance with eq. 20 in Markos et al. (2017)
     Parameters
     ----------

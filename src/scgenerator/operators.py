@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Callable
 
 import numpy as np
+
 from scgenerator import math
 from scgenerator.logger import get_logger
 from scgenerator.physics import fiber, materials, plasma, pulse, units
@@ -266,8 +267,7 @@ def constant_wave_vector(
 ##################################################
 
 
-def envelope_raman(hr_w:np.ndarra, raman_fraction: float) -> FieldOperator:
-
+def envelope_raman(hr_w: np.ndarra, raman_fraction: float) -> FieldOperator:
     def operate(field: np.ndarray, z: float) -> np.ndarray:
         return raman_fraction * np.fft.ifft(hr_w * np.fft.fft(math.abs2(field)))
 
@@ -335,7 +335,6 @@ def ionization(
     def operate(field: np.ndarray, z: float) -> np.ndarray:
         N0 = number_density(z)
         plasma_info = plasma_obj(field, N0)
-
 
         # state.stats["ionization_fraction"] = plasma_info.electron_density[-1] / N0
         # state.stats["electron_density"] = plasma_info.electron_density[-1]

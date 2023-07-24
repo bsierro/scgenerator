@@ -405,6 +405,7 @@ class SimulatedFiber:
             return load_spectrum(self.path / SPEC1_FN_N.format(z_ind, sim_ind))
         else:
             return load_spectrum(self.path / SPEC1_FN.format(z_ind))
+        psd = np.fft.rfft(signal) / np.sqrt(0.5 * len(time) / dt)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(path={self.path})"

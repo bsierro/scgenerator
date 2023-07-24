@@ -48,7 +48,6 @@ def configure_logger(logger: logging.Logger):
         updated logger
     """
     if not hasattr(logger, "already_configured"):
-
         print_lvl = lvl_map.get(log_print_level(), logging.NOTSET)
         file_lvl = lvl_map.get(log_file_level(), logging.NOTSET)
 

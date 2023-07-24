@@ -312,7 +312,7 @@ default_rules: list[Rule] = [
     Rule("w_num", len, ["w"]),
     Rule("dw", lambda w: w[1] - w[0]),
     Rule(["fft", "ifft"], utils.fft_functions, priorities=1),
-    Rule("interpolation_range", lambda dt: (max(100e-9, 2 * units.c * dt), 8e-6)),
+    Rule("wavelength_window", lambda dt: (max(100e-9, 2 * units.c * dt), 8e-6)),
     # Pulse
     Rule("field_0", pulse.finalize_pulse),
     Rule(["input_time", "input_field"], pulse.load_custom_field),
@@ -393,7 +393,7 @@ default_rules: list[Rule] = [
     Rule(
         "V_eff_arr",
         fiber.V_eff_step_index,
-        ["l", "core_radius", "numerical_aperture", "interpolation_range"],
+        ["l", "core_radius", "numerical_aperture", "wavelength_window"],
     ),
     Rule("n2", materials.gas_n2),
     Rule("n2", lambda: 2.2e-20, priorities=-1),
@@ -403,7 +403,7 @@ default_rules: list[Rule] = [
     # Raman
     Rule(["hr_w", "raman_fraction"], fiber.delayed_raman_w),
     Rule("raman_fraction", fiber.raman_fraction),
-    Rule("raman_fraction", lambda:0, priorities=-1),
+    Rule("raman_fraction", lambda: 0, priorities=-1),
     # loss
     Rule("alpha_arr", fiber.scalar_loss),
     Rule("alpha_arr", fiber.safe_capillary_loss, conditions=dict(loss="capillary")),
@@ -434,7 +434,7 @@ envelope_rules = default_rules + [
     Rule("beta2_arr", fiber.dispersion_from_coefficients),
     Rule("beta2", lambda beta2_coefficients: beta2_coefficients[0]),
     Rule(
-        ["wl_for_disp", "beta2_arr", "interpolation_range"],
+        ["wl_for_disp", "beta2_arr", "wavelength_window"],
         fiber.load_custom_dispersion,
         priorities=[2, 2, 2],
     ),
@@ -442,7 +442,7 @@ envelope_rules = default_rules + [
     Rule("gamma_op", operators.variable_gamma, priorities=2),
     Rule("gamma_op", operators.constant_quantity, ["gamma_arr"], priorities=1),
     Rule("gamma_op", lambda w_num, gamma: operators.constant_quantity(np.ones(w_num) * gamma)),
-    Rule("gamma_op", operators.no_op_freq, priorities=-1),
+    Rule("gamma_op", lambda: operators.constant_quantity(0.0), priorities=-1),
     Rule("ss_op", lambda w_c, w0: operators.constant_quantity(w_c / w0)),
     Rule("ss_op", lambda: operators.constant_quantity(0), priorities=-1),
     Rule("spm_op", operators.envelope_spm),

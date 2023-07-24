@@ -18,7 +18,7 @@ T = TypeVar("T")
 
 
 def lambda_for_envelope_dispersion(
-    l: np.ndarray, interpolation_range: tuple[float, float]
+    l: np.ndarray, wavelength_window: tuple[float, float]
 ) -> tuple[np.ndarray, np.ndarray]:
     """Returns a wl vector for dispersion calculation in envelope mode
 
@@ -30,10 +30,10 @@ def lambda_for_envelope_dispersion(
     np.ndarray
         indices of the original l where the values are valid (i.e. without the two extra on each side)
     """
-    su = np.where((l >= interpolation_range[0]) & (l <= interpolation_range[1]))[0]
-    if l[su].min() > 1.01 * interpolation_range[0]:
+    su = np.where((l >= wavelength_window[0]) & (l <= wavelength_window[1]))[0]
+    if l[su].min() > 1.01 * wavelength_window[0]:
         raise ValueError(
-            f"lower range of {1e9*interpolation_range[0]:.1f}nm is not reached by the grid. "
+            f"lower range of {1e9*wavelength_window[0]:.1f}nm is not reached by the grid. "
             f"Minimum of grid is {1e9*l[su].min():.1f}nm. Try a finer grid"
         )
 
@@ -48,7 +48,7 @@ def lambda_for_envelope_dispersion(
 
 
 def lambda_for_full_field_dispersion(
-    l: np.ndarray, interpolation_range: tuple[float, float]
+    l: np.ndarray, wavelength_window: tuple[float, float]
 ) -> tuple[np.ndarray, np.ndarray]:
     """Returns a wl vector for dispersion calculation in full field mode
 
@@ -60,10 +60,10 @@ def lambda_for_full_field_dispersion(
     np.ndarray
         indices of the original l where the values are valid (i.e. without the two extra on each side)
     """
-    su = np.where((l >= interpolation_range[0]) & (l <= interpolation_range[1]))[0]
-    if l[su].min() > 1.01 * interpolation_range[0]:
+    su = np.where((l >= wavelength_window[0]) & (l <= wavelength_window[1]))[0]
+    if l[su].min() > 1.01 * wavelength_window[0]:
         raise ValueError(
-            f"lower range of {1e9*interpolation_range[0]:.1f}nm is not reached by the grid. "
+            f"lower range of {1e9*wavelength_window[0]:.1f}nm is not reached by the grid. "
             "try a finer grid"
         )
     fu = np.concatenate((su[:2] - 2, su, su[-2:] + 2))
@@ -385,7 +385,7 @@ def V_eff_step_index(
     l: T,
     core_radius: float,
     numerical_aperture: float,
-    interpolation_range: tuple[float, float] = None,
+    wavelength_window: tuple[float, float] = None,
 ) -> T:
     """computes the V parameter of a step-index fiber
 
@@ -397,7 +397,7 @@ def V_eff_step_index(
         radius of the core
     numerical_aperture : float
         as a decimal number
-    interpolation_range : tuple[float, float], optional
+    wavelength_window : tuple[float, float], optional
         when provided, only computes V over this range, wavelengths outside this range will
         yield V=inf, by default None
 
@@ -407,8 +407,8 @@ def V_eff_step_index(
         V parameter
     """
     pi2cn = 2 * pi * core_radius * numerical_aperture
-    if interpolation_range is not None and isinstance(l, np.ndarray):
-        low, high = interpolation_range
+    if wavelength_window is not None and isinstance(l, np.ndarray):
+        low, high = wavelength_window
         l = np.where((l >= low) & (l <= high), l, np.inf)
     return pi2cn / l
 
@@ -803,7 +803,6 @@ def delayed_raman_w(t: np.ndarray, raman_type: str) -> tuple[np.ndarray, float]:
     see delayed_raman_t for detailes as well as the raman fraction"""
     hr_w = fft(delayed_raman_t(t, raman_type)) * (t[1] - t[0])
     return hr_w, raman_fraction(raman_type)
-
 
 
 def fast_poly_dispersion_op(w_c, beta_arr, power_fact_arr, where=slice(None)):

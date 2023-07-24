@@ -1,6 +1,7 @@
 .DS_store
 .idea
 **/*.npy
+.conda-env
 
 pyrightconfig.json
 
@@ -17,15 +18,8 @@ __pycache__
 tmp*
 paths.json
 scgenerator_log*
+scgenerator.log
 .scgenerator_tmp
 sc-*.log
 
 .vscode
-
-
-# latex
-*.aux
-*.fdb_latexmk
-*.fls
-*.log
-*.synctex.gz

@@ -1,32 +1,50 @@
 from __future__ import annotations
 
 import datetime as datetime_module
-import enum
 import os
-import time
 from copy import copy
 from dataclasses import dataclass, field, fields
 from functools import lru_cache, wraps
 from math import isnan
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Iterable, Iterator, Set, Type, TypeVar
+from typing import (Any, Callable, ClassVar, Iterable, Iterator, Set, Type,
+                    TypeVar)
 
 import numpy as np
 
-from scgenerator import env, utils
-from scgenerator.const import MANDATORY_PARAMETERS, PARAM_FN, VALID_VARIABLE, __version__
+from scgenerator import utils
+from scgenerator.const import MANDATORY_PARAMETERS, __version__
 from scgenerator.errors import EvaluatorError
 from scgenerator.evaluator import Evaluator
-from scgenerator.logger import get_logger
 from scgenerator.operators import Qualifier, SpecOperator
-from scgenerator.utils import fiber_folder, update_path_name
-from scgenerator.variationer import VariationDescriptor, Variationer
+from scgenerator.utils import update_path_name
 
 T = TypeVar("T")
+DISPLAY_INFO = {}
+
+
+def format_value(name: str, value) -> str:
+    if value is True or value is False:
+        return str(value)
+    elif isinstance(value, (float, int)):
+        try:
+            return DISPLAY_INFO[name](value)
+        except KeyError:
+            return format(value, ".9g")
+    elif isinstance(value, np.ndarray):
+        return np.array2string(value)
+    elif isinstance(value, (list, tuple)):
+        return "-".join([str(v) for v in value])
+    elif isinstance(value, str):
+        p = Path(value)
+        if p.exists():
+            return p.stem
+    elif callable(value):
+        return getattr(value, "__name__", repr(value))
+    return str(value)
+
 
 # Validator
-
-
 @lru_cache
 def type_checker(*types):
     def _type_checker_wrapper(validator, n=None):
@@ -224,7 +242,7 @@ class Parameter:
             pass
         if self.default is not None:
             Evaluator.register_default_param(self.name, self.default)
-        VariationDescriptor.register_formatter(self.name, self.display)
+        DISPLAY_INFO[self.name] = self.display
 
     def __get__(self, instance: Parameters, owner):
         if instance is None:
@@ -382,7 +400,7 @@ class Parameters:
     dt: float = Parameter(in_range_excl(0, 10e-15))
     tolerated_error: float = Parameter(in_range_excl(1e-15, 1e-3), default=1e-11)
     step_size: float = Parameter(non_negative(float, int), default=0)
-    interpolation_range: tuple[float, float] = Parameter(
+    wavelength_window: tuple[float, float] = Parameter(
         validator_and(float_pair, validator_list(in_range_incl(100e-9, 10000e-9)))
     )
     interpolation_degree: int = Parameter(validator_and(type_checker(int), in_range_incl(2, 18)))
@@ -469,11 +487,7 @@ class Parameters:
         exclude = exclude or []
         if isinstance(exclude, str):
             exclude = [exclude]
-        p_pairs = [
-            (k, VariationDescriptor.format_value(k, getattr(self, k)))
-            for k in params
-            if k not in exclude
-        ]
+        p_pairs = [(k, format_value(k, getattr(self, k))) for k in params if k not in exclude]
         max_left = max(len(el[0]) for el in p_pairs)
         max_right = max(len(el[1]) for el in p_pairs)
         return "\n".join("{:>{l}} = {:{r}}".format(*p, l=max_left, r=max_right) for p in p_pairs)
@@ -542,262 +556,6 @@ class Parameters:
         if self.output_path is not None:
             return self.output_path.parent / update_path_name(self.output_path.name)
         return None
-
-
-class AbstractConfiguration:
-    fiber_paths: list[Path]
-    num_sim: int
-    total_num_steps: int
-    worker_num: int
-    final_path: Path
-
-    def __iter__(self) -> Iterator[tuple[VariationDescriptor, Parameters]]:
-        raise NotImplementedError()
-
-    def save_parameters(self):
-        raise NotImplementedError()
-
-
-class FileConfiguration(AbstractConfiguration):
-    """
-    Primary role is to load the final config file of the simulation and deduce every
-    simulatin that has to happen. Iterating through the Configuration obj yields a list of
-    parameter names and values that change throughout the simulation as well as parameter
-    obj with the output path of the simulation saved in its output_path attribute.
-    """
-
-    fiber_configs: list[utils.SubConfig]
-    master_config_dict: dict[str, Any]
-    num_fibers: int
-    repeat: int
-    z_num: int
-    overwrite: bool
-    all_configs: dict[tuple[tuple[int, ...], ...], "FileConfiguration.__SimConfig"]
-
-    @dataclass(frozen=True)
-    class __SimConfig:
-        descriptor: VariationDescriptor
-        config: dict[str, Any]
-        output_path: Path
-
-        @property
-        def sim_num(self) -> int:
-            return len(self.descriptor.index)
-
-    class State(enum.Enum):
-        COMPLETE = enum.auto()
-        PARTIAL = enum.auto()
-        ABSENT = enum.auto()
-
-    class Action(enum.Enum):
-        RUN = enum.auto()
-        WAIT = enum.auto()
-        SKIP = enum.auto()
-
-    def __init__(
-        self,
-        config_path: os.PathLike,
-        overwrite: bool = True,
-        wait: bool = False,
-        skip_callback: Callable[[int], None] = None,
-        final_output_path: os.PathLike = None,
-    ):
-        self.logger = get_logger(__name__)
-        self.wait = wait
-
-        self.overwrite = overwrite
-        self.final_path, self.fiber_configs = utils.load_config_sequence(config_path)
-        self.final_path = env.get(env.OUTPUT_PATH, self.final_path)
-        if final_output_path is not None:
-            self.final_path = final_output_path
-        self.final_path = utils.ensure_folder(
-            Path(self.final_path),
-            mkdir=False,
-            prevent_overwrite=not self.overwrite,
-        )
-        self.master_config_dict = self.fiber_configs[0].fixed | {
-            k: v[0] for vary_dict in self.fiber_configs[0].variable for k, v in vary_dict.items()
-        }
-        self.name = self.final_path.name
-        self.z_num = 0
-        self.total_num_steps = 0
-        self.fiber_paths = []
-        self.all_configs = {}
-        self.skip_callback = skip_callback
-        self.worker_num = self.master_config_dict.get("worker_num", max(1, os.cpu_count() // 2))
-        self.repeat = self.master_config_dict.get("repeat", 1)
-        self.variationer = Variationer()
-
-        fiber_names = set()
-        self.num_fibers = 0
-        for i, config in enumerate(self.fiber_configs):
-            config.fixed.setdefault("name", Parameters.name.default)
-            self.z_num += config.fixed["z_num"]
-            fiber_names.add(config.fixed["name"])
-            self.variationer.append(config.variable)
-            self.fiber_paths.append(
-                utils.ensure_folder(
-                    self.final_path / fiber_folder(i, self.name, Path(config.fixed["name"]).name),
-                    mkdir=False,
-                    prevent_overwrite=not self.overwrite,
-                )
-            )
-            self.__validate_variable(config.variable)
-            self.num_fibers += 1
-            Evaluator.evaluate_default(
-                self.master_config_dict
-                | config.fixed
-                | {k: v[0] for vary_dict in config.variable for k, v in vary_dict.items()},
-                True,
-            )
-        self.num_sim = self.variationer.var_num()
-        self.total_num_steps = sum(
-            config.fixed["z_num"] * self.variationer.var_num(i)
-            for i, config in enumerate(self.fiber_configs)
-        )
-
-    def __validate_variable(self, vary_dict_list: list[dict[str, list]]):
-        for vary_dict in vary_dict_list:
-            for k, v in vary_dict.items():
-                p: Parameter = getattr(Parameters, k)
-                validator_list(p.validator)("variable " + k, v)
-                if k not in VALID_VARIABLE:
-                    raise TypeError(f"{k!r} is not a valid variable parameter")
-                if len(v) == 0:
-                    raise ValueError(f"variable parameter {k!r} must not be empty")
-
-    def __iter__(self) -> Iterator[tuple[VariationDescriptor, Parameters]]:
-        for i in range(self.num_fibers):
-            yield from self.iterate_single_fiber(i)
-
-    def iterate_single_fiber(self, index: int) -> Iterator[tuple[VariationDescriptor, Parameters]]:
-        """iterates through the parameters of only one fiber. It takes care of recovering partially
-        completed simulations, skipping complete ones and waiting for the previous fiber to finish
-
-        Parameters
-        ----------
-        index : int
-            which fiber to iterate over
-
-        Yields
-        -------
-        __SimConfig
-            configuration obj
-        """
-        if index < 0:
-            index = self.num_fibers + index
-        sim_dict: dict[Path, FileConfiguration.__SimConfig] = {}
-        for descriptor in self.variationer.iterate(index):
-            cfg = descriptor.update_config(self.fiber_configs[index].fixed)
-            if index > 0:
-                cfg["prev_data_dir"] = str(
-                    self.fiber_paths[index - 1] / descriptor[:index].formatted_descriptor(True)
-                )
-            p = utils.ensure_folder(
-                self.fiber_paths[index] / descriptor.formatted_descriptor(True),
-                not self.overwrite,
-                False,
-            )
-            cfg["output_path"] = p
-            sim_config = self.__SimConfig(descriptor, cfg, p)
-            sim_dict[p] = self.all_configs[sim_config.descriptor.index] = sim_config
-        while len(sim_dict) > 0:
-            for data_dir, sim_config in sim_dict.items():
-                task, config_dict = self.__decide(sim_config)
-                if task == self.Action.RUN:
-                    sim_dict.pop(data_dir)
-                    param_dict = sim_config.config
-                    yield sim_config.descriptor, Parameters(**param_dict)
-                    if "recovery_last_stored" in config_dict and self.skip_callback is not None:
-                        self.skip_callback(config_dict["recovery_last_stored"])
-                    break
-                elif task == self.Action.SKIP:
-                    sim_dict.pop(data_dir)
-                    self.logger.debug(f"skipping {data_dir} as it is already complete")
-                    if self.skip_callback is not None:
-                        self.skip_callback(config_dict["z_num"])
-                    break
-            else:
-                self.logger.debug("sleeping while waiting for other simulations to complete")
-                time.sleep(1)
-
-    def __decide(
-        self, sim_config: "FileConfiguration.__SimConfig"
-    ) -> tuple["FileConfiguration.Action", dict[str, Any]]:
-        """decide what to to with a particular simulation
-
-        Parameters
-        ----------
-        sim_config : __SimConfig
-
-        Returns
-        -------
-        str : Configuration.Action
-            what to do
-        config_dict : dict[str, Any]
-            config dictionary. The only key possibly modified is 'prev_data_dir', which
-            gets set if the simulation is partially completed
-        """
-        if not self.wait:
-            return self.Action.RUN, sim_config.config
-        out_status, num = self.sim_status(sim_config.output_path, sim_config.config)
-        if out_status == self.State.COMPLETE:
-            return self.Action.SKIP, sim_config.config
-        elif out_status == self.State.PARTIAL:
-            sim_config.config["recovery_data_dir"] = str(sim_config.output_path)
-            sim_config.config["recovery_last_stored"] = num
-            return self.Action.RUN, sim_config.config
-
-        if "prev_data_dir" in sim_config.config:
-            prev_data_path = Path(sim_config.config["prev_data_dir"])
-            prev_status, _ = self.sim_status(prev_data_path)
-            if prev_status in {self.State.PARTIAL, self.State.ABSENT}:
-                return self.Action.WAIT, sim_config.config
-        return self.Action.RUN, sim_config.config
-
-    def sim_status(
-        self, data_dir: Path, config_dict: dict[str, Any] = None
-    ) -> tuple["FileConfiguration.State", int]:
-        """returns the status of a simulation
-
-        Parameters
-        ----------
-        data_dir : Path
-            directory where simulation data is to be saved
-        config_dict : dict[str, Any], optional
-            configuration of the simulation. If None, will attempt to load
-            the params.toml file if present, by default None
-
-        Returns
-        -------
-        Configuration.State
-            status
-        """
-        num = utils.find_last_spectrum_num(data_dir)
-        if config_dict is None:
-            try:
-                config_dict = utils.load_toml(data_dir / PARAM_FN)
-            except FileNotFoundError:
-                self.logger.warning(f"did not find {PARAM_FN!r} in {data_dir}")
-                return self.State.ABSENT, 0
-        if num == config_dict["z_num"] - 1:
-            return self.State.COMPLETE, num
-        elif config_dict["z_num"] - 1 > num > 0:
-            return self.State.PARTIAL, num
-        elif num == 0:
-            return self.State.ABSENT, 0
-        else:
-            raise ValueError(f"Too many spectra in {data_dir}")
-
-    def save_parameters(self):
-        os.makedirs(self.final_path, exist_ok=True)
-        cfgs = [cfg.fixed | dict(variable=cfg.variable) for cfg in self.fiber_configs]
-        utils.save_toml(self.final_path / "initial_config.toml", dict(name=self.name, Fiber=cfgs))
-
-    @property
-    def first(self) -> Parameters:
-        for _, param in self:
-            return param
 
 
 if __name__ == "__main__":
